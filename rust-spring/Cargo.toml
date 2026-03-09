@@ -1,0 +1,23 @@
+[package]
+name = "rust-spring"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rust_hyper"
+crate-type = ["cdylib"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+jni = "0.21.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bytes = "1.11.0"
+windows-sys = { version = "0.61.2", features = [
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_Foundation",
+] }

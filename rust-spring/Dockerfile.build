@@ -1,0 +1,23 @@
+
+# FROM rust:1.82-slim AS builder
+FROM rust:1.82-bookworm AS builder
+
+WORKDIR /app
+
+# Sadece Cargo.toml kopyala (Cargo.lock yok)
+COPY Cargo.toml ./
+
+# Dummy src oluştur (cache için)
+RUN mkdir src
+RUN echo "fn main() {}" > src/main.rs
+
+# Bağımlılıkları indir (cache)
+RUN cargo build --release || true
+
+# Gerçek kodları kopyala
+COPY src ./src
+
+# Build
+RUN cargo build --release
+
+# Çıktı: /app/target/release/librustjson.so

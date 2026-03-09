@@ -1,0 +1,36 @@
+# Build outputs
+target/
+*.class
+*.jar
+*.war
+
+# Rust
+*.rlib
+*.pdb
+*.exp
+*.lib
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+nb-configuration.xml
+nbproject/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Temp
+*.tmp
+*.temp
+*.bak
