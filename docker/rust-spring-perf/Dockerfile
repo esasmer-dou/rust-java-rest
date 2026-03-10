@@ -1,10 +1,10 @@
-# Rust-Spring Performance (Hyper + JNI) - OpenJ9 Ultra-Minimal
+# Rust-Spring Performance (Hyper + JNI) - Minimal Memory
 #
 # Build from project root:
-#   docker build -t rust-spring-perf -f docker/rust-spring-perf/Dockerfile .
+#   docker build -t rust-spring-perf:minimal -f docker/rust-spring-perf/Dockerfile .
 #
 # Run:
-#   docker run -p 8080:8080 --memory=50m rust-spring-perf
+#   docker run -p 8080:8080 --memory=40m rust-spring-perf:minimal
 
 # ============================================
 # STAGE 1: Build Rust Library
@@ -23,7 +23,7 @@ RUN cargo build --release
 # ============================================
 # STAGE 2: Build Java (with full JDK)
 # ============================================
-FROM ibm-semeru-runtimes:open-21-jdk-jammy AS java-builder
+FROM eclipse-temurin:21-jdk-jammy AS java-builder
 
 WORKDIR /build
 
@@ -47,9 +47,9 @@ RUN mkdir -p target/lib && \
     mvn dependency:copy-dependencies -DoutputDirectory=target/lib -B -q
 
 # ============================================
-# STAGE 3: Runtime (minimal JRE)
+# STAGE 3: Runtime (minimal Ubuntu JRE)
 # ============================================
-FROM ibm-semeru-runtimes:open-21-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 
@@ -58,32 +58,37 @@ RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
 # Install curl for healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
 # Copy JAR and dependencies
 COPY --from=java-builder /build/target/rust-spring-1.0.0.jar ./app.jar
 COPY --from=java-builder /build/target/lib ./lib/
 
-# Copy native Rust library - rename to expected filename
+# Copy native Rust library
 COPY --from=rust-builder /rust-build/target/release/librust_hyper.so ./native/rust_hyper.so
 
-# OpenJ9 Ultra-Minimal JVM Options
+# Ultra-Minimal JVM Options (HotSpot Serial GC - lowest memory)
 ENV JAVA_OPTS="\
--Xms8m \
--Xmx32m \
--Xquickstart \
--Xshareclasses:name=rust-spring,cacheDir=/tmp \
--Xscmx50m \
--Xtune:virtualized \
+-Xms4m \
+-Xmx20m \
+-XX:+UseSerialGC \
+-XX:MaxHeapFreeRatio=10 \
+-XX:MinHeapFreeRatio=5 \
 -XX:+UseCompressedOops \
 -XX:+UseCompressedClassPointers \
+-XX:MaxMetaspaceSize=24m \
+-XX:CompressedClassSpaceSize=8m \
+-XX:InitialCodeCacheSize=1m \
+-XX:ReservedCodeCacheSize=8m \
+-XX:+TieredCompilation \
+-XX:TieredStopAtLevel=1 \
 -Djava.security.egd=file:/dev/./urandom \
--Dfile.encoding=UTF-8 \
---enable-native-access=ALL-UNNAMED"
+-Dfile.encoding=UTF-8"
 
 ENV RUST_LIB_PATH=/app/native
 
-# Create cache directory
+# Create necessary directories
 RUN mkdir -p /tmp && chown -R appuser:appgroup /app /tmp
 
 USER appuser

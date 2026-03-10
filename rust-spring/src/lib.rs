@@ -59,14 +59,15 @@ fn buffer_pool() -> &'static BufferPools {
     })
 }
 
-/// Pre-warm buffer pools on startup
+/// Pre-warm buffer pools on startup (minimal for low memory)
 fn warmup_pools() {
     let pools = buffer_pool();
-    for _ in 0..16 {
+    // Minimal warmup: 4 small buffers = 64 KB
+    // Medium/large buffers allocated on-demand
+    for _ in 0..4 {
         let _ = pools.small.push(Vec::with_capacity(SMALL_CAP));
-        let _ = pools.medium.push(Vec::with_capacity(MEDIUM_CAP));
     }
-    println!("[RUST] Buffer pools warmed up");
+    println!("[RUST] Buffer pools warmed up (minimal mode)");
 }
 
 fn bucket_for_size(size: usize) -> (Bucket, usize) {
