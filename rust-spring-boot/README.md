@@ -183,11 +183,24 @@ java -Djava.library.path=/custom/native/dir -cp ...
 | Annotation | Description |
 |------------|-------------|
 | `@RustRoute` | Main route definition with method, path, request/response types |
+| `@RequestMapping` | Class-level base path prefix |
 | `@GetMapping` | Shortcut for GET requests |
 | `@PostMapping` | Shortcut for POST requests |
 | `@PutMapping` | Shortcut for PUT requests |
 | `@DeleteMapping` | Shortcut for DELETE requests |
 | `@PatchMapping` | Shortcut for PATCH requests |
+
+```java
+@RequestMapping("/api/v1")  // Class-level base path
+public class OrderHandler {
+
+    @GetMapping("/orders")       // Full path: /api/v1/orders
+    public int listOrders(...) { }
+
+    @PostMapping("/orders")      // Full path: /api/v1/orders
+    public int createOrder(...) { }
+}
+```
 
 ### Parameter Annotations
 
@@ -196,17 +209,23 @@ java -Djava.library.path=/custom/native/dir -cp ...
 | `@PathVariable` | Extract path parameter (e.g., `/order/{id}`) |
 | `@RequestParam` | Extract query parameter (e.g., `?status=active`) |
 | `@HeaderParam` | Extract HTTP header |
+| `@CookieValue` | Extract cookie value |
 | `@RequestBody` | Mark body parameter for deserialization |
 
 ### Validation Annotations
 
 | Annotation | Description |
 |------------|-------------|
+| `@Valid` | Trigger nested validation |
 | `@NotNull` | Field cannot be null |
 | `@NotBlank` | String cannot be blank |
 | `@NotEmpty` | Collection cannot be empty |
 | `@Min(value)` | Minimum numeric value |
 | `@Max(value)` | Maximum numeric value |
+| `@DecimalMin(value)` | Minimum decimal value |
+| `@DecimalMax(value)` | Maximum decimal value |
+| `@Positive` | Must be positive |
+| `@Negative` | Must be negative |
 | `@Size(min, max)` | String/collection size constraints |
 | `@Pattern(regexp)` | Regex pattern validation |
 | `@Email` | Email format validation |
@@ -218,6 +237,35 @@ java -Djava.library.path=/custom/native/dir -cp ...
 | `@Request` | Marks class as request DTO |
 | `@Response` | Marks class as response DTO |
 | `@Field` | Field-level configuration (required, min, max, defaultValue) |
+
+### Response Annotations
+
+| Annotation | Description |
+|------------|-------------|
+| `@ResponseStatus(code)` | Set HTTP status code for response |
+
+```java
+@PostMapping("/orders")
+@ResponseStatus(HttpStatus.CREATED)  // Returns 201
+public int createOrder(...) { }
+```
+
+### Configuration Annotations
+
+| Annotation | Description |
+|------------|-------------|
+| `@RustProperty(key)` | Inject property from `rust-spring.properties` |
+
+```java
+public class OrderHandler {
+
+    @RustProperty("order.max-items")
+    private int maxItems;
+
+    @RustProperty(value = "order.timeout", defaultValue = "30")
+    private int timeout;
+}
+```
 
 ## Handler Method Signatures
 
@@ -241,6 +289,151 @@ public int methodName(ByteBuffer out, int offset, byte[] body,
 ```java
 public int methodName(ByteBuffer out, int offset, byte[] body,
                       String pathParams, String queryString, String headers)
+```
+
+## HTTP Utilities
+
+### HttpStatus
+
+```java
+import com.reactor.rust.http.HttpStatus;
+
+// Common status codes
+HttpStatus.OK           // 200
+HttpStatus.CREATED      // 201
+HttpStatus.BAD_REQUEST  // 400
+HttpStatus.NOT_FOUND    // 404
+HttpStatus.INTERNAL_SERVER_ERROR  // 500
+
+// Usage with @ResponseStatus
+@ResponseStatus(HttpStatus.CREATED)
+public int createOrder(...) { }
+```
+
+### MediaType
+
+```java
+import com.reactor.rust.http.MediaType;
+
+MediaType.APPLICATION_JSON  // "application/json"
+MediaType.TEXT_PLAIN        // "text/plain"
+MediaType.TEXT_HTML         // "text/html"
+```
+
+### ResponseEntity
+
+```java
+import com.reactor.rust.http.ResponseEntity;
+import com.reactor.rust.http.HttpStatus;
+
+// Create response with status
+ResponseEntity<OrderResponse> response = ResponseEntity.ok(order);
+ResponseEntity<OrderResponse> created = ResponseEntity.status(HttpStatus.CREATED).body(order);
+
+// With headers
+ResponseEntity<OrderResponse> response = ResponseEntity.ok()
+    .header("X-Custom-Header", "value")
+    .body(order);
+```
+
+## Configuration
+
+### Properties File
+
+Create `rust-spring.properties` in your resources:
+
+```properties
+# Server configuration
+server.port=8080
+server.host=0.0.0.0
+
+# Custom properties
+order.max-items=100
+order.timeout=30
+```
+
+### Using @RustProperty
+
+```java
+public class OrderHandler {
+
+    @RustProperty("order.max-items")
+    private int maxItems;
+
+    @RustProperty(value = "order.timeout", defaultValue = "30")
+    private int timeout;
+}
+```
+
+### Programmatic Access
+
+```java
+import com.reactor.rust.config.PropertiesLoader;
+
+int port = PropertiesLoader.getInt("server.port", 8080);
+String host = PropertiesLoader.get("server.host", "0.0.0.0");
+```
+
+## Error Handling
+
+### Custom Exceptions
+
+```java
+import com.reactor.rust.exception.NotFoundException;
+import com.reactor.rust.exception.BadRequestException;
+
+@RustRoute(method = "GET", path = "/order/{id}", ...)
+public int getOrder(ByteBuffer out, int offset, byte[] body, String pathParams) {
+    String orderId = parseParam(pathParams, "id");
+
+    if (orderId == null) {
+        throw new BadRequestException("Order ID is required");
+    }
+
+    Order order = orderRepository.findById(orderId);
+    if (order == null) {
+        throw new NotFoundException("Order not found: " + orderId);
+    }
+
+    return DslJsonService.writeToBuffer(order, out, offset);
+}
+```
+
+## Validation
+
+### Using Validation Annotations
+
+```java
+@Request
+@CompiledJson
+public record OrderCreateRequest(
+    @NotBlank(message = "Order ID is required")
+    String orderId,
+
+    @NotNull
+    @Positive
+    @Max(value = 1000000, message = "Amount cannot exceed 1,000,000")
+    double amount,
+
+    @Email(message = "Invalid email format")
+    String customerEmail,
+
+    @Size(min = 10, max = 500, message = "Description must be 10-500 characters")
+    String description
+) {}
+```
+
+### Nested Validation with @Valid
+
+```java
+@Request
+public record OrderRequest(
+    @Valid
+    CustomerInfo customer,  // Validates nested object
+
+    @Valid
+    List<OrderItem> items   // Validates each item in list
+) {}
 ```
 
 ## Docker Deployment
