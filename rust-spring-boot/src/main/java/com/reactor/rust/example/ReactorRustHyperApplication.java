@@ -1,11 +1,11 @@
-package com.reactor.rust;
+package com.reactor.rust.example;
 
 import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
-import com.reactor.rust.handler.BenchmarkHandler;
-import com.reactor.rust.handler.OrderHandler;
+import com.reactor.rust.example.handler.BenchmarkHandler;
+import com.reactor.rust.example.handler.OrderHandler;
 
 /**
  * Main Application - Pure Java, No Spring Framework

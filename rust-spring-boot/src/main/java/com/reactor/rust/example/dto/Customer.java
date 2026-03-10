@@ -1,11 +1,11 @@
-package com.reactor.rust.dto;
+package com.reactor.rust.example.dto;
 
 import com.dslplatform.json.CompiledJson;
 import com.reactor.rust.annotations.Request;
 
 @CompiledJson
 @Request
-public record Item(
+public record Customer(
     String name,
-    double price
+    String email
 ) {}

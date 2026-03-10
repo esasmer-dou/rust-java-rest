@@ -101,7 +101,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>${exec-maven-plugin-version}</version>
                 <configuration>
-                    <mainClass>com.reactor.rust.ReactorRustHyperApplication</mainClass>
+                    <mainClass>com.reactor.rust.example.ReactorRustHyperApplication</mainClass>
                 </configuration>
             </plugin>
 
