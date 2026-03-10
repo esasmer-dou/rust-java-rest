@@ -113,8 +113,8 @@ public final class RouteScanner {
             return new RouteInfo(
                     "GET",
                     buildPath(basePath, getMapping.value()),
-                    Void.class,
-                    Object.class
+                    getMapping.requestType(),
+                    getMapping.responseType()
             );
         }
 
@@ -124,8 +124,8 @@ public final class RouteScanner {
             return new RouteInfo(
                     "POST",
                     buildPath(basePath, postMapping.value()),
-                    Void.class,
-                    Object.class
+                    postMapping.requestType(),
+                    postMapping.responseType()
             );
         }
 
@@ -135,8 +135,8 @@ public final class RouteScanner {
             return new RouteInfo(
                     "PUT",
                     buildPath(basePath, putMapping.value()),
-                    Void.class,
-                    Object.class
+                    putMapping.requestType(),
+                    putMapping.responseType()
             );
         }
 
@@ -146,8 +146,8 @@ public final class RouteScanner {
             return new RouteInfo(
                     "DELETE",
                     buildPath(basePath, deleteMapping.value()),
-                    Void.class,
-                    Object.class
+                    deleteMapping.requestType(),
+                    deleteMapping.responseType()
             );
         }
 
@@ -157,8 +157,8 @@ public final class RouteScanner {
             return new RouteInfo(
                     "PATCH",
                     buildPath(basePath, patchMapping.value()),
-                    Void.class,
-                    Object.class
+                    patchMapping.requestType(),
+                    patchMapping.responseType()
             );
         }
 

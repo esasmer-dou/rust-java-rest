@@ -8,8 +8,8 @@ import java.lang.annotation.*;
  * Example:
  * <pre>
  * {@code
- * @GetMapping("/orders/{id}")
- * public ResponseEntity<Order> getOrder(@PathVariable("id") String id) { ... }
+ * @GetMapping(value = "/orders/{id}", responseType = OrderResponse.class)
+ * public int getOrder(ByteBuffer out, int offset, byte[] body, String pathParams) { ... }
  * }
  * </pre>
  */
@@ -21,4 +21,16 @@ public @interface GetMapping {
      * Combined with class-level @RequestMapping if present.
      */
     String value();
+
+    /**
+     * Request body type (for deserialization).
+     * Use Void.class for no request body (default).
+     */
+    Class<?> requestType() default Void.class;
+
+    /**
+     * Response body type (for serialization).
+     * Required for proper JSON serialization.
+     */
+    Class<?> responseType() default Void.class;
 }

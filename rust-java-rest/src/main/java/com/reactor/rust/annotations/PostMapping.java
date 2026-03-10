@@ -8,9 +8,8 @@ import java.lang.annotation.*;
  * Example:
  * <pre>
  * {@code
- * @PostMapping("/orders")
- * @ResponseStatus(HttpStatus.CREATED)
- * public ResponseEntity<Order> createOrder(@RequestBody @Valid OrderRequest request) { ... }
+ * @PostMapping(value = "/orders", requestType = OrderRequest.class, responseType = OrderResponse.class)
+ * public int createOrder(ByteBuffer out, int offset, byte[] body) { ... }
  * }
  * </pre>
  */
@@ -22,4 +21,16 @@ public @interface PostMapping {
      * Combined with class-level @RequestMapping if present.
      */
     String value();
+
+    /**
+     * Request body type (for deserialization).
+     * Use Void.class for no request body (default).
+     */
+    Class<?> requestType() default Void.class;
+
+    /**
+     * Response body type (for serialization).
+     * Required for proper JSON serialization.
+     */
+    Class<?> responseType() default Void.class;
 }
