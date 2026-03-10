@@ -54,7 +54,7 @@ fi
 if [ "$RUST_HEALTH" != "200" ]; then
     echo -e "${RED}Rust-Spring not responding at $RUST_SPRING_URL${NC}"
     echo "  Start with: docker-compose up -d rust-spring"
-    echo "  Or locally: cd rust-spring-boot && java -cp target/rust-spring-1.0.0.jar:target/lib/* com.reactor.rust.ReactorRustHyperApplication"
+    echo "  Or locally: cd rust-spring-boot && java -cp target/rust-spring-1.0.0.jar:target/lib/* com.reactor.rust.example.ReactorRustHyperApplication"
 fi
 
 if [ "$SPRING_HEALTH" != "200" ] || [ "$RUST_HEALTH" != "200" ]; then

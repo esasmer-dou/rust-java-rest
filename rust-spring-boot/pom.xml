@@ -76,7 +76,7 @@
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.reactor.rust.ReactorRustHyperApplication</mainClass>
+                                    <mainClass>com.reactor.rust.example.ReactorRustHyperApplication</mainClass>
                                 </transformer>
                             </transformers>
                             <filters>
