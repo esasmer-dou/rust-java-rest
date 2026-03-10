@@ -1,0 +1,51 @@
+# Spring Boot Standard - Local Development (Pre-built JAR)
+#
+# Use this when you have already built the JAR locally
+#
+# Build:
+#   cd spring-boot-simple-rest-api/com.divit.spring-boot-simple-rest-api
+#   mvn package -DskipTests
+#   docker build -t spring-boot-standard -f Dockerfile.local .
+#
+# Run:
+#   docker run -p 8888:8888 --memory=100m spring-boot-standard
+
+FROM ibm-semeru-runtimes:open-21-jre-jammy
+
+WORKDIR /app
+
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built Spring Boot fat JAR
+COPY target/*.jar ./app.jar
+
+# OpenJ9 Ultra-Minimal JVM Options
+ENV JAVA_OPTS="\
+-Xms16m \
+-Xmx48m \
+-Xquickstart \
+-Xshareclasses:name=spring-boot,cacheDir=/tmp \
+-Xscmx50m \
+-Xtune:virtualized \
+-XX:+UseCompressedOops \
+-XX:+UseCompressedClassPointers \
+-Djava.security.egd=file:/dev/./urandom \
+-Dfile.encoding=UTF-8 \
+-Dspring.jmx.enabled=false \
+-Dspring.main.banner-mode=off"
+
+RUN mkdir -p /tmp && chown -R appuser:appgroup /app /tmp
+
+USER appuser
+
+EXPOSE 8888
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8888/actuator/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

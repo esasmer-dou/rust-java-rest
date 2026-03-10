@@ -4,6 +4,7 @@ import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.handler.BenchmarkHandler;
 import com.reactor.rust.handler.OrderHandler;
 
 /**
@@ -54,5 +55,10 @@ public class ReactorRustHyperApplication {
         OrderHandler orderHandler = new OrderHandler();
         registry.registerBean(orderHandler);
         System.out.println(">>> [HandlerRegistry] bean registered = " + orderHandler.getClass().getName());
+
+        // Register BenchmarkHandler (Spring Boot comparison)
+        BenchmarkHandler benchmarkHandler = new BenchmarkHandler();
+        registry.registerBean(benchmarkHandler);
+        System.out.println(">>> [HandlerRegistry] bean registered = " + benchmarkHandler.getClass().getName());
     }
 }

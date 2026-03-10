@@ -4,14 +4,24 @@ import com.dslplatform.json.DslJson;
 import com.dslplatform.json.JsonWriter;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 /**
  * JSON serialization service using DSL-JSON 2.0.2.
  * Compile-time annotation processing ile ZERO overhead.
+ *
+ * OPTIMIZED: ThreadLocal JsonWriter reuse (Phase 1.1)
  */
 public final class DslJsonService {
 
     private static final DslJson<Object> DSL_JSON = new DslJson<>();
+
+    // Thread-local writer pool - eliminates allocation per call
+    private static final ThreadLocal<JsonWriter> WRITER_CACHE =
+        ThreadLocal.withInitial(() -> DSL_JSON.newWriter());
+
+    // Pre-allocated null bytes
+    private static final byte[] NULL_BYTES = "null".getBytes(StandardCharsets.UTF_8);
 
     private DslJsonService() {}
 
@@ -24,10 +34,28 @@ public final class DslJsonService {
      * @return Number of bytes written
      */
     public static int writeToBuffer(Object obj, ByteBuffer out, int offset) {
-        byte[] json = serialize(obj);
-        out.position(offset);
-        out.put(json);
-        return json.length;
+        if (obj == null) {
+            out.position(offset);
+            out.put(NULL_BYTES);
+            return NULL_BYTES.length;
+        }
+
+        try {
+            // Reuse ThreadLocal writer - no allocation
+            JsonWriter writer = WRITER_CACHE.get();
+            writer.reset();
+            DSL_JSON.serialize(writer, obj);
+
+            // Write directly to buffer
+            byte[] data = writer.getByteBuffer();
+            int size = writer.size();
+
+            out.position(offset);
+            out.put(data, 0, size);
+            return size;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize JSON: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -48,15 +76,34 @@ public final class DslJsonService {
 
     /**
      * Serialize object to byte array.
+     * Uses ThreadLocal writer for reduced allocation.
      */
     public static byte[] serialize(Object obj) {
-        if (obj == null) return "null".getBytes();
+        if (obj == null) return NULL_BYTES;
         try {
-            JsonWriter writer = DSL_JSON.newWriter();
+            // Reuse ThreadLocal writer - no allocation
+            JsonWriter writer = WRITER_CACHE.get();
+            writer.reset();
             DSL_JSON.serialize(writer, obj);
             return writer.toByteArray();
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize JSON: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get the size of serialized object without allocating byte array.
+     * Useful for pre-sizing buffers.
+     */
+    public static int getSerializedSize(Object obj) {
+        if (obj == null) return NULL_BYTES.length;
+        try {
+            JsonWriter writer = WRITER_CACHE.get();
+            writer.reset();
+            DSL_JSON.serialize(writer, obj);
+            return writer.size();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get serialized size: " + e.getMessage(), e);
         }
     }
 }

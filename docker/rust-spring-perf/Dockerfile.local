@@ -1,0 +1,59 @@
+# Rust-Spring Performance - Local Development (Pre-built artifacts)
+#
+# Use this when you have already built the JAR and .so files locally
+#
+# Build:
+#   cd rust-spring && cargo build --release
+#   cd rust-spring-boot && mvn package -DskipTests
+#   docker build -t rust-spring-perf -f Dockerfile.local .
+#
+# Run:
+#   docker run -p 8080:8080 --memory=50m rust-spring-perf
+
+FROM ibm-semeru-runtimes:open-21-jre-jammy
+
+WORKDIR /app
+
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built JAR
+COPY target/rust-spring-1.0.0.jar ./app.jar
+
+# Copy pre-built dependencies
+COPY target/lib ./lib/
+
+# Copy pre-built Rust library (Linux) - rename to expected filename
+RUN mkdir -p native
+COPY ../rust-spring/target/release/librust_hyper.so ./native/rust_hyper.so
+
+# OpenJ9 Ultra-Minimal JVM Options
+ENV JAVA_OPTS="\
+-Xms8m \
+-Xmx32m \
+-Xquickstart \
+-Xshareclasses:name=rust-spring,cacheDir=/tmp \
+-Xscmx50m \
+-Xtune:virtualized \
+-XX:+UseCompressedOops \
+-XX:+UseCompressedClassPointers \
+-Djava.security.egd=file:/dev/./urandom \
+-Dfile.encoding=UTF-8 \
+--enable-native-access=ALL-UNNAMED"
+
+ENV RUST_LIB_PATH=/app/native
+
+RUN mkdir -p /tmp && chown -R appuser:appgroup /app /tmp
+
+USER appuser
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -cp app.jar:lib/* com.reactor.rust.ReactorRustHyperApplication"]

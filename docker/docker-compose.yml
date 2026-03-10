@@ -1,0 +1,66 @@
+# Docker Compose - Spring Boot vs Rust-Spring Performance Comparison
+#
+# Usage:
+#   docker-compose up -d
+#   ./benchmark.sh
+#   docker-compose down
+#
+# OpenJ9 Ultra-Minimal Configuration:
+# - IBM Semeru Runtime (OpenJ9)
+# - Minimal heap sizes
+# - Shared Class Cache for faster startup
+# - Virtualized tuning
+
+version: '3.8'
+
+services:
+  # Spring Boot Standard (Undertow) - Port 8888
+  spring-boot:
+    image: spring-boot-standard:openj9
+    container_name: spring-boot-standard
+    ports:
+      - "8888:8888"
+    environment:
+      - JAVA_OPTS=-Xms16m -Xmx48m -Xquickstart -Xshareclasses:name=spring-boot,cacheDir=/tmp -Xscmx50m -Xtune:virtualized
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+        reservations:
+          memory: 50M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 5
+    networks:
+      - benchmark-net
+
+  # Rust-Spring Performance (Hyper + JNI) - Port 8080
+  rust-spring:
+    image: rust-spring-perf:openj9
+    container_name: rust-spring-perf
+    ports:
+      - "8080:8080"
+    environment:
+      - JAVA_OPTS=-Xms8m -Xmx32m -Xquickstart -Xshareclasses:name=rust-spring,cacheDir=/tmp -Xscmx50m -Xtune:virtualized --enable-native-access=ALL-UNNAMED
+      - RUST_LIB_PATH=/app/native
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+        reservations:
+          memory: 25M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+    networks:
+      - benchmark-net
+
+networks:
+  benchmark-net:
+    driver: bridge

@@ -15,12 +15,18 @@ use tokio::net::TcpListener;
 use tokio::task;
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock};
 
+use crossbeam_queue::ArrayQueue;
+
+// Buffer sizes
 const SMALL_CAP: usize = 16 * 1024;    // 16 KB
 const MEDIUM_CAP: usize = 64 * 1024;   // 64 KB
 const LARGE_CAP: usize = 256 * 1024;   // 256 KB
 const HUGE_CAP: usize = 1024 * 1024;   // 1 MB
+
+// Pool sizes (max buffers per bucket)
+const POOL_SIZE: usize = 64;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Bucket {
@@ -28,27 +34,100 @@ enum Bucket {
     Medium,
     Large,
     Huge,
-    Oversized, // pool'a alınmayacak
+    Oversized, // Not pooled
 }
 
+/// Lock-free buffer pools using crossbeam ArrayQueue
+/// Each bucket is a separate lock-free queue
 struct BufferPools {
-    small: Vec<Vec<u8>>,
-    medium: Vec<Vec<u8>>,
-    large: Vec<Vec<u8>>,
-    huge: Vec<Vec<u8>>,
+    small: ArrayQueue<Vec<u8>>,
+    medium: ArrayQueue<Vec<u8>>,
+    large: ArrayQueue<Vec<u8>>,
+    huge: ArrayQueue<Vec<u8>>,
 }
 
-static BUFFER_POOL: OnceLock<Mutex<BufferPools>> = OnceLock::new();
+static BUFFER_POOL: OnceLock<BufferPools> = OnceLock::new();
 
-fn buffer_pool() -> &'static Mutex<BufferPools> {
+fn buffer_pool() -> &'static BufferPools {
     BUFFER_POOL.get_or_init(|| {
-        Mutex::new(BufferPools {
-            small: Vec::new(),
-            medium: Vec::new(),
-            large: Vec::new(),
-            huge: Vec::new(),
-        })
+        BufferPools {
+            small: ArrayQueue::new(POOL_SIZE),
+            medium: ArrayQueue::new(POOL_SIZE),
+            large: ArrayQueue::new(POOL_SIZE),
+            huge: ArrayQueue::new(POOL_SIZE),
+        }
     })
+}
+
+/// Pre-warm buffer pools on startup
+fn warmup_pools() {
+    let pools = buffer_pool();
+    for _ in 0..16 {
+        let _ = pools.small.push(Vec::with_capacity(SMALL_CAP));
+        let _ = pools.medium.push(Vec::with_capacity(MEDIUM_CAP));
+    }
+    println!("[RUST] Buffer pools warmed up");
+}
+
+fn bucket_for_size(size: usize) -> (Bucket, usize) {
+    if size <= SMALL_CAP {
+        (Bucket::Small, SMALL_CAP)
+    } else if size <= MEDIUM_CAP {
+        (Bucket::Medium, MEDIUM_CAP)
+    } else if size <= LARGE_CAP {
+        (Bucket::Large, LARGE_CAP)
+    } else if size <= HUGE_CAP {
+        (Bucket::Huge, HUGE_CAP)
+    } else {
+        (Bucket::Oversized, size)
+    }
+}
+
+/// Rent buffer from lock-free pool
+/// No mutex contention - uses lock-free operations
+fn rent_buffer(min_capacity: usize) -> Vec<u8> {
+    let (bucket, target_cap) = bucket_for_size(min_capacity);
+    let pools = buffer_pool();
+
+    // Try to get from pool (lock-free)
+    let pooled = match bucket {
+        Bucket::Small => pools.small.pop(),
+        Bucket::Medium => pools.medium.pop(),
+        Bucket::Large => pools.large.pop(),
+        Bucket::Huge => pools.huge.pop(),
+        Bucket::Oversized => None,
+    };
+
+    match pooled {
+        Some(mut buf) => {
+            buf.clear();
+            buf
+        }
+        None => Vec::with_capacity(target_cap),
+    }
+}
+
+/// Return buffer to lock-free pool
+/// No mutex contention - uses lock-free operations
+fn return_buffer(mut buf: Vec<u8>) {
+    let cap = buf.capacity();
+    let (bucket, _) = bucket_for_size(cap);
+
+    if bucket == Bucket::Oversized {
+        return; // Don't pool oversized buffers
+    }
+
+    buf.clear();
+    let pools = buffer_pool();
+
+    // Try to return to pool (lock-free, fails silently if full)
+    let _ = match bucket {
+        Bucket::Small => pools.small.push(buf),
+        Bucket::Medium => pools.medium.push(buf),
+        Bucket::Large => pools.large.push(buf),
+        Bucket::Huge => pools.huge.push(buf),
+        Bucket::Oversized => Ok(()),
+    };
 }
 
 
@@ -78,78 +157,6 @@ fn encode_path_params(params: &[(String, String)]) -> String {
         s.push_str(v);
     }
     s
-}
-
-
-fn bucket_for_size(size: usize) -> (Bucket, usize) {
-    if size <= SMALL_CAP {
-        (Bucket::Small, SMALL_CAP)
-    } else if size <= MEDIUM_CAP {
-        (Bucket::Medium, MEDIUM_CAP)
-    } else if size <= LARGE_CAP {
-        (Bucket::Large, LARGE_CAP)
-    } else if size <= HUGE_CAP {
-        (Bucket::Huge, HUGE_CAP)
-    } else {
-        (Bucket::Oversized, size)
-    }
-}
-
-fn rent_buffer(min_capacity: usize) -> Vec<u8> {
-    let (bucket, target_cap) = bucket_for_size(min_capacity);
-    let mut pools = buffer_pool().lock().unwrap();
-
-    match bucket {
-        Bucket::Small => {
-            if let Some(mut b) = pools.small.pop() {
-                b.clear();
-                return b;
-            }
-        }
-        Bucket::Medium => {
-            if let Some(mut b) = pools.medium.pop() {
-                b.clear();
-                return b;
-            }
-        }
-        Bucket::Large => {
-            if let Some(mut b) = pools.large.pop() {
-                b.clear();
-                return b;
-            }
-        }
-        Bucket::Huge => {
-            if let Some(mut b) = pools.huge.pop() {
-                b.clear();
-                return b;
-            }
-        }
-        Bucket::Oversized => {
-            return Vec::with_capacity(target_cap);
-        }
-    }
-
-    Vec::with_capacity(target_cap)
-}
-
-fn return_buffer(mut buf: Vec<u8>) {
-    let cap = buf.capacity();
-    let (bucket, _) = bucket_for_size(cap);
-
-    if bucket == Bucket::Oversized {
-        return;
-    }
-
-    buf.clear();
-    let mut pools = buffer_pool().lock().unwrap();
-
-    match bucket {
-        Bucket::Small => pools.small.push(buf),
-        Bucket::Medium => pools.medium.push(buf),
-        Bucket::Large => pools.large.push(buf),
-        Bucket::Huge => pools.huge.push(buf),
-        Bucket::Oversized => unreachable!(),
-    }
 }
 
 
@@ -190,7 +197,7 @@ fn pattern_routes() -> &'static RwLock<HashMap<String, Vec<PatternRoute>>> {
 }
 
 fn is_pattern_path(path: &str) -> bool {
-    // Basit ve hızlı kontrol: "{...}" içeriyor mu
+    // Fast check: contains "{...}"
     let bytes = path.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -230,7 +237,7 @@ fn split_path(path: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Match olursa: Some(Vec<(paramName, value)>)
+/// Match pattern and extract params
 fn match_pattern(
     pattern: &[Seg],
     actual: &[&str]
@@ -261,8 +268,6 @@ fn match_pattern(
 }
 
 
-
-
 static NATIVEBRIDGE_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 
 #[no_mangle]
@@ -274,18 +279,19 @@ pub extern "system" fn Java_com_reactor_rust_bridge_NativeBridge_startHttpServer
     let jvm = env.get_java_vm().expect("Cannot get JVM");
     let _ = JVM.set(jvm);
 
+    // Warm up buffer pools
+    warmup_pools();
+
     std::thread::spawn(move || {
         println!("[RUST] Starting Hyper server thread...");
 
-        // 1) CPU cekirdek sayisini al
+        // Get CPU count
         let cpu_count = std::thread::available_parallelism()
             .map(|n| n.get())
-            .unwrap_or(4); // failsafe
+            .unwrap_or(4);
 
-        // 2) Worker threads = CPU sayisi
+        // Optimized thread counts
         let worker_threads = cpu_count;
-
-        // 3) Blocking pool = CPU * 8 (optimal value)
         let max_blocking = cpu_count * 8;
 
         println!(
@@ -293,7 +299,6 @@ pub extern "system" fn Java_com_reactor_rust_bridge_NativeBridge_startHttpServer
             worker_threads, max_blocking, cpu_count
         );
 
-        // 4) Runtime oluştur
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(worker_threads)
             .max_blocking_threads(max_blocking)
@@ -391,7 +396,7 @@ pub extern "system" fn Java_com_reactor_rust_bridge_NativeBridge_registerRoutes(
             response_type,
         };
 
-        // === YENİ: exact vs pattern ayrımı ===
+        // Exact vs pattern routes
         if is_pattern_path(&path) {
             let segs = parse_pattern(&path);
             let pr = PatternRoute {
@@ -403,7 +408,7 @@ pub extern "system" fn Java_com_reactor_rust_bridge_NativeBridge_registerRoutes(
 
             pattern_map.entry(http_method.clone()).or_default().push(pr);
 
-            // (Opsiyonel ama iyi): daha spesifik pattern’leri öne al
+            // Sort by specificity (more static segments = higher priority)
             if let Some(list) = pattern_map.get_mut(&http_method) {
                 list.sort_by(|a, b| {
                     let sa = a.segments.iter().filter(|s| matches!(s, Seg::Static(_))).count();
@@ -432,7 +437,6 @@ pub extern "system" fn Java_com_reactor_rust_bridge_NativeBridge_registerRoutes(
         exact_map.len(),
         pattern_count
     );
-
 }
 
 async fn run_server(port: i32) {
@@ -465,14 +469,14 @@ async fn router(req: Request<Incoming>) -> Result<Response<String>, hyper::Error
     let query_string = req.uri().query().unwrap_or("").to_string();
     let header_string = encode_headers(req.headers());
 
-
-
+    // Health check - handled entirely in Rust
     if method == "GET" && path == "/health" {
         return Ok(Response::new("{\"status\":\"OK\"}".into()));
     }
 
     let whole_body = req.collect().await?.to_bytes();
 
+    // Route matching
     let handler_match: Option<(i32, Option<Vec<(String, String)>>)> = {
         let exact = exact_routes().read().unwrap();
         if let Some(rm) = exact.get(&(method.clone(), path.clone())) {
@@ -498,15 +502,8 @@ async fn router(req: Request<Incoming>) -> Result<Response<String>, hyper::Error
         }
     };
 
-
     if let Some((handler_id, path_params_opt)) = handler_match {
-        // Şimdilik sadece doğrulama için log:
-        if let Some(params) = &path_params_opt {
-            println!("[RUST] Path params matched: {:?}", params);
-        }
-
-
-        // Mevcut flow aynen:
+        // Rent buffer from lock-free pool
         let mut buf = rent_buffer(SMALL_CAP);
 
         let (buf, len) = tokio::task::spawn_blocking(move || {
@@ -516,7 +513,7 @@ async fn router(req: Request<Incoming>) -> Result<Response<String>, hyper::Error
                 .as_ref()
                 .map(|v| encode_path_params(v));
 
-            // Single entry point - always use full signature
+            // Call Java handler
             let written = call_java_handler(
                 handler_id,
                 body_slice,
@@ -528,31 +525,28 @@ async fn router(req: Request<Incoming>) -> Result<Response<String>, hyper::Error
 
             (buf, written)
         })
-
-
-            .await
-            .unwrap_or_else(|_| {
-                let mut b = Vec::new();
-                b.extend_from_slice(b"{\"error\":\"join_failed\"}");
-                let len = b.len();
-                (b, len)
-            });
+        .await
+        .unwrap_or_else(|_| {
+            let mut b = Vec::new();
+            b.extend_from_slice(b"{\"error\":\"join_failed\"}");
+            let len = b.len();
+            (b, len)
+        });
 
         let body = String::from_utf8_lossy(&buf[..len]).to_string();
-        return_buffer(buf);
+        return_buffer(buf); // Return to lock-free pool
 
         return Ok(Response::new(body));
     }
 
-
+    // 404 Not Found
     let mut r = Response::new("Not Found".into());
     *r.status_mut() = StatusCode::NOT_FOUND;
     Ok(r)
 }
 
 
-/// Single entry point for Java handler invocation.
-/// Always passes full request context (path params, query string, headers).
+/// Call Java handler via JNI
 fn call_java_handler(
     handler_id: i32,
     body_slice: &[u8],
@@ -657,6 +651,7 @@ fn call_java_handler(
 }
 
 
+// Platform-specific memory cleanup
 
 #[cfg(any(
     all(target_os = "linux", target_env = "gnu"),
@@ -666,9 +661,6 @@ extern "C" {
     fn malloc_trim(pad: usize) -> i32;
 }
 
-//
-// ========== malloc_stats_print declaration (musl - Alpine) ==========
-//
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 extern "C" {
     fn malloc_stats_print(
@@ -678,46 +670,35 @@ extern "C" {
     );
 }
 
-
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
-
 
 #[no_mangle]
 pub extern "system" fn Java_com_reactor_rust_bridge_NativeBridge_releaseNativeMemory(
     _env: JNIEnv,
     _class: JClass,
 ) {
-
-    // ============================
-    // 1) glibc malloc_trim
-    // ============================
+    // glibc malloc_trim
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     unsafe {
         malloc_trim(0);
     }
 
-    // ============================
-    // 2) Android (bionic + glibc compatible)
-    // ============================
+    // Android
     #[cfg(target_os = "android")]
     unsafe {
         malloc_trim(0);
     }
 
-    // ============================
-    // 3) Alpine / musl malloc_stats_print
-    // ============================
+    // Alpine / musl
     #[cfg(all(target_os = "linux", target_env = "musl"))]
     unsafe {
         malloc_stats_print(None, core::ptr::null_mut(), core::ptr::null());
     }
 
-    // ============================
-    // 4) Windows
-    // ============================
+    // Windows
     #[cfg(target_os = "windows")]
     unsafe {
         let handle = GetCurrentProcess();
