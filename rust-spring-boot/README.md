@@ -16,12 +16,14 @@ Ultra-low latency REST API framework combining Rust Hyper server with Java handl
 
 Native libraries are bundled in the JAR for:
 
-| Platform | Architecture | Library File |
-|----------|-------------|--------------|
-| Linux | x64 | `native/linux-x64/librust_hyper.so` |
-| Windows | x64 | `native/windows-x64/rust_hyper.dll` |
-| macOS | x64 | `native/macos-x64/librust_hyper.dylib` |
-| macOS | ARM64 (M1/M2) | `native/macos-arm64/librust_hyper.dylib` |
+| Platform | Architecture | Library File | Status |
+|----------|-------------|--------------|--------|
+| Linux | x64 | `native/linux-x64/librust_hyper.so` | ✅ Supported |
+| Windows | x64 | `native/windows-x64/rust_hyper.dll` | ✅ Supported |
+| macOS | x64 | `native/macos-x64/librust_hyper.dylib` | 🚧 Coming Soon |
+| macOS | ARM64 (M1/M2) | `native/macos-arm64/librust_hyper.dylib` | 🚧 Coming Soon |
+
+> **macOS Users**: You can build the native library from source. See [Building Native Library](#building-native-library-optional).
 
 ## Quick Start
 

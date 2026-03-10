@@ -10,9 +10,11 @@ import java.util.Locale;
 /**
  * Native Library Loader - Extracts and loads platform-specific Rust library from JAR resources.
  *
- * Supports:
+ * Supported platforms:
  * - Linux x64: native/linux-x64/librust_hyper.so
  * - Windows x64: native/windows-x64/rust_hyper.dll
+ *
+ * Coming soon:
  * - macOS x64: native/macos-x64/librust_hyper.dylib
  * - macOS ARM64: native/macos-arm64/librust_hyper.dylib
  *
@@ -127,10 +129,19 @@ public final class NativeLibraryLoader {
     private static Path extractLibrary(String resourcePath, String libraryFileName) {
         try (InputStream is = NativeLibraryLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
+                Platform platform = detectPlatform();
+                String macOSNote = platform.os == OsType.MACOS
+                    ? "\n\nmacOS support is coming soon! For now, you can build from source:\n" +
+                      "  1. Install Rust: https://rustup.rs\n" +
+                      "  2. cd rust-spring && cargo build --release\n" +
+                      "  3. Run with: -Drust.lib.path=/path/to/librust_hyper.dylib"
+                    : "";
+
                 throw new UnsatisfiedLinkError(
                     "Native library not found in JAR resources: " + resourcePath + "\n" +
-                    "Supported platforms: linux-x64, windows-x64, macos-x64, macos-arm64\n" +
-                    "Build the native library for your platform or set -Drust.lib.path=/path/to/library"
+                    "Supported platforms: linux-x64, windows-x64" +
+                    macOSNote + "\n\n" +
+                    "Alternative: set -Drust.lib.path=/path/to/library"
                 );
             }
 
