@@ -1,5 +1,7 @@
 # Rust-Spring Performance (Hyper + JNI) - Minimal Memory
 #
+# Native library is bundled in JAR - no Rust build required!
+#
 # Build from project root:
 #   docker build -t rust-spring-perf:minimal -f docker/rust-spring-perf/Dockerfile .
 #
@@ -7,21 +9,7 @@
 #   docker run -p 8080:8080 --memory=40m rust-spring-perf:minimal
 
 # ============================================
-# STAGE 1: Build Rust Library
-# ============================================
-FROM rust:1.82-bookworm AS rust-builder
-
-WORKDIR /rust-build
-
-# Copy Rust source
-COPY rust-spring/Cargo.toml rust-spring/Cargo.lock ./
-COPY rust-spring/src ./src
-
-# Build release library
-RUN cargo build --release
-
-# ============================================
-# STAGE 2: Build Java (with full JDK)
+# STAGE 1: Build Java (with full JDK)
 # ============================================
 FROM eclipse-temurin:21-jdk-jammy AS java-builder
 
@@ -38,7 +26,7 @@ COPY rust-spring-boot/pom.xml .
 # Download dependencies
 RUN mvn dependency:go-offline -B -q || true
 
-# Copy source and build
+# Copy source and build (native library is bundled in resources)
 COPY rust-spring-boot/src ./src
 RUN mvn package -DskipTests -B -q
 
@@ -47,7 +35,7 @@ RUN mkdir -p target/lib && \
     mvn dependency:copy-dependencies -DoutputDirectory=target/lib -B -q
 
 # ============================================
-# STAGE 3: Runtime (minimal Ubuntu JRE)
+# STAGE 2: Runtime (minimal JRE)
 # ============================================
 FROM eclipse-temurin:21-jre-jammy
 
@@ -65,8 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
 COPY --from=java-builder /build/target/rust-spring-1.0.0.jar ./app.jar
 COPY --from=java-builder /build/target/lib ./lib/
 
-# Copy native Rust library
-COPY --from=rust-builder /rust-build/target/release/librust_hyper.so ./native/rust_hyper.so
+# Native library is bundled in JAR - no separate copy needed!
 
 # Ultra-Minimal JVM Options (HotSpot Serial GC - lowest memory)
 ENV JAVA_OPTS="\
@@ -85,8 +72,6 @@ ENV JAVA_OPTS="\
 -XX:TieredStopAtLevel=1 \
 -Djava.security.egd=file:/dev/./urandom \
 -Dfile.encoding=UTF-8"
-
-ENV RUST_LIB_PATH=/app/native
 
 # Create necessary directories
 RUN mkdir -p /tmp && chown -R appuser:appgroup /app /tmp

@@ -10,6 +10,18 @@ Ultra-low latency REST API framework combining Rust Hyper server with Java handl
 - **Spring-like Annotations**: Familiar `@GetMapping`, `@PostMapping`, `@RustRoute` annotations
 - **Zero-Copy JSON**: DSL-JSON compile-time serialization
 - **Lock-Free Buffer Pool**: Crossbeam ArrayQueue for concurrent requests
+- **Bundled Native Library**: No Rust installation required
+
+## Supported Platforms
+
+Native libraries are bundled in the JAR for:
+
+| Platform | Architecture | Library File |
+|----------|-------------|--------------|
+| Linux | x64 | `native/linux-x64/librust_hyper.so` |
+| Windows | x64 | `native/windows-x64/rust_hyper.dll` |
+| macOS | x64 | `native/macos-x64/librust_hyper.dylib` |
+| macOS | ARM64 (M1/M2) | `native/macos-arm64/librust_hyper.dylib` |
 
 ## Quick Start
 
@@ -118,29 +130,48 @@ import com.reactor.rust.bridge.HandlerRegistry;
 
 public class Application {
     public static void main(String[] args) {
-        // Scan and register routes
-        RouteScanner scanner = new RouteScanner();
-        scanner.scanAndRegister("com.yourapp.handler");
+        // Scan and register routes (auto-detect handlers)
+        RouteScanner.scanAndRegister();
 
-        // Start HTTP server
+        // Start HTTP server (native library loads automatically)
         NativeBridge.startHttpServer(8080);
+
+        // Keep JVM alive
+        Thread.sleep(Long.MAX_VALUE);
     }
 }
 ```
 
-### 5. Build Native Library
+### 5. Run
 
 ```bash
-cd rust-spring
-cargo build --release
+# Simple - native library loads automatically from JAR
+java -cp target/rust-spring-1.0.0.jar:target/lib/* com.yourapp.Application
 ```
 
-### 6. Run
+That's it! No Rust installation required.
+
+## Native Library Loading
+
+The framework automatically detects your platform and loads the correct native library from the JAR resources. Loading order:
+
+1. **System Property** (custom path): `-Drust.lib.path=/path/to/library`
+2. **java.library.path**: Standard JVM library path
+3. **JAR Resources**: Bundled platform-specific library
+
+### Custom Native Library Path
+
+If you want to use a custom native library (e.g., for development or unsupported platforms):
 
 ```bash
-java -Djava.library.path=../rust-spring/target/release \
-     -cp target/rust-spring-1.0.0.jar:target/lib/* \
-     com.yourapp.Application
+# Option 1: System property (file path)
+java -Drust.lib.path=/custom/path/to/rust_hyper.dll -cp ...
+
+# Option 2: System property (directory)
+java -Drust.lib.path=/custom/native/dir -cp ...
+
+# Option 3: java.library.path
+java -Djava.library.path=/custom/native/dir -cp ...
 ```
 
 ## Annotations Reference
@@ -242,13 +273,47 @@ com.reactor.rust/
 ├── http/                 # HTTP utilities (HttpStatus, MediaType)
 ├── json/                 # DSL-JSON service
 └── validation/           # Validation framework
+
+com.reactor.rust.example/ # Example code (not included in library)
+├── ReactorRustHyperApplication.java
+├── handler/              # Example handlers
+└── dto/                  # Example DTOs
 ```
 
 ## Requirements
 
-- Java 21+
-- Rust 1.82+ (for native library)
-- DSL-JSON 2.0.2
+- **Java 21+** (required)
+- **Maven 3.8+** (for building)
+- **Rust 1.82+** (optional - only if building native library yourself)
+
+## Building Native Library (Optional)
+
+The JAR comes with pre-built native libraries. If you need to rebuild:
+
+```bash
+cd rust-spring
+
+# Linux (or use Docker on Windows/macOS)
+cargo build --release
+
+# Windows
+cargo build --release
+
+# macOS
+cargo build --release
+```
+
+Copy the output to resources:
+```bash
+# Linux
+cp target/release/librust_hyper.so ../rust-spring-boot/src/main/resources/native/linux-x64/
+
+# Windows
+cp target/release/rust_hyper.dll ../rust-spring-boot/src/main/resources/native/windows-x64/
+
+# macOS
+cp target/release/librust_hyper.dylib ../rust-spring-boot/src/main/resources/native/macos-x64/
+```
 
 ## License
 
