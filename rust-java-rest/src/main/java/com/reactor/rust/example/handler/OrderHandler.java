@@ -10,6 +10,7 @@ import com.reactor.rust.example.dto.OrderCreateResponse;
 import com.reactor.rust.example.dto.OrderIdResponse;
 import com.reactor.rust.example.dto.OrderRequest;
 import com.reactor.rust.example.dto.OrderSearchResponse;
+import com.reactor.rust.http.MediaType;
 import com.reactor.rust.json.DslJsonService;
 
 import java.nio.ByteBuffer;
@@ -51,7 +52,7 @@ public class OrderHandler {
         Map<String, String> h = parseHeaders(headers);
 
         String ct = h.get("content-type");
-        if (ct == null || !ct.contains("application/json")) {
+        if (ct == null || !ct.contains(MediaType.APPLICATION_JSON)) {
             return DslJsonService.writeToBuffer(
                     new ErrorResponse("Unsupported Content-Type"),
                     out,
