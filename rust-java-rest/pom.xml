@@ -7,8 +7,10 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.reactor</groupId>
-    <artifactId>rust-spring</artifactId>
+    <artifactId>rust-java-rest</artifactId>
     <version>1.0.0</version>
+    <name>Rust-Java REST Framework</name>
+    <description>Ultra-low latency REST API framework with Rust Hyper server and Java handlers</description>
 
     <properties>
         <java.version>21</java.version>
@@ -89,7 +91,7 @@
                                     </excludes>
                                 </filter>
                             </filters>
-                            <finalName>rust-spring-${project.version}</finalName>
+                            <finalName>rust-java-rest-${project.version}</finalName>
                         </configuration>
                     </execution>
                 </executions>

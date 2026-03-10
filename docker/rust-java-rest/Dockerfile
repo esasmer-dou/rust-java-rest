@@ -1,12 +1,12 @@
-# Rust-Spring Performance (Hyper + JNI) - Minimal Memory
+# Rust-Java REST Framework - Minimal Memory
 #
 # Native library is bundled in JAR - no Rust build required!
 #
 # Build from project root:
-#   docker build -t rust-spring-perf:minimal -f docker/rust-spring-perf/Dockerfile .
+#   docker build -t rust-java-rest:minimal -f docker/rust-spring-perf/Dockerfile .
 #
 # Run:
-#   docker run -p 8080:8080 --memory=40m rust-spring-perf:minimal
+#   docker run -p 8080:8080 --memory=40m rust-java-rest:minimal
 
 # ============================================
 # STAGE 1: Build Java (with full JDK)
@@ -21,13 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pom first (cached layer)
-COPY rust-spring-boot/pom.xml .
+COPY rust-java-rest/pom.xml .
 
 # Download dependencies
 RUN mvn dependency:go-offline -B -q || true
 
 # Copy source and build (native library is bundled in resources)
-COPY rust-spring-boot/src ./src
+COPY rust-java-rest/src ./src
 RUN mvn package -DskipTests -B -q
 
 # Extract dependencies
@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     apt-get clean
 
 # Copy JAR and dependencies
-COPY --from=java-builder /build/target/rust-spring-1.0.0.jar ./app.jar
+COPY --from=java-builder /build/target/rust-java-rest-1.0.0.jar ./app.jar
 COPY --from=java-builder /build/target/lib ./lib/
 
 # Native library is bundled in JAR - no separate copy needed!
