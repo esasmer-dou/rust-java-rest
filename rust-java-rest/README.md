@@ -205,6 +205,228 @@ public int ara(ByteBuffer out, int offset, byte[] body,
 
 ---
 
+## HTTP Metodları Örnekleri
+
+### GET - Veri Getirme
+
+```java
+@RustRoute(
+    method = "GET",
+    path = "/urun/{id}",
+    requestType = Void.class,
+    responseType = UrunResponse.class
+)
+public int getir(ByteBuffer out, int offset, byte[] body, String pathParams) {
+    String id = parametreAl(pathParams, "id");
+    UrunResponse response = urunService.bul(id);
+    return DslJsonService.writeToBuffer(response, out, offset);
+}
+```
+
+### POST - Yeni Kayıt
+
+```java
+@RustRoute(
+    method = "POST",
+    path = "/urun/ekle",
+    requestType = UrunRequest.class,
+    responseType = UrunResponse.class
+)
+public int ekle(ByteBuffer out, int offset, byte[] body) {
+    UrunRequest request = DslJsonService.parse(body, UrunRequest.class);
+    UrunResponse response = urunService.kaydet(request);
+    return DslJsonService.writeToBuffer(response, out, offset);
+}
+```
+
+### PUT - Tam Güncelleme
+
+```java
+@RustRoute(
+    method = "PUT",
+    path = "/urun/guncelle",
+    requestType = UrunRequest.class,
+    responseType = UrunResponse.class
+)
+public int guncelle(ByteBuffer out, int offset, byte[] body) {
+    UrunRequest request = DslJsonService.parse(body, UrunRequest.class);
+    UrunResponse response = urunService.guncelle(request);
+    return DslJsonService.writeToBuffer(response, out, offset);
+}
+```
+
+### PATCH - Kısmi Güncelleme
+
+```java
+@RustRoute(
+    method = "PATCH",
+    path = "/urun/fiyat",
+    requestType = FiyatGuncelleRequest.class,
+    responseType = UrunResponse.class
+)
+public int fiyatGuncelle(ByteBuffer out, int offset, byte[] body) {
+    FiyatGuncelleRequest request = DslJsonService.parse(body, FiyatGuncelleRequest.class);
+    UrunResponse response = urunService.fiyatGuncelle(request);
+    return DslJsonService.writeToBuffer(response, out, offset);
+}
+```
+
+### DELETE - Silme
+
+```java
+@RustRoute(
+    method = "DELETE",
+    path = "/urun/{id}",
+    requestType = Void.class,
+    responseType = UrunResponse.class
+)
+public int sil(ByteBuffer out, int offset, byte[] body, String pathParams) {
+    String id = parametreAl(pathParams, "id");
+    urunService.sil(id);
+    UrunResponse response = new UrunResponse(1, "Silindi");
+    return DslJsonService.writeToBuffer(response, out, offset);
+}
+```
+
+---
+
+## Content-Type (MIME Type) Örnekleri
+
+### JSON Response (Varsayılan)
+
+```java
+@RustRoute(
+    method = "GET",
+    path = "/api/urun/{id}",
+    requestType = Void.class,
+    responseType = UrunResponse.class
+)
+public int jsonGetir(ByteBuffer out, int offset, byte[] body, String pathParams) {
+    UrunResponse response = new UrunResponse(1, "Ürün", 150.0);
+    return DslJsonService.writeToBuffer(response, out, offset);
+}
+// Content-Type: application/json
+```
+
+### Plain Text Response
+
+```java
+@RustRoute(
+    method = "GET",
+    path = "/metin/selam",
+    requestType = Void.class,
+    responseType = Void.class
+)
+public int selam(ByteBuffer out, int offset, byte[] body) {
+    String mesaj = "Merhaba Dünya!";
+    byte[] bytes = mesaj.getBytes(StandardCharsets.UTF_8);
+    out.position(offset);
+    out.put(bytes);
+    return bytes.length;
+}
+// Content-Type: text/plain
+```
+
+### HTML Response
+
+```java
+@RustRoute(
+    method = "GET",
+    path = "/sayfa/hakkinda",
+    requestType = Void.class,
+    responseType = Void.class
+)
+public int hakkinda(ByteBuffer out, int offset, byte[] body) {
+    String html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Hakkında</title></head>
+        <body>
+            <h1>Rust-Java REST Framework</h1>
+            <p>Ultra hızlı, düşük bellek tüketimi</p>
+        </body>
+        </html>
+        """;
+    byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+    out.position(offset);
+    out.put(bytes);
+    return bytes.length;
+}
+// Content-Type: text/html
+```
+
+### XML Response
+
+```java
+@RustRoute(
+    method = "GET",
+    path = "/xml/urun/{id}",
+    requestType = Void.class,
+    responseType = Void.class
+)
+public int xmlGetir(ByteBuffer out, int offset, byte[] body, String pathParams) {
+    String id = parametreAl(pathParams, "id");
+    String xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <urun>
+            <id>%s</id>
+            <ad>Telefon</ad>
+            <fiyat>15000.00</fiyat>
+        </urun>
+        """.formatted(id);
+    byte[] bytes = xml.getBytes(StandardCharsets.UTF_8);
+    out.position(offset);
+    out.put(bytes);
+    return bytes.length;
+}
+// Content-Type: application/xml
+```
+
+### CSV Response
+
+```java
+@RustRoute(
+    method = "GET",
+    path = "/rapor/urunler",
+    requestType = Void.class,
+    responseType = Void.class
+)
+public int urunlerCsv(ByteBuffer out, int offset, byte[] body) {
+    String csv = """
+        id,ad,fiyat,stok
+        1,Telefon,15000,100
+        2,Bilgisayar,25000,50
+        3,Tablet,8000,75
+        """;
+    byte[] bytes = csv.getBytes(StandardCharsets.UTF_8);
+    out.position(offset);
+    out.put(bytes);
+    return bytes.length;
+}
+// Content-Type: text/csv
+```
+
+### Binary Response (Dosya İndirme)
+
+```java
+@RustRoute(
+    method = "GET",
+    path = "/dosya/indir/{ad}",
+    requestType = Void.class,
+    responseType = Void.class
+)
+public int dosyaIndir(ByteBuffer out, int offset, byte[] body, String pathParams) {
+    String ad = parametreAl(pathParams, "ad");
+    byte[] dosyaIcerik = dosyaService.icerikGetir(ad);
+    out.position(offset);
+    out.put(dosyaIcerik);
+    return dosyaIcerik.length;
+}
+// Content-Type: application/octet-stream
+```
+
+---
+
 ## Handler Method İmzaları
 
 | İhtiyaç | İmza |
