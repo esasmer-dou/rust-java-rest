@@ -1,4 +1,4 @@
-#base image : custom bir image 
+#base image : custom bir image
 FROM 10.21.21.119/pethevean/petheaven-pet-api-jre21:1.0.0 AS builder
 
 USER 0
@@ -21,7 +21,6 @@ COPY librust_hyper.so rust_hyper.so
 RUN true
 
 RUN /bin/sh -c 'java -Xquickstart -Xscmx30M -Xshareclasses:name=openj9cache,cacheDir=openj9cache org.springframework.boot.loader.launch.JarLauncher &' ; sleep 15 ; ps aux | grep java | grep springframework | awk '{print $2}' | pkill -9 -f springframework
-
 RUN true
 RUN sed -i -e 's/BOOT-INF/NEW_BOOT-INF/g' BOOT-INF/classpath.idx
 RUN true
@@ -63,7 +62,7 @@ RUN true
 
 # tune glibc memory allocation, optimize for low fragmentation
 # limit the number of arenas
-# requires glibc >= 2.16 since there was a bug in 
+# requires glibc >= 2.16 since there was a bug in
 # MALLOC_ARENA_TEST parameter handling that cause MALLOC_ARENA_MAX not to work
 
 ENV MALLOC_ARENA_MAX=1
