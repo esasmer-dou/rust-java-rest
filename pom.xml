@@ -70,6 +70,14 @@
             <version>${jakarta.annotation-api-version}</version>
         </dependency>
 
+        <!-- JUnit 5 for testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -136,6 +144,13 @@
                 <configuration>
                     <mainClass>com.reactor.rust.example.ReactorRustHyperApplication</mainClass>
                 </configuration>
+            </plugin>
+
+            <!-- Surefire Plugin for running tests -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
             </plugin>
 
             <!-- Source Plugin for publishing sources -->

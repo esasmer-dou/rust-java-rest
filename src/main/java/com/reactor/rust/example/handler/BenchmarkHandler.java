@@ -2,17 +2,39 @@ package com.reactor.rust.example.handler;
 
 import com.dslplatform.json.CompiledJson;
 import com.reactor.rust.annotations.RustRoute;
+import com.reactor.rust.di.annotation.Autowired;
+import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.example.config.AppConfiguration;
 import com.reactor.rust.json.DslJsonService;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Benchmark Handler - Spring Boot ile karşılaştırma için
- * Aynı endpoint'ler: /api/v1/echo ve /api/v1/candidates
+ *
+ * <p>Aynı endpoint'ler: /api/v1/echo ve /api/v1/candidates</p>
+ *
+ * <h2>DI Example:</h2>
+ * <ul>
+ *   <li>@Component marks this as a bean</li>
+ *   <li>@Autowired injects beans from @Configuration</li>
+ *   <li>ExecutorService comes from AppConfiguration.taskExecutor()</li>
+ *   <li>AppMetadata comes from AppConfiguration.appMetadata()</li>
+ * </ul>
  */
+@Component
 public class BenchmarkHandler {
+
+    // DI: ExecutorService from @Configuration
+    @Autowired(required = false)
+    private ExecutorService taskExecutor;
+
+    // DI: AppMetadata from @Configuration @Bean
+    @Autowired(required = false)
+    private AppConfiguration.AppMetadata appMetadata;
 
     /**
      * POST /api/v1/echo - Request body'yi geri döner
@@ -34,6 +56,11 @@ public class BenchmarkHandler {
     ) {
         // Parse request
         BenchmarkOrderRequest request = DslJsonService.parse(body, BenchmarkOrderRequest.class);
+
+        // DI Example: Use injected metadata if available
+        if (appMetadata != null) {
+            System.out.println("[BenchmarkHandler] App: " + appMetadata.name() + " v" + appMetadata.version());
+        }
 
         // Echo back - same as Spring Boot example
         return DslJsonService.writeToBuffer(request, out, offset);
@@ -78,6 +105,13 @@ public class BenchmarkHandler {
                 customer,
                 items
         );
+
+        // DI Example: Use injected executor for async processing (if available)
+        if (taskExecutor != null) {
+            taskExecutor.submit(() -> {
+                System.out.println("[BenchmarkHandler] Async processing on virtual thread: " + Thread.currentThread());
+            });
+        }
 
         return DslJsonService.writeToBuffer(request, out, offset);
     }

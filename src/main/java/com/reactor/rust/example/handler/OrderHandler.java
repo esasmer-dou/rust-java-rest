@@ -1,15 +1,11 @@
 package com.reactor.rust.example.handler;
 
 import com.reactor.rust.annotations.RustRoute;
-import com.reactor.rust.example.dto.Address;
-import com.reactor.rust.example.dto.Customer;
-import com.reactor.rust.example.dto.ErrorResponse;
-import com.reactor.rust.example.dto.Item;
-import com.reactor.rust.example.dto.OrderCreateRequest;
-import com.reactor.rust.example.dto.OrderCreateResponse;
-import com.reactor.rust.example.dto.OrderIdResponse;
-import com.reactor.rust.example.dto.OrderRequest;
-import com.reactor.rust.example.dto.OrderSearchResponse;
+import com.reactor.rust.di.annotation.Autowired;
+import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.example.dto.*;
+import com.reactor.rust.example.service.OrderService;
+import com.reactor.rust.example.service.NotificationService;
 import com.reactor.rust.http.MediaType;
 import com.reactor.rust.json.DslJsonService;
 
@@ -20,13 +16,28 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Order Handler - Pure Java, No Spring
- * Constraint #4: Pure Java - NO reflection libraries
- * Constraint #7: RECORD ZORUNLULUĞU - Only Records for DTOs
+ * Order Handler - Pure Java with DI
  *
- * OPTIMIZED: ThreadLocal HashMap reuse (Phase 1.2)
+ * <p>Constraint #4: Pure Java - NO reflection libraries at runtime</p>
+ * <p>Constraint #7: RECORD ZORUNLULUĞU - Only Records for DTOs</p>
+ *
+ * <h2>DI Example:</h2>
+ * <ul>
+ *   <li>@Component marks this as a bean for component scanning</li>
+ *   <li>@Autowired injects OrderService and NotificationService</li>
+ *   <li>Services are injected at startup - zero runtime overhead</li>
+ * </ul>
  */
+@Component
 public class OrderHandler {
+
+    // DI: OrderService is automatically injected
+    @Autowired
+    private OrderService orderService;
+
+    // DI: Optional dependency (required = false)
+    @Autowired(required = false)
+    private NotificationService notificationService;
 
     // Thread-local HashMap pools - eliminates allocation per request
     private static final ThreadLocal<HashMap<String, String>> PARAM_CACHE =
@@ -60,13 +71,12 @@ public class OrderHandler {
             );
         }
 
-        DslJsonService.parse(body, OrderCreateRequest.class); // Validate request
+        OrderCreateRequest request = DslJsonService.parse(body, OrderCreateRequest.class);
 
-        return DslJsonService.writeToBuffer(
-                new OrderCreateResponse(1, "OK", 15),
-                out,
-                offset
-        );
+        // DI Example: Use injected OrderService
+        OrderCreateResponse response = orderService.createOrder(request);
+
+        return DslJsonService.writeToBuffer(response, out, offset);
     }
 
     @RustRoute(
@@ -83,12 +93,12 @@ public class OrderHandler {
             String query,
             String headers
     ) {
-        DslJsonService.parse(body, OrderCreateRequest.class);
-        return DslJsonService.writeToBuffer(
-                new OrderCreateResponse(2, "CANCELLED", 0),
-                out,
-                offset
-        );
+        OrderCreateRequest request = DslJsonService.parse(body, OrderCreateRequest.class);
+
+        // DI Example: Use injected OrderService to cancel
+        OrderCreateResponse response = orderService.cancelOrder(String.valueOf(request.orderId()));
+
+        return DslJsonService.writeToBuffer(response, out, offset);
     }
 
     @RustRoute(
@@ -141,6 +151,19 @@ public class OrderHandler {
             String headers
     ) {
         Map<String, String> params = parseParams(pathParams);
+
+        // DI Example: Get order from OrderService
+        String orderId = params.get("id");
+        OrderRequest order = orderService.getOrder(orderId);
+
+        if (order != null) {
+            return DslJsonService.writeToBuffer(
+                    new OrderIdResponse(orderId + " (from DI service)"),
+                    out,
+                    offset
+            );
+        }
+
         return DslJsonService.writeToBuffer(
                 new OrderIdResponse(params.get("id")),
                 out,
@@ -163,8 +186,15 @@ public class OrderHandler {
             String headers
     ) {
         Map<String, String> q = parseParams(query);
+
+        // DI Example: Search via OrderService
+        String status = q.get("status");
+        int page = q.get("page") != null ? Integer.parseInt(q.get("page")) : 1;
+
+        List<OrderRequest> orders = orderService.searchOrders(status, page);
+
         return DslJsonService.writeToBuffer(
-                new OrderSearchResponse(q.get("status"), q.get("page")),
+                new OrderSearchResponse(status + " (" + orders.size() + " results)", q.get("page")),
                 out,
                 offset
         );

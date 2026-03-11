@@ -7,7 +7,6 @@ import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.example.handler.BenchmarkHandler;
 import com.reactor.rust.example.handler.OrderHandler;
-import com.reactor.rust.example.service.OrderService;
 
 /**
  * Main Application - Pure Java with Lightweight DI Container
@@ -29,6 +28,21 @@ import com.reactor.rust.example.service.OrderService;
  *   <li>Constraint #5: High Concurrency & Financial Standards</li>
  *   <li>Constraint #7: RECORD ZORUNLULUĞU - Only Records for DTOs</li>
  * </ul>
+ *
+ * <h2>DI Usage Example:</h2>
+ * <pre>{@code
+ * // 1. Get BeanContainer instance
+ * BeanContainer container = BeanContainer.getInstance();
+ *
+ * // 2. Scan for @Component, @Service, @Configuration
+ * container.scan("com.reactor.rust.example");
+ *
+ * // 3. Start container - resolves all dependencies
+ * container.start();
+ *
+ * // 4. Get beans with zero-overhead O(1) lookup
+ * OrderHandler handler = container.getBean(OrderHandler.class);
+ * }</pre>
  */
 public class ReactorRustHyperApplication {
 
@@ -39,19 +53,22 @@ public class ReactorRustHyperApplication {
         PropertiesLoader.load();
 
         // 2. Initialize DI Container (ZERO runtime overhead)
-        initDIContainer();
+        BeanContainer container = initDIContainer();
 
         // 3. Scan and register routes
         RouteScanner.scanAndRegister();
 
+        // 4. Register handlers with DI
+        registerHandlers(container);
+
         System.out.println("[JAVA] Context initialized.");
 
-        // 4. Start HTTP server
+        // 5. Start HTTP server
         int port = PropertiesLoader.getInt("server.port", 8080);
         System.out.println("[JAVA] Starting Rust Hyper server on port " + port + "...");
         NativeBridge.startHttpServer(port);
 
-        // 5. Keep JVM alive - Rust server runs in separate thread
+        // 6. Keep JVM alive - Rust server runs in separate thread
         try {
             Thread.sleep(Long.MAX_VALUE);
         } catch (InterruptedException e) {
@@ -63,8 +80,10 @@ public class ReactorRustHyperApplication {
      * Initialize DI Container with component scanning.
      *
      * <p>Zero-overhead startup - all dependencies resolved at startup time.</p>
+     *
+     * @return initialized BeanContainer
      */
-    private static void initDIContainer() {
+    private static BeanContainer initDIContainer() {
         BeanContainer container = BeanContainer.getInstance();
 
         // Scan for @Component, @Service, @Repository, @Configuration
@@ -73,20 +92,31 @@ public class ReactorRustHyperApplication {
         // Start container - resolves all dependencies
         container.start();
 
-        // Register handlers with injected dependencies
-        HandlerRegistry registry = HandlerRegistry.getInstance();
-
-        // Get OrderHandler with injected OrderService
-        OrderService orderService = container.getBean(OrderService.class);
-
-        // Register handlers
-        OrderHandler orderHandler = new OrderHandler();
-        registry.registerBean(orderHandler);
-
-        BenchmarkHandler benchmarkHandler = new BenchmarkHandler();
-        registry.registerBean(benchmarkHandler);
-
         System.out.println("[JAVA] DI Container started with " +
             container.getBeanNames().size() + " beans");
+
+        return container;
+    }
+
+    /**
+     * Register handlers with DI support.
+     *
+     * <p>Handlers are retrieved from BeanContainer with all dependencies already injected.</p>
+     *
+     * @param container initialized BeanContainer
+     */
+    private static void registerHandlers(BeanContainer container) {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+
+        // Get handlers from container (dependencies already injected by @Autowired)
+        // Handlers are @Component annotated, so they're in the container
+        OrderHandler orderHandler = container.getBean(OrderHandler.class);
+        BenchmarkHandler benchmarkHandler = container.getBean(BenchmarkHandler.class);
+
+        // Register with handler registry
+        registry.registerBean(orderHandler);
+        registry.registerBean(benchmarkHandler);
+
+        System.out.println("[JAVA] Handlers registered with DI support");
     }
 }
