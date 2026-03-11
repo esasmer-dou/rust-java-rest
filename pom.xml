@@ -12,6 +12,27 @@
     <name>Rust-Java REST Framework</name>
     <description>Ultra-low latency REST API framework with Rust Hyper server and Java handlers</description>
 
+    <url>https://github.com/esasmer-dou/rust-java-rest</url>
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>esasmer-dou</id>
+            <name>Mustafa</name>
+            <email>mustafakorkmz@gmail.com</email>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:git://github.com/esasmer-dou/rust-java-rest.git</connection>
+        <developerConnection>scm:git:ssh://github.com:esasmer-dou/rust-java-rest.git</developerConnection>
+        <url>https://github.com/esasmer-dou/rust-java-rest</url>
+    </scm>
+
     <properties>
         <java.version>21</java.version>
         <maven.compiler.source>21</maven.compiler.source>
@@ -21,7 +42,17 @@
         <maven-shade-plugin-version>3.5.1</maven-shade-plugin-version>
         <exec-maven-plugin-version>3.1.1</exec-maven-plugin-version>
         <jakarta.annotation-api-version>2.1.1</jakarta.annotation-api-version>
+        <maven-source-plugin-version>3.3.0</maven-source-plugin-version>
+        <maven-javadoc-plugin-version>3.6.3</maven-javadoc-plugin-version>
     </properties>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/esasmer-dou/rust-java-rest</url>
+        </repository>
+    </distributionManagement>
 
     <dependencies>
 
@@ -104,6 +135,40 @@
                 <version>${exec-maven-plugin-version}</version>
                 <configuration>
                     <mainClass>com.reactor.rust.example.ReactorRustHyperApplication</mainClass>
+                </configuration>
+            </plugin>
+
+            <!-- Source Plugin for publishing sources -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>${maven-source-plugin-version}</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Javadoc Plugin for publishing javadoc -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>${maven-javadoc-plugin-version}</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <doclint>none</doclint>
+                    <quiet>true</quiet>
                 </configuration>
             </plugin>
 

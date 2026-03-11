@@ -14,7 +14,18 @@ Rust Hyper HTTP sunucusu + Java handler'lar ile ultra hızlı REST API framework
 
 ## Kurulum
 
-### 1. pom.xml'e Ekle
+### 1. Repository Ekle
+
+```xml
+<repositories>
+    <repository>
+        <id>github</id>
+        <url>https://maven.pkg.github.com/esasmer-dou/rust-java-rest</url>
+    </repository>
+</repositories>
+```
+
+### 2. Dependency Ekle
 
 ```xml
 <dependency>
@@ -23,6 +34,9 @@ Rust Hyper HTTP sunucusu + Java handler'lar ile ultra hızlı REST API framework
     <version>1.0.0</version>
 </dependency>
 ```
+
+> **Not:** GitHub Packages erişimi için `~/.m2/settings.xml` dosyanıza GitHub token eklemeniz gerekebilir.
+> Detaylı bilgi: https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-apache-maven-registry
 
 ### 2. DSL-JSON Annotation Processor Ekle
 
@@ -576,11 +590,42 @@ public int olustur(ByteBuffer out, int offset, byte[] body,
 
 ## Desteklenen Platformlar
 
-| Platform | Durum |
-|----------|-------|
-| Linux x64 | ✅ |
-| Windows x64 | ✅ |
-| macOS | 🚧 Yakında |
+| Platform | Native Library | Durum |
+|----------|----------------|-------|
+| Linux x64 | `librust_hyper.so` | ✅ |
+| Windows x64 | `rust_hyper.dll` | ✅ |
+| macOS x64 | `librust_hyper.dylib` | 🚧 Yakında |
+| macOS ARM64 | `librust_hyper.dylib` | 🚧 Yakında |
+
+---
+
+## Native Library Kullanımı
+
+Framework, Rust Hyper HTTP sunucusu için native library gerektirir. Bu library **otomatik olarak JAR içine gömülüdür** ve runtime'da otomatik yüklenir.
+
+### Otomatik Yükleme (Varsayılan)
+
+```java
+// Native library otomatik yüklenir - ek işlem gerekmez
+NativeBridge.startHttpServer(8080);
+```
+
+### Manuel Yükleme
+
+```bash
+# Özel library yolu belirtmek için
+java -Drust.lib.path=/path/to/rust_hyper.dll -jar myapp.jar
+
+# veya java.library.path kullanarak
+java -Djava.library.path=/path/to/native/dir -jar myapp.jar
+```
+
+### Native Library Dosyaları
+
+| Platform | Dosya | Konum (JAR içinde) |
+|----------|-------|-------------------|
+| Windows x64 | `rust_hyper.dll` | `native/windows-x64/` |
+| Linux x64 | `librust_hyper.so` | `native/linux-x64/` |
 
 ---
 

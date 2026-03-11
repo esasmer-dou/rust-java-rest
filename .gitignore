@@ -21,10 +21,13 @@ nbproject/
 .DS_Store
 Thumbs.db
 
-# Rust native
+# Rust native (except embedded libraries in resources)
 *.so
 *.dll
 *.dylib
+!src/main/resources/native/**/*.so
+!src/main/resources/native/**/*.dll
+!src/main/resources/native/**/*.dylib
 
 # Logs
 *.log
