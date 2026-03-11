@@ -1,83 +1,87 @@
-#base image : custom bir image
-FROM 10.21.21.119/pethevean/petheaven-pet-api-jre21:1.0.0 AS builder
+# Rust-Java REST Framework - Minimal Memory
+#
+# Native library is bundled in JAR - no Rust build required!
+#
+# Build from project root:
+#   docker build -t rust-java-rest:minimal -f src/main/resources/container/Dockerfile .
+#
+# Run:
+#   docker run -p 8080:8080 --memory=40m rust-java-rest:minimal
 
-USER 0
+# ============================================
+# STAGE 1: Build Java (with full JDK)
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS java-builder
 
-WORKDIR source
+WORKDIR /build
 
-ARG JAR_FILE=*.jar
+# Install Maven
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    maven \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY ${JAR_FILE} application.jar
+# Copy pom first (cached layer)
+COPY pom.xml .
 
-RUN java -Djarmode=layertools -jar application.jar extract
+# Download dependencies
+RUN mvn dependency:go-offline -B -q || true
 
-RUN rsync -a application/* ./
-RUN rsync -a dependencies/* ./
-RUN rsync -a spring-boot-loader/* ./
-# bu arkadasin ici bos
-RUN rsync -a --ignore-missing-args snapshot-dependencies/* ./
-RUN true
-COPY librust_hyper.so rust_hyper.so
-RUN true
+# Copy source and build (native library is bundled in resources)
+COPY src ./src
+RUN mvn package -DskipTests -B -q
 
-RUN /bin/sh -c 'java -Xquickstart -Xscmx30M -Xshareclasses:name=openj9cache,cacheDir=openj9cache org.springframework.boot.loader.launch.JarLauncher &' ; sleep 15 ; ps aux | grep java | grep springframework | awk '{print $2}' | pkill -9 -f springframework
-RUN true
-RUN sed -i -e 's/BOOT-INF/NEW_BOOT-INF/g' BOOT-INF/classpath.idx
-RUN true
-RUN rm -rf BOOT-INF/lib
-RUN true
-RUN rm -rf BOOT-INF/classes/container
-RUN true
+# Extract dependencies
+RUN mkdir -p target/lib && \
+    mvn dependency:copy-dependencies -DoutputDirectory=target/lib -B -q
 
-FROM 10.21.21.119/pethevean/petheaven-pet-api-jre21:1.1.0
+# ============================================
+# STAGE 2: Runtime (minimal JRE)
+# ============================================
+FROM eclipse-temurin:21-jre-jammy
 
-ARG APP_HOME=/u01/applications/petheaven-spring-rust
+WORKDIR /app
 
-USER 0
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
-RUN mkdir -p /app/native
-RUN mkdir -p ${APP_HOME}/glowroot-config
-RUN mkdir -p ${APP_HOME}/glowroot-tmp
-RUN mkdir -p ${APP_HOME}/glowroot-log
-RUN mkdir -p ${APP_HOME}/cache
-RUN mkdir -p ${APP_HOME}/BOOT-INF
-RUN mkdir -p ${APP_HOME}/META-INF
-RUN mkdir -p ${APP_HOME}/org
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
-WORKDIR ${APP_HOME}
+# Copy JAR and dependencies
+COPY --from=java-builder /build/target/rust-java-rest-1.0.0.jar ./app.jar
+COPY --from=java-builder /build/target/lib ./lib/
 
+# Native library is bundled in JAR - no separate copy needed!
 
-# agent config.json
-COPY config.json /u01/applications/petheaven-spring-rust/glowroot-config/
+# Ultra-Minimal JVM Options (HotSpot Serial GC - lowest memory)
+ENV JAVA_OPTS="\
+-Xms4m \
+-Xmx20m \
+-XX:+UseSerialGC \
+-XX:MaxHeapFreeRatio=10 \
+-XX:MinHeapFreeRatio=5 \
+-XX:+UseCompressedOops \
+-XX:+UseCompressedClassPointers \
+-XX:MaxMetaspaceSize=24m \
+-XX:CompressedClassSpaceSize=8m \
+-XX:InitialCodeCacheSize=1m \
+-XX:ReservedCodeCacheSize=8m \
+-XX:+TieredCompilation \
+-XX:TieredStopAtLevel=1 \
+-Djava.security.egd=file:/dev/./urandom \
+-Dfile.encoding=UTF-8"
 
-COPY --from=builder source/rust_hyper.so /app/native/rust_hyper.so
-COPY --from=builder source/openj9cache ./cache
-COPY --from=builder source/BOOT-INF ./BOOT-INF
-COPY --from=builder source/META-INF ./META-INF
-COPY --from=builder source/org ./org
-RUN true
-COPY --from=builder source/application/ ./
-RUN true
+# Create necessary directories
+RUN mkdir -p /tmp && chown -R appuser:appgroup /app /tmp
 
+USER appuser
 
-# tune glibc memory allocation, optimize for low fragmentation
-# limit the number of arenas
-# requires glibc >= 2.16 since there was a bug in
-# MALLOC_ARENA_TEST parameter handling that cause MALLOC_ARENA_MAX not to work
+EXPOSE 8080
 
-ENV MALLOC_ARENA_MAX=1
+# Health check
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
-# disable dynamic mmap threshold, see M_MMAP_THRESHOLD in "man mallopt"
-
-# ENV MALLOC_MMAP_THRESHOLD_=131072
-# ENV MALLOC_TRIM_THRESHOLD_=131072
-# ENV MALLOC_TOP_PAD_=131072
-# ENV MALLOC_MMAP_MAX_=65536
-
-
-RUN sed -i -e 's/BOOT-INF/NEW_BOOT-INF/g' BOOT-INF/classpath.idx
-RUN true
-
-# RUN apt-get remove -y procps && apt-get -y remove rsync && rm -rf /var/lib/apt/lists/*
-
-# CMD ["sleep", "10000"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -cp app.jar:lib/* com.reactor.rust.example.ReactorRustHyperApplication"]
