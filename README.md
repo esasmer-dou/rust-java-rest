@@ -631,12 +631,69 @@ java -Djava.library.path=/path/to/native/dir -jar myapp.jar
 
 ## Docker
 
-```bash
-# Image oluştur
-docker build -t rust-java-rest:latest -f docker/rust-java-rest/Dockerfile .
+Framework, production için optimize edilmiş Docker image desteği sunar.
 
-# Çalıştır (40MB limit)
-docker run -p 8080:8080 --memory=40m rust-java-rest:latest
+### Build
+
+```bash
+# Proje dizininde
+cd rust-java-rest
+
+# Image oluştur
+docker build -t rust-java-rest:1.0.0 -f src/main/resources/container/Dockerfile .
+```
+
+### Çalıştır
+
+```bash
+# 40MB memory limit ile
+docker run -d -p 8080:8080 --memory=40m --name rust-java-app rust-java-rest:1.0.0
+
+# Health check ile
+docker run -d -p 8080:8080 --memory=40m --health-cmd="curl -f http://localhost:8080/health" rust-java-rest:1.0.0
+```
+
+### Dockerfile Özellikleri
+
+| Özellik | Değer |
+|---------|-------|
+| Base Image | `eclipse-temurin:21-jre-jammy` |
+| Multi-stage Build | ✅ (JDK → JRE) |
+| Non-root User | ✅ (`appuser`) |
+| Health Check | ✅ (10s interval) |
+| Memory Limit | 40MB |
+| JVM Heap | 4-20MB |
+
+### JVM Ayarları
+
+```bash
+# Dockerfile içindeki varsayılan ayarlar
+-Xms4m                          # Minimum heap
+-Xmx20m                         # Maximum heap
+-XX:+UseSerialGC                # En düşük memory GC
+-XX:MaxMetaspaceSize=24m        # Metaspace limit
+-XX:+TieredCompilation          # Hızlı startup
+-XX:TieredStopAtLevel=1         # C1 compiler only
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  rust-java-rest:
+    image: rust-java-rest:1.0.0
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 40M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 ```
 
 ---
