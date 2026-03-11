@@ -9,6 +9,7 @@ Rust Hyper HTTP sunucusu + Java handler'lar ile ultra hızlı REST API framework
 - Spring Boot benzeri annotation-based API
 - ResponseEntity<T> dönüş tipi desteği
 - Otomatik parametre çözümleme (@PathVariable, @RequestParam, @HeaderParam, @RequestBody)
+- Zero-overhead Dependency Injection (@Service, @Autowired, @PostConstruct)
 
 ---
 
@@ -721,6 +722,8 @@ com.myapp/
 
 ## Annotation Özeti
 
+### REST API Annotation'ları
+
 | Annotation | Açıklama |
 |------------|----------|
 | `@RequestMapping` | Class-level base path |
@@ -738,6 +741,218 @@ com.myapp/
 | `@RustRoute` | Legacy annotation (V4 imza) |
 | `@Request` | Request DTO işaretle |
 | `@Response` | Response DTO işaretle |
+
+### DI Annotation'ları
+
+| Annotation | Açıklama |
+|------------|----------|
+| `@Component` | Genel bileşen işaretle |
+| `@Service` | İş mantığı servisi |
+| `@Repository` | Veri erişim katmanı |
+| `@Configuration` | Konfigürasyon sınıfı |
+| `@Bean` | Bean üreten metod |
+| `@Autowired` | Bağımlılık enjeksiyonu |
+| `@PostConstruct` | Başlatma callback'i |
+| `@PreDestroy` | Temizleme callback'i |
+| `@Primary` | Primary bean |
+| `@Qualifier` | Bean seçimi |
+
+---
+
+## Dependency Injection (DI)
+
+Framework, Spring Boot benzeri sıfır-overhead Dependency Injection desteği sunar. Tüm bağımlılıklar startup'ta çözülür, runtime'da reflection YOK.
+
+### DI Annotation'ları
+
+| Annotation | Açıklama |
+|------------|----------|
+| `@Component` | Genel bileşen |
+| `@Service` | İş mantığı servisi |
+| `@Repository` | Veri erişim katmanı |
+| `@Configuration` | Konfigürasyon sınıfı |
+| `@Bean` | Bean üreten metod |
+| `@Autowired` | Bağımlılık enjeksiyonu |
+| `@PostConstruct` | Başlatma callback'i |
+| `@PreDestroy` | Temizleme callback'i |
+| `@Primary` | Primary bean |
+| `@Qualifier` | Bean seçimi |
+
+### Servis Tanımlama
+
+```java
+import com.reactor.rust.di.annotation.Service;
+import com.reactor.rust.di.annotation.Autowired;
+import com.reactor.rust.di.annotation.PostConstruct;
+
+@Service
+public class OrderService {
+
+    @Autowired(required = false)
+    private NotificationService notificationService;
+
+    private final Map<String, Order> orders = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    public void init() {
+        System.out.println("[OrderService] Initialized");
+    }
+
+    public Order createOrder(OrderRequest request) {
+        Order order = new Order(generateId(), request);
+        orders.put(order.id(), order);
+
+        if (notificationService != null) {
+            notificationService.notify("Order created: " + order.id());
+        }
+
+        return order;
+    }
+}
+```
+
+### @Configuration ve @Bean
+
+```java
+import com.reactor.rust.di.annotation.Configuration;
+import com.reactor.rust.di.annotation.Bean;
+
+@Configuration
+public class AppConfiguration {
+
+    @Bean
+    public ExecutorService taskExecutor() {
+        return Executors.newVirtualThreadPerTaskExecutor();
+    }
+
+    @Bean("appMetadata")
+    public AppMetadata appMetadata() {
+        return new AppMetadata("my-app", "1.0.0");
+    }
+
+    public record AppMetadata(String name, String version) {}
+}
+```
+
+### Handler'da Servis Kullanımı
+
+```java
+import com.reactor.rust.di.annotation.Autowired;
+
+@RequestMapping("/siparis")
+public class SiparisHandler {
+
+    @Autowired
+    private OrderService orderService;  // Otomatik enjekte edilir
+
+    @PostMapping(value = "/olustur", requestType = SiparisRequest.class, responseType = SiparisResponse.class)
+    public ResponseEntity<SiparisResponse> olustur(@RequestBody SiparisRequest request) {
+        // orderService otomatik olarak inject edilmiş
+        Order order = orderService.createOrder(request);
+        return ResponseEntity.ok(new SiparisResponse(1, "OK"));
+    }
+}
+```
+
+### DI Container Kullanımı
+
+```java
+import com.reactor.rust.di.BeanContainer;
+import com.reactor.rust.bridge.HandlerRegistry;
+import com.reactor.rust.bridge.RouteScanner;
+import com.reactor.rust.bridge.NativeBridge;
+
+public class Application {
+    public static void main(String[] args) throws InterruptedException {
+        // 1. DI Container'ı başlat
+        BeanContainer container = BeanContainer.getInstance();
+
+        // 2. Component scanning
+        container.scan("com.myapp");
+
+        // 3. Container'ı başlat (tüm bağımlılıklar çözülür)
+        container.start();
+
+        // 4. Route'ları tara
+        RouteScanner.scanAndRegister();
+
+        // 5. Handler'ları kaydet
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        registry.registerBean(new SiparisHandler());
+
+        // 6. Sunucuyu başlat
+        NativeBridge.startHttpServer(8080);
+
+        System.out.println("Sunucu çalışıyor: http://localhost:8080");
+        Thread.sleep(Long.MAX_VALUE);
+    }
+}
+```
+
+### Lifecycle Callback'ler
+
+```java
+import com.reactor.rust.di.annotation.Service;
+import com.reactor.rust.di.annotation.PostConstruct;
+import com.reactor.rust.di.annotation.PreDestroy;
+
+@Service
+public class NotificationService {
+
+    private ExecutorService executor;
+
+    @PostConstruct
+    public void init() {
+        // Başlatma
+        executor = Executors.newSingleThreadExecutor();
+        System.out.println("[NotificationService] Ready");
+    }
+
+    @PreDestroy
+    public void cleanup() {
+        // Temizleme
+        executor.shutdown();
+        System.out.println("[NotificationService] Shutdown");
+    }
+
+    public void notify(String message) {
+        executor.submit(() -> sendNotification(message));
+    }
+}
+```
+
+### Primary ve Qualifier
+
+```java
+// Birden fazla aynı tipte bean varsa
+@Service
+@Primary  // Varsayılan olarak bu kullanılır
+public class DefaultEmailService implements EmailService { ... }
+
+@Service
+public class SmtpEmailService implements EmailService { ... }
+
+// Kullanım
+@Service
+public class UserService {
+
+    @Autowired
+    private EmailService emailService;  // DefaultEmailService enjekte edilir
+
+    @Autowired
+    @Qualifier("smtpEmailService")  // Belirli bir bean
+    private EmailService smtpService;
+}
+```
+
+### DI Performans Özellikleri
+
+| Özellik | Değer |
+|---------|-------|
+| Lookup overhead | O(1) ConcurrentHashMap |
+| Runtime reflection | YOK (sadece startup'ta) |
+| Memory overhead | ~50-100 bytes/bean |
+| Startup | O(n) - n = bean sayısı |
 
 ---
 
