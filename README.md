@@ -3,31 +3,31 @@
 [![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Rust Hyper HTTP sunucusu + Java handler'lar ile ultra hızlı REST API framework.
+Ultra-fast REST API framework combining Rust Hyper HTTP server with Java handlers.
 
 ## v2.0.0 - Zero-Overhead Dependency Injection
 
-Bu sürüm, Spring Boot benzeri **sıfır-overhead Dependency Injection** desteği ekler:
+This release adds **zero-overhead Dependency Injection** similar to Spring Boot:
 - `@Component`, `@Service`, `@Repository`, `@Configuration`
-- `@Autowired` ile bağımlılık enjeksiyonu
-- `@PostConstruct` ve `@PreDestroy` lifecycle callback'ler
-- `@Bean` metodları ile bean üretimi
-- **O(1) lookup** - Runtime'da reflection YOK
+- `@Autowired` for dependency injection
+- `@PostConstruct` and `@PreDestroy` lifecycle callbacks
+- `@Bean` methods for bean production
+- **O(1) lookup** - NO runtime reflection
 
-**Özellikler:**
+**Features:**
 - ~27 MB memory (Spring Boot: ~94 MB)
 - 3,257 RPS (Spring Boot: ~1,150 RPS)
 - 33 ms latency (Spring Boot: ~144 ms)
-- Spring Boot benzeri annotation-based API
-- ResponseEntity<T> dönüş tipi desteği
-- Otomatik parametre çözümleme (@PathVariable, @RequestParam, @HeaderParam, @RequestBody)
+- Spring Boot-like annotation-based API
+- ResponseEntity<T> return type support
+- Automatic parameter resolution (@PathVariable, @RequestParam, @HeaderParam, @RequestBody)
 - **Zero-overhead Dependency Injection** (@Service, @Autowired, @PostConstruct)
 
 ---
 
-## Kurulum
+## Installation
 
-### 1. Repository Ekle
+### 1. Add Repository
 
 ```xml
 <repositories>
@@ -38,7 +38,7 @@ Bu sürüm, Spring Boot benzeri **sıfır-overhead Dependency Injection** deste�
 </repositories>
 ```
 
-### 2. Dependency Ekle
+### 2. Add Dependency
 
 ```xml
 <dependency>
@@ -48,7 +48,7 @@ Bu sürüm, Spring Boot benzeri **sıfır-overhead Dependency Injection** deste�
 </dependency>
 ```
 
-> **Not:** GitHub Packages erişimi için `~/.m2/settings.xml` dosyanıza GitHub token eklemeniz gerekmektedir:
+> **Note:** GitHub Packages requires authentication. Add your GitHub token to `~/.m2/settings.xml`:
 >
 > ```xml
 > <settings>
@@ -62,10 +62,10 @@ Bu sürüm, Spring Boot benzeri **sıfır-overhead Dependency Injection** deste�
 > </settings>
 > ```
 >
-> Token oluşturmak için: GitHub → Settings → Developer settings → Personal access tokens → Generate new token (classic)
-> Gerekli scope: `read:packages`
+> To create a token: GitHub → Settings → Developer settings → Personal access tokens → Generate new token (classic)
+> Required scope: `read:packages`
 
-### 2. DSL-JSON Annotation Processor Ekle
+### 3. Add DSL-JSON Annotation Processor
 
 ```xml
 <build>
@@ -90,9 +90,9 @@ Bu sürüm, Spring Boot benzeri **sıfır-overhead Dependency Injection** deste�
 
 ---
 
-## Kullanım
+## Usage
 
-### Adım 1: Request DTO Oluştur
+### Step 1: Create Request DTO
 
 ```java
 import com.reactor.rust.annotations.Request;
@@ -100,13 +100,13 @@ import com.dslplatform.json.CompiledJson;
 
 @Request
 @CompiledJson
-public record SiparisRequest(
-    String siparisId,
-    double tutar
+public record OrderRequest(
+    String orderId,
+    double amount
 ) {}
 ```
 
-### Adım 2: Response DTO Oluştur
+### Step 2: Create Response DTO
 
 ```java
 import com.reactor.rust.annotations.Response;
@@ -114,15 +114,15 @@ import com.dslplatform.json.CompiledJson;
 
 @Response
 @CompiledJson
-public record SiparisResponse(
-    int durum,
-    String mesaj
+public record OrderResponse(
+    int status,
+    String message
 ) {}
 ```
 
-### Adım 3: Handler Oluştur
+### Step 3: Create Handler
 
-#### Yeni Stil (Önerilen) - Annotation-Based Parametreler
+#### New Style (Recommended) - Annotation-Based Parameters
 
 ```java
 import com.reactor.rust.annotations.*;
@@ -130,161 +130,161 @@ import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.MediaType;
 
-@RequestMapping("/siparis")
-public class SiparisHandler {
+@RequestMapping("/order")
+public class OrderHandler {
 
-    @PostMapping(value = "/olustur", requestType = SiparisRequest.class, responseType = SiparisResponse.class)
+    @PostMapping(value = "/create", requestType = OrderRequest.class, responseType = OrderResponse.class)
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<SiparisResponse> olustur(
-            @RequestBody SiparisRequest request,
+    public ResponseEntity<OrderResponse> create(
+            @RequestBody OrderRequest request,
             @HeaderParam("X-Request-ID") String requestId) {
 
-        // İş mantığı
-        System.out.println("Sipariş: " + request.siparisId());
+        // Business logic
+        System.out.println("Order: " + request.orderId());
         System.out.println("Request ID: " + requestId);
 
-        // ResponseEntity ile response döndür
-        SiparisResponse response = new SiparisResponse(1, "Başarılı");
+        // Return ResponseEntity
+        OrderResponse response = new OrderResponse(1, "Success");
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping(value = "/{id}", responseType = SiparisResponse.class)
-    public ResponseEntity<SiparisResponse> getir(@PathVariable("id") String id) {
-        SiparisResponse response = new SiparisResponse(1, "Bulundu: " + id);
+    @GetMapping(value = "/{id}", responseType = OrderResponse.class)
+    public ResponseEntity<OrderResponse> getById(@PathVariable("id") String id) {
+        OrderResponse response = new OrderResponse(1, "Found: " + id);
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping(value = "/ara", responseType = SiparisResponse.class)
-    public ResponseEntity<SiparisResponse> ara(@RequestParam("durum") String durum) {
-        SiparisResponse response = new SiparisResponse(1, "Durum: " + durum);
+    @GetMapping(value = "/search", responseType = OrderResponse.class)
+    public ResponseEntity<OrderResponse> search(@RequestParam("status") String status) {
+        OrderResponse response = new OrderResponse(1, "Status: " + status);
         return ResponseEntity.ok(response);
     }
 }
 ```
 
-#### Eski Stil - ByteBuffer İmzası (Backward Compatible)
+#### Old Style - ByteBuffer Signature (Backward Compatible)
 
 ```java
 import com.reactor.rust.annotations.RustRoute;
 import com.reactor.rust.json.DslJsonService;
 import java.nio.ByteBuffer;
 
-public class SiparisHandler {
+public class OrderHandler {
 
     @RustRoute(
         method = "POST",
-        path = "/siparis/olustur",
-        requestType = SiparisRequest.class,
-        responseType = SiparisResponse.class
+        path = "/order/create",
+        requestType = OrderRequest.class,
+        responseType = OrderResponse.class
     )
-    public int olustur(ByteBuffer out, int offset, byte[] body) {
-        // JSON'dan nesneye çevir
-        SiparisRequest request = DslJsonService.parse(body, SiparisRequest.class);
+    public int create(ByteBuffer out, int offset, byte[] body) {
+        // Parse JSON to object
+        OrderRequest request = DslJsonService.parse(body, OrderRequest.class);
 
-        // İş mantığı
-        System.out.println("Sipariş: " + request.siparisId());
+        // Business logic
+        System.out.println("Order: " + request.orderId());
 
-        // Response oluştur
-        SiparisResponse response = new SiparisResponse(1, "Başarılı");
+        // Create response
+        OrderResponse response = new OrderResponse(1, "Success");
 
-        // JSON'a çevir ve buffer'a yaz
+        // Serialize to buffer
         return DslJsonService.writeToBuffer(response, out, offset);
     }
 }
 ```
 
-### Adım 4: Main Sınıfı
+### Step 4: Main Class
 
 ```java
 import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 
-public class Uygulama {
+public class Application {
     public static void main(String[] args) throws InterruptedException {
-        // Handler'ı kaydet
+        // Register handlers
         HandlerRegistry registry = HandlerRegistry.getInstance();
-        registry.registerBean(new SiparisHandler());
+        registry.registerBean(new OrderHandler());
 
-        // Route'ları tara
+        // Scan routes
         RouteScanner.scanAndRegister();
 
-        // Sunucuyu başlat
+        // Start server
         NativeBridge.startHttpServer(8080);
-        System.out.println("Sunucu çalışıyor: http://localhost:8080");
+        System.out.println("Server running: http://localhost:8080");
 
-        // JVM canlı tut
+        // Keep JVM alive
         Thread.sleep(Long.MAX_VALUE);
     }
 }
 ```
 
-### Adım 5: Çalıştır
+### Step 5: Run
 
 ```bash
 mvn clean package -DskipTests
-java -cp target/rust-java-rest-2.0.0.jar:target/lib/* Uygulama
+java -cp target/rust-java-rest-2.0.0.jar:target/lib/* Application
 ```
 
-### Adım 6: Test Et
+### Step 6: Test
 
 ```bash
-curl -X POST http://localhost:8080/siparis/olustur \
+curl -X POST http://localhost:8080/order/create \
   -H "Content-Type: application/json" \
   -H "X-Request-ID: REQ-001" \
-  -d '{"siparisId":"SIP-001", "tutar":150.50}'
+  -d '{"orderId":"ORD-001", "amount":150.50}'
 ```
 
 ---
 
-## HTTP Metod Annotation'ları
+## HTTP Method Annotations
 
-Framework Spring Boot benzeri HTTP metod annotation'ları destekler:
+The framework supports Spring Boot-like HTTP method annotations:
 
 ### @GetMapping
 
 ```java
-@GetMapping(value = "/urun/{id}", responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> getir(@PathVariable("id") String id) {
-    return ResponseEntity.ok(urunService.bul(id));
+@GetMapping(value = "/product/{id}", responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> getById(@PathVariable("id") String id) {
+    return ResponseEntity.ok(productService.find(id));
 }
 ```
 
 ### @PostMapping
 
 ```java
-@PostMapping(value = "/urun/ekle", requestType = UrunRequest.class, responseType = UrunResponse.class)
+@PostMapping(value = "/product/add", requestType = ProductRequest.class, responseType = ProductResponse.class)
 @ResponseStatus(HttpStatus.CREATED)
-public ResponseEntity<UrunResponse> ekle(@RequestBody UrunRequest request) {
-    return ResponseEntity.created(urunService.kaydet(request));
+public ResponseEntity<ProductResponse> add(@RequestBody ProductRequest request) {
+    return ResponseEntity.created(productService.save(request));
 }
 ```
 
 ### @PutMapping
 
 ```java
-@PutMapping(value = "/urun/guncelle", requestType = UrunRequest.class, responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> guncelle(@RequestBody UrunRequest request) {
-    return ResponseEntity.ok(urunService.guncelle(request));
+@PutMapping(value = "/product/update", requestType = ProductRequest.class, responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> update(@RequestBody ProductRequest request) {
+    return ResponseEntity.ok(productService.update(request));
 }
 ```
 
 ### @PatchMapping
 
 ```java
-@PatchMapping(value = "/urun/fiyat", requestType = FiyatGuncelleRequest.class, responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> fiyatGuncelle(@RequestBody FiyatGuncelleRequest request) {
-    return ResponseEntity.ok(urunService.fiyatGuncelle(request));
+@PatchMapping(value = "/product/price", requestType = PriceUpdateRequest.class, responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> updatePrice(@RequestBody PriceUpdateRequest request) {
+    return ResponseEntity.ok(productService.updatePrice(request));
 }
 ```
 
 ### @DeleteMapping
 
 ```java
-@DeleteMapping(value = "/urun/{id}", responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> sil(@PathVariable("id") String id) {
-    urunService.sil(id);
-    return ResponseEntity.ok(new UrunResponse(1, "Silindi"));
+@DeleteMapping(value = "/product/{id}", responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> delete(@PathVariable("id") String id) {
+    productService.delete(id);
+    return ResponseEntity.ok(new ProductResponse(1, "Deleted"));
 }
 ```
 
@@ -294,134 +294,133 @@ public ResponseEntity<UrunResponse> sil(@PathVariable("id") String id) {
 @RequestMapping("/api/v1")
 public class ApiHandler {
 
-    @GetMapping(value = "/urunler", responseType = UrunListResponse.class)
-    public ResponseEntity<UrunListResponse> tumUrunler() {
-        // GET /api/v1/urunler
-        return ResponseEntity.ok(urunService.tumunuGetir());
+    @GetMapping(value = "/products", responseType = ProductListResponse.class)
+    public ResponseEntity<ProductListResponse> getAllProducts() {
+        // GET /api/v1/products
+        return ResponseEntity.ok(productService.getAll());
     }
 }
 ```
 
 ---
 
-## Parametre Annotation'ları
+## Parameter Annotations
 
-### @PathVariable - Path Parametresi
+### @PathVariable - Path Parameter
 
 ```java
-@GetMapping(value = "/siparis/{id}", responseType = SiparisResponse.class)
-public ResponseEntity<SiparisResponse> getir(@PathVariable("id") String siparisId) {
-    // GET /siparis/SIP-001 -> siparisId = "SIP-001"
-    return ResponseEntity.ok(siparisService.bul(siparisId));
+@GetMapping(value = "/order/{id}", responseType = OrderResponse.class)
+public ResponseEntity<OrderResponse> getById(@PathVariable("id") String orderId) {
+    return ResponseEntity.ok(orderService.find(orderId));
 }
 
-@GetMapping(value = "/siparis/{id}/urun/{urunId}", responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> urunGetir(
-        @PathVariable("id") String siparisId,
-        @PathVariable("urunId") String urunId) {
-    // GET /siparis/SIP-001/urun/URUN-123
-    return ResponseEntity.ok(siparisService.urunBul(siparisId, urunId));
+@GetMapping(value = "/order/{id}/item/{itemId}", responseType = ItemResponse.class)
+public ResponseEntity<ItemResponse> getItem(
+        @PathVariable("id") String orderId,
+        @PathVariable("itemId") String itemId) {
+    // GET /order/ORD-001/item/ITEM-123
+    return ResponseEntity.ok(orderService.findItem(orderId, itemId));
 }
 ```
 
-### @RequestParam - Query Parametresi
+### @RequestParam - Query Parameter
 
 ```java
-@GetMapping(value = "/siparis/ara", responseType = SiparisListResponse.class)
-public ResponseEntity<SiparisListResponse> ara(
-        @RequestParam("durum") String durum,
-        @RequestParam(value = "sayfa", defaultValue = "1") int sayfa) {
-    // GET /siparis/ara?durum=bekliyor&sayfa=2
-    return ResponseEntity.ok(siparisService.ara(durum, sayfa));
+@GetMapping(value = "/order/search", responseType = OrderListResponse.class)
+public ResponseEntity<OrderListResponse> search(
+        @RequestParam("status") String status,
+        @RequestParam(value = "page", defaultValue = "1") int page) {
+    // GET /order/search?status=pending&page=2
+    return ResponseEntity.ok(orderService.search(status, page));
 }
 
-@GetMapping(value = "/urun/liste", responseType = UrunListResponse.class)
-public ResponseEntity<UrunListResponse> liste(
-        @RequestParam(value = "sirala", required = false) String sirala,
+@GetMapping(value = "/product/list", responseType = ProductListResponse.class)
+public ResponseEntity<ProductListResponse> list(
+        @RequestParam(value = "sort", required = false) String sort,
         @RequestParam(value = "limit", defaultValue = "10") int limit) {
-    // GET /urun/liste?sirala=fiyat&limit=20
-    return ResponseEntity.ok(urunService.liste(sirala, limit));
+    // GET /product/list?sort=price&limit=20
+    return ResponseEntity.ok(productService.list(sort, limit));
 }
 ```
 
-### @HeaderParam - Header Değeri
+### @HeaderParam - Header Value
 
 ```java
-@PostMapping(value = "/siparis/olustur", requestType = SiparisRequest.class, responseType = SiparisResponse.class)
-public ResponseEntity<SiparisResponse> olustur(
-        @RequestBody SiparisRequest request,
+@PostMapping(value = "/order/create", requestType = OrderRequest.class, responseType = OrderResponse.class)
+public ResponseEntity<OrderResponse> create(
+        @RequestBody OrderRequest request,
         @HeaderParam("X-Request-ID") String requestId,
         @HeaderParam("Authorization") String token) {
-    // X-Request-ID ve Authorization header'larını al
-    return ResponseEntity.ok(siparisService.olustur(request, requestId, token));
+    // Get X-Request-ID and Authorization headers
+    return ResponseEntity.ok(orderService.create(request, requestId, token));
 }
 ```
 
 ### @RequestBody - Request Body
 
 ```java
-@PostMapping(value = "/urun/ekle", requestType = UrunRequest.class, responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> ekle(@RequestBody UrunRequest request) {
-    // Body otomatik olarak UrunRequest'e deserialize edilir
-    return ResponseEntity.ok(urunService.kaydet(request));
+@PostMapping(value = "/product/add", requestType = ProductRequest.class, responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> add(@RequestBody ProductRequest request) {
+    // Body is automatically deserialized to ProductRequest
+    return ResponseEntity.ok(productService.save(request));
 }
 ```
 
-### @CookieValue - Cookie Değeri
+### @CookieValue - Cookie Value
 
 ```java
-@GetMapping(value = "/kullanici/bilgi", responseType = KullaniciResponse.class)
-public ResponseEntity<KullaniciResponse> bilgi(@CookieValue("sessionId") String sessionId) {
-    // Cookie'den sessionId değerini al
-    return ResponseEntity.ok(kullaniciService.oturumBul(sessionId));
+@GetMapping(value = "/user/info", responseType = UserResponse.class)
+public ResponseEntity<UserResponse> getInfo(@CookieValue("sessionId") String sessionId) {
+    // Get sessionId from cookie
+    return ResponseEntity.ok(userService.findBySession(sessionId));
 }
 ```
 
 ---
 
-## ResponseEntity Kullanımı
+## ResponseEntity Usage
 
-ResponseEntity, HTTP response'ları için tip-güvenli bir wrapper sağlar:
+ResponseEntity provides a type-safe wrapper for HTTP responses:
 
 ```java
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.http.HttpStatus;
 
 // 200 OK
-@GetMapping(value = "/urun/{id}", responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> getir(@PathVariable("id") String id) {
-    return ResponseEntity.ok(urunService.bul(id));
+@GetMapping(value = "/product/{id}", responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> getById(@PathVariable("id") String id) {
+    return ResponseEntity.ok(productService.find(id));
 }
 
 // 201 Created
-@PostMapping(value = "/urun/ekle", requestType = UrunRequest.class, responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> ekle(@RequestBody UrunRequest request) {
-    return ResponseEntity.created(urunService.kaydet(request));
+@PostMapping(value = "/product/add", requestType = ProductRequest.class, responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> add(@RequestBody ProductRequest request) {
+    return ResponseEntity.created(productService.save(request));
 }
 
 // 404 Not Found
-@GetMapping(value = "/urun/{id}", responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> getir(@PathVariable("id") String id) {
-    UrunResponse urun = urunService.bul(id);
-    if (urun == null) {
+@GetMapping(value = "/product/{id}", responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> getById(@PathVariable("id") String id) {
+    ProductResponse product = productService.find(id);
+    if (product == null) {
         return ResponseEntity.notFound();
     }
-    return ResponseEntity.ok(urun);
+    return ResponseEntity.ok(product);
 }
 
 // 400 Bad Request
-@PostMapping(value = "/urun/ekle", requestType = UrunRequest.class, responseType = UrunResponse.class)
-public ResponseEntity<UrunResponse> ekle(@RequestBody UrunRequest request) {
-    if (request.ad() == null || request.ad().isEmpty()) {
+@PostMapping(value = "/product/add", requestType = ProductRequest.class, responseType = ProductResponse.class)
+public ResponseEntity<ProductResponse> add(@RequestBody ProductRequest request) {
+    if (request.name() == null || request.name().isEmpty()) {
         return ResponseEntity.badRequest();
     }
-    return ResponseEntity.ok(urunService.kaydet(request));
+    return ResponseEntity.ok(productService.save(request));
 }
 
 // Custom Status
-@DeleteMapping(value = "/urun/{id}", responseType = Void.class)
-public ResponseEntity<Void> sil(@PathVariable("id") String id) {
-    urunService.sil(id);
+@DeleteMapping(value = "/product/{id}", responseType = Void.class)
+public ResponseEntity<Void> delete(@PathVariable("id") String id) {
+    productService.delete(id);
     return ResponseEntity.status(HttpStatus.NO_CONTENT);
 }
 ```
@@ -430,22 +429,22 @@ public ResponseEntity<Void> sil(@PathVariable("id") String id) {
 
 ## @ResponseStatus Annotation
 
-Handler metodları için HTTP status code belirtmek için kullanılır:
+Used to specify HTTP status code for handler methods:
 
 ```java
 import com.reactor.rust.annotations.ResponseStatus;
 import com.reactor.rust.http.HttpStatus;
 
-@PostMapping(value = "/siparis/olustur", requestType = SiparisRequest.class, responseType = SiparisResponse.class)
-@ResponseStatus(201)  // veya HttpStatus.CREATED = 201
-public ResponseEntity<SiparisResponse> olustur(@RequestBody SiparisRequest request) {
-    return ResponseEntity.ok(siparisService.olustur(request));
+@PostMapping(value = "/order/create", requestType = OrderRequest.class, responseType = OrderResponse.class)
+@ResponseStatus(201)  // or HttpStatus.CREATED = 201
+public ResponseEntity<OrderResponse> create(@RequestBody OrderRequest request) {
+    return ResponseEntity.ok(orderService.create(request));
 }
 
-@DeleteMapping(value = "/siparis/{id}", responseType = Void.class)
-@ResponseStatus(204)  // veya HttpStatus.NO_CONTENT = 204
-public ResponseEntity<Void> sil(@PathVariable("id") String id) {
-    siparisService.sil(id);
+@DeleteMapping(value = "/order/{id}", responseType = Void.class)
+@ResponseStatus(204)  // or HttpStatus.NO_CONTENT = 204
+public ResponseEntity<Void> delete(@PathVariable("id") String id) {
+    orderService.delete(id);
     return null;
 }
 ```
@@ -454,12 +453,12 @@ public ResponseEntity<Void> sil(@PathVariable("id") String id) {
 
 ## HttpStatus Enum
 
-Yaygın HTTP status code'ları için enum:
+Enum for common HTTP status codes:
 
 ```java
 import com.reactor.rust.http.HttpStatus;
 
-// Kullanım
+// Usage
 HttpStatus.OK           // 200
 HttpStatus.CREATED      // 201
 HttpStatus.NO_CONTENT   // 204
@@ -469,7 +468,7 @@ HttpStatus.FORBIDDEN    // 403
 HttpStatus.NOT_FOUND    // 404
 HttpStatus.INTERNAL_SERVER_ERROR // 500
 
-// ResponseEntity ile
+// With ResponseEntity
 return ResponseEntity.status(HttpStatus.CREATED);
 ```
 
@@ -477,7 +476,7 @@ return ResponseEntity.status(HttpStatus.CREATED);
 
 ## MediaType Constants
 
-Content-type için sabitler:
+Constants for content types:
 
 ```java
 import com.reactor.rust.http.MediaType;
@@ -489,60 +488,60 @@ MediaType.APPLICATION_XML    // "application/xml"
 MediaType.TEXT_CSV           // "text/csv"
 MediaType.APPLICATION_OCTET_STREAM // "application/octet-stream"
 
-// Kullanım
-@PostMapping(value = "/siparis/olustur", requestType = SiparisRequest.class, responseType = SiparisResponse.class)
-public ResponseEntity<SiparisResponse> olustur(
-        @RequestBody SiparisRequest request,
+// Usage
+@PostMapping(value = "/order/create", requestType = OrderRequest.class, responseType = OrderResponse.class)
+public ResponseEntity<OrderResponse> create(
+        @RequestBody OrderRequest request,
         @HeaderParam("Content-Type") String contentType) {
 
     if (contentType == null || !contentType.contains(MediaType.APPLICATION_JSON)) {
         return ResponseEntity.badRequest();
     }
 
-    return ResponseEntity.ok(siparisService.olustur(request));
+    return ResponseEntity.ok(orderService.create(request));
 }
 ```
 
 ---
 
-## Eski Stil (V4 İmza) - Backward Compatible
+## Old Style (V4 Signature) - Backward Compatible
 
-Annotation-based parametreler istemezseniz, eski V4 imzasını kullanmaya devam edebilirsiniz:
+If you don't want annotation-based parameters, you can continue using the old V4 signature:
 
-### Sadece Body
+### Body Only
 
 ```java
 @RustRoute(
     method = "POST",
-    path = "/siparis/olustur",
-    requestType = SiparisRequest.class,
-    responseType = SiparisResponse.class
+    path = "/order/create",
+    requestType = OrderRequest.class,
+    responseType = OrderResponse.class
 )
-public int olustur(ByteBuffer out, int offset, byte[] body) {
-    SiparisRequest request = DslJsonService.parse(body, SiparisRequest.class);
-    SiparisResponse response = new SiparisResponse(1, "Başarılı");
+public int create(ByteBuffer out, int offset, byte[] body) {
+    OrderRequest request = DslJsonService.parse(body, OrderRequest.class);
+    OrderResponse response = new OrderResponse(1, "Success");
     return DslJsonService.writeToBuffer(response, out, offset);
 }
 ```
 
-### Path Parametresi
+### Path Parameter
 
 ```java
 @RustRoute(
     method = "GET",
-    path = "/siparis/{id}",
+    path = "/order/{id}",
     requestType = Void.class,
-    responseType = SiparisResponse.class
+    responseType = OrderResponse.class
 )
-public int getir(ByteBuffer out, int offset, byte[] body, String pathParams) {
-    // pathParams = "id=SIP-001"
-    String id = parametreAl(pathParams, "id");
-    SiparisResponse response = new SiparisResponse(1, "Bulundu: " + id);
+public int getById(ByteBuffer out, int offset, byte[] body, String pathParams) {
+    // pathParams = "id=ORD-001"
+    String id = getParam(pathParams, "id");
+    OrderResponse response = new OrderResponse(1, "Found: " + id);
     return DslJsonService.writeToBuffer(response, out, offset);
 }
 
-// Yardımcı metod
-private String parametreAl(String params, String key) {
+// Helper method
+private String getParam(String params, String key) {
     if (params == null) return null;
     for (String pair : params.split("&")) {
         String[] kv = pair.split("=", 2);
@@ -552,105 +551,105 @@ private String parametreAl(String params, String key) {
 }
 ```
 
-### Path + Query Parametresi
+### Path + Query Parameters
 
 ```java
 @RustRoute(
     method = "GET",
-    path = "/siparis/ara",
+    path = "/order/search",
     requestType = Void.class,
-    responseType = SiparisResponse.class
+    responseType = OrderResponse.class
 )
-public int ara(ByteBuffer out, int offset, byte[] body,
-               String pathParams, String queryString) {
-    // queryString = "durum=bekliyor&sira=1"
-    String durum = parametreAl(queryString, "durum");
-    SiparisResponse response = new SiparisResponse(1, "Durum: " + durum);
+public int search(ByteBuffer out, int offset, byte[] body,
+                 String pathParams, String queryString) {
+    // queryString = "status=pending&page=1"
+    String status = getParam(queryString, "status");
+    OrderResponse response = new OrderResponse(1, "Status: " + status);
     return DslJsonService.writeToBuffer(response, out, offset);
 }
 ```
 
-### Tam İmza (Path + Query + Headers)
+### Full Signature (Path + Query + Headers)
 
 ```java
 @RustRoute(
     method = "POST",
-    path = "/siparis/olustur",
-    requestType = SiparisRequest.class,
-    responseType = SiparisResponse.class
+    path = "/order/create",
+    requestType = OrderRequest.class,
+    responseType = OrderResponse.class
 )
-public int olustur(ByteBuffer out, int offset, byte[] body,
-                   String pathParams, String queryString, String headers) {
+public int create(ByteBuffer out, int offset, byte[] body,
+                 String pathParams, String queryString, String headers) {
     // headers = "Content-Type=application/json&X-Request-ID=REQ-001"
-    String requestId = parametreAl(headers, "X-Request-ID");
+    String requestId = getParam(headers, "X-Request-ID");
 
-    SiparisRequest request = DslJsonService.parse(body, SiparisRequest.class);
-    SiparisResponse response = siparisService.olustur(request, requestId);
+    OrderRequest request = DslJsonService.parse(body, OrderRequest.class);
+    OrderResponse response = orderService.create(request, requestId);
     return DslJsonService.writeToBuffer(response, out, offset);
 }
 ```
 
 ---
 
-## Handler Method İmzaları
+## Handler Method Signatures
 
-### Yeni Stil (Annotation-Based)
+### New Style (Annotation-Based)
 
-| İmza | Açıklama |
-|------|----------|
-| `ResponseEntity<T> method(@PathVariable String id)` | Path parametresi |
-| `ResponseEntity<T> method(@RequestParam String q)` | Query parametresi |
+| Signature | Description |
+|-----------|-------------|
+| `ResponseEntity<T> method(@PathVariable String id)` | Path parameter |
+| `ResponseEntity<T> method(@RequestParam String q)` | Query parameter |
 | `ResponseEntity<T> method(@RequestBody Request req)` | Request body |
 | `ResponseEntity<T> method(@HeaderParam String h)` | Header |
-| `T method(...)` | Otomatik serialize edilir |
+| `T method(...)` | Automatically serialized |
 
-### Eski Stil (V4 - ByteBuffer)
+### Old Style (V4 - ByteBuffer)
 
-| İhtiyaç | İmza |
-|---------|------|
-| Sadece body | `int method(ByteBuffer out, int offset, byte[] body)` |
-| Path parametresi | `int method(ByteBuffer out, int offset, byte[] body, String pathParams)` |
+| Need | Signature |
+|------|-----------|
+| Body only | `int method(ByteBuffer out, int offset, byte[] body)` |
+| Path parameter | `int method(ByteBuffer out, int offset, byte[] body, String pathParams)` |
 | Path + Query | `int method(ByteBuffer out, int offset, byte[] body, String pathParams, String queryString)` |
-| Tam imza | `int method(ByteBuffer out, int offset, byte[] body, String pathParams, String queryString, String headers)` |
+| Full signature | `int method(ByteBuffer out, int offset, byte[] body, String pathParams, String queryString, String headers)` |
 
 ---
 
-## Desteklenen Platformlar
+## Supported Platforms
 
-| Platform | Native Library | Durum |
-|----------|----------------|-------|
-| Linux x64 | `librust_hyper.so` | ✅ |
-| Windows x64 | `rust_hyper.dll` | ✅ |
-| macOS x64 | `librust_hyper.dylib` | 🚧 Yakında |
-| macOS ARM64 | `librust_hyper.dylib` | 🚧 Yakında |
+| Platform | Native Library | Status |
+|----------|----------------|--------|
+| Linux x64 | `librust_hyper.so` | Supported |
+| Windows x64 | `rust_hyper.dll` | Supported |
+| macOS x64 | `librust_hyper.dylib` | Coming Soon |
+| macOS ARM64 | `librust_hyper.dylib` | Coming Soon |
 
 ---
 
-## Native Library Kullanımı
+## Native Library Usage
 
-Framework, Rust Hyper HTTP sunucusu için native library gerektirir. Bu library **otomatik olarak JAR içine gömülüdür** ve runtime'da otomatik yüklenir.
+The framework requires a native library for the Rust Hyper HTTP server. This library is **automatically embedded in the JAR** and loaded at runtime.
 
-### Otomatik Yükleme (Varsayılan)
+### Automatic Loading (Default)
 
 ```java
-// Native library otomatik yüklenir - ek işlem gerekmez
+// Native library is loaded automatically - no action required
 NativeBridge.startHttpServer(8080);
 ```
 
-### Manuel Yükleme
+### Manual Loading
 
 ```bash
-# Özel library yolu belirtmek için
+# Specify custom library path
 java -Drust.lib.path=/path/to/rust_hyper.dll -jar myapp.jar
 
-# veya java.library.path kullanarak
+# Or use java.library.path
 java -Djava.library.path=/path/to/native/dir -jar myapp.jar
 ```
 
-### Native Library Dosyaları
+### Native Library Files
 
-| Platform | Dosya | Konum (JAR içinde) |
-|----------|-------|-------------------|
+| Platform | File | Location (in JAR) |
+|----------|------|-------------------|
 | Windows x64 | `rust_hyper.dll` | `native/windows-x64/` |
 | Linux x64 | `librust_hyper.so` | `native/linux-x64/` |
 
@@ -658,9 +657,9 @@ java -Djava.library.path=/path/to/native/dir -jar myapp.jar
 
 ## Docker
 
-Framework, production için optimize edilmiş Docker image desteği sunar.
+The framework provides optimized Docker image support for production.
 
-### GitHub Container Registry'den Çek
+### Pull from GitHub Container Registry
 
 ```bash
 docker pull ghcr.io/esasmer-dou/rust-java-rest:2.0.0
@@ -670,43 +669,43 @@ docker run -p 8080:8080 --memory=50m ghcr.io/esasmer-dou/rust-java-rest:2.0.0
 ### Build
 
 ```bash
-# Proje dizininde
+# In project directory
 cd rust-java-rest
 
-# Image oluştur
+# Build image
 docker build -t rust-java-rest:2.0.0 -f src/main/resources/container/Dockerfile .
 ```
 
-### Çalıştır
+### Run
 
 ```bash
-# 40MB memory limit ile
+# With 40MB memory limit
 docker run -d -p 8080:8080 --memory=40m --name rust-java-app rust-java-rest:2.0.0
 
-# Health check ile
+# With health check
 docker run -d -p 8080:8080 --memory=40m --health-cmd="curl -f http://localhost:8080/health" rust-java-rest:2.0.0
 ```
 
-### Dockerfile Özellikleri
+### Dockerfile Features
 
-| Özellik | Değer |
+| Feature | Value |
 |---------|-------|
 | Base Image | `eclipse-temurin:21-jre-jammy` |
-| Multi-stage Build | ✅ (JDK → JRE) |
-| Non-root User | ✅ (`appuser`) |
-| Health Check | ✅ (10s interval) |
+| Multi-stage Build | Yes (JDK → JRE) |
+| Non-root User | Yes (`appuser`) |
+| Health Check | Yes (10s interval) |
 | Memory Limit | 40MB |
 | JVM Heap | 4-20MB |
 
-### JVM Ayarları
+### JVM Settings
 
 ```bash
-# Dockerfile içindeki varsayılan ayarlar
+# Default settings in Dockerfile
 -Xms4m                          # Minimum heap
 -Xmx20m                         # Maximum heap
--XX:+UseSerialGC                # En düşük memory GC
+-XX:+UseSerialGC                # Lowest memory GC
 -XX:MaxMetaspaceSize=24m        # Metaspace limit
--XX:+TieredCompilation          # Hızlı startup
+-XX:+TieredCompilation          # Fast startup
 -XX:TieredStopAtLevel=1         # C1 compiler only
 ```
 
@@ -732,86 +731,86 @@ services:
 
 ---
 
-## Gereksinimler
+## Requirements
 
 - Java 21+
 - Maven 3.8+
 
 ---
 
-## Proje Yapısı
+## Project Structure
 
 ```
 com.myapp/
-├── Uygulama.java           # Main sınıfı
+├── Application.java           # Main class
 ├── dto/
-│   ├── SiparisRequest.java
-│   └── SiparisResponse.java
+│   ├── OrderRequest.java
+│   └── OrderResponse.java
 └── handler/
-    └── SiparisHandler.java
+    └── OrderHandler.java
 ```
 
 ---
 
-## Annotation Özeti
+## Annotation Summary
 
-### REST API Annotation'ları
+### REST API Annotations
 
-| Annotation | Açıklama |
-|------------|----------|
+| Annotation | Description |
+|------------|-------------|
 | `@RequestMapping` | Class-level base path |
 | `@GetMapping` | GET request handler |
 | `@PostMapping` | POST request handler |
 | `@PutMapping` | PUT request handler |
 | `@PatchMapping` | PATCH request handler |
 | `@DeleteMapping` | DELETE request handler |
-| `@PathVariable` | Path parametresi al |
-| `@RequestParam` | Query parametresi al |
-| `@HeaderParam` | Header değeri al |
-| `@RequestBody` | Request body deserialize |
-| `@CookieValue` | Cookie değeri al |
-| `@ResponseStatus` | HTTP status code belirt |
-| `@RustRoute` | Legacy annotation (V4 imza) |
-| `@Request` | Request DTO işaretle |
-| `@Response` | Response DTO işaretle |
+| `@PathVariable` | Get path parameter |
+| `@RequestParam` | Get query parameter |
+| `@HeaderParam` | Get header value |
+| `@RequestBody` | Deserialize request body |
+| `@CookieValue` | Get cookie value |
+| `@ResponseStatus` | Specify HTTP status code |
+| `@RustRoute` | Legacy annotation (V4 signature) |
+| `@Request` | Mark Request DTO |
+| `@Response` | Mark Response DTO |
 
-### DI Annotation'ları
+### DI Annotations
 
-| Annotation | Açıklama |
-|------------|----------|
-| `@Component` | Genel bileşen işaretle |
-| `@Service` | İş mantığı servisi |
-| `@Repository` | Veri erişim katmanı |
-| `@Configuration` | Konfigürasyon sınıfı |
-| `@Bean` | Bean üreten metod |
-| `@Autowired` | Bağımlılık enjeksiyonu |
-| `@PostConstruct` | Başlatma callback'i |
-| `@PreDestroy` | Temizleme callback'i |
+| Annotation | Description |
+|------------|-------------|
+| `@Component` | Mark general component |
+| `@Service` | Business logic service |
+| `@Repository` | Data access layer |
+| `@Configuration` | Configuration class |
+| `@Bean` | Bean-producing method |
+| `@Autowired` | Dependency injection |
+| `@PostConstruct` | Initialization callback |
+| `@PreDestroy` | Cleanup callback |
 | `@Primary` | Primary bean |
-| `@Qualifier` | Bean seçimi |
+| `@Qualifier` | Bean selection |
 
 ---
 
 ## Dependency Injection (DI)
 
-Framework, Spring Boot benzeri sıfır-overhead Dependency Injection desteği sunar. Tüm bağımlılıklar startup'ta çözülür, runtime'da reflection YOK.
+The framework provides zero-overhead Dependency Injection similar to Spring Boot. All dependencies are resolved at startup, NO runtime reflection.
 
-### DI Annotation'ları
+### DI Annotations
 
-| Annotation | Açıklama |
-|------------|----------|
-| `@Component` | Genel bileşen |
-| `@Service` | İş mantığı servisi |
-| `@Repository` | Veri erişim katmanı |
-| `@Configuration` | Konfigürasyon sınıfı |
-| `@Bean` | Bean üreten metod |
-| `@Autowired` | Bağımlılık enjeksiyonu |
-| `@PostConstruct` | Başlatma callback'i |
-| `@PreDestroy` | Temizleme callback'i |
+| Annotation | Description |
+|------------|-------------|
+| `@Component` | General component |
+| `@Service` | Business logic service |
+| `@Repository` | Data access layer |
+| `@Configuration` | Configuration class |
+| `@Bean` | Bean-producing method |
+| `@Autowired` | Dependency injection |
+| `@PostConstruct` | Initialization callback |
+| `@PreDestroy` | Cleanup callback |
 | `@Primary` | Primary bean |
-| `@Qualifier` | Bean seçimi |
+| `@Qualifier` | Bean selection |
 
-### Servis Tanımlama
+### Define Service
 
 ```java
 import com.reactor.rust.di.annotation.Service;
@@ -844,7 +843,7 @@ public class OrderService {
 }
 ```
 
-### @Configuration ve @Bean
+### @Configuration and @Bean
 
 ```java
 import com.reactor.rust.di.annotation.Configuration;
@@ -867,27 +866,27 @@ public class AppConfiguration {
 }
 ```
 
-### Handler'da Servis Kullanımı
+### Use Service in Handler
 
 ```java
 import com.reactor.rust.di.annotation.Autowired;
 
-@RequestMapping("/siparis")
-public class SiparisHandler {
+@RequestMapping("/order")
+public class OrderHandler {
 
     @Autowired
-    private OrderService orderService;  // Otomatik enjekte edilir
+    private OrderService orderService;  // Automatically injected
 
-    @PostMapping(value = "/olustur", requestType = SiparisRequest.class, responseType = SiparisResponse.class)
-    public ResponseEntity<SiparisResponse> olustur(@RequestBody SiparisRequest request) {
-        // orderService otomatik olarak inject edilmiş
+    @PostMapping(value = "/create", requestType = OrderRequest.class, responseType = OrderResponse.class)
+    public ResponseEntity<OrderResponse> create(@RequestBody OrderRequest request) {
+        // orderService is automatically injected
         Order order = orderService.createOrder(request);
-        return ResponseEntity.ok(new SiparisResponse(1, "OK"));
+        return ResponseEntity.ok(new OrderResponse(1, "OK"));
     }
 }
 ```
 
-### DI Container Kullanımı
+### Using DI Container
 
 ```java
 import com.reactor.rust.di.BeanContainer;
@@ -897,32 +896,32 @@ import com.reactor.rust.bridge.NativeBridge;
 
 public class Application {
     public static void main(String[] args) throws InterruptedException {
-        // 1. DI Container'ı başlat
+        // 1. Initialize DI Container
         BeanContainer container = BeanContainer.getInstance();
 
         // 2. Component scanning
         container.scan("com.myapp");
 
-        // 3. Container'ı başlat (tüm bağımlılıklar çözülür)
+        // 3. Start container (all dependencies resolved)
         container.start();
 
-        // 4. Route'ları tara
+        // 4. Scan routes
         RouteScanner.scanAndRegister();
 
-        // 5. Handler'ları kaydet
+        // 5. Register handlers
         HandlerRegistry registry = HandlerRegistry.getInstance();
-        registry.registerBean(new SiparisHandler());
+        registry.registerBean(new OrderHandler());
 
-        // 6. Sunucuyu başlat
+        // 6. Start server
         NativeBridge.startHttpServer(8080);
 
-        System.out.println("Sunucu çalışıyor: http://localhost:8080");
+        System.out.println("Server running: http://localhost:8080");
         Thread.sleep(Long.MAX_VALUE);
     }
 }
 ```
 
-### Lifecycle Callback'ler
+### Lifecycle Callbacks
 
 ```java
 import com.reactor.rust.di.annotation.Service;
@@ -936,14 +935,14 @@ public class NotificationService {
 
     @PostConstruct
     public void init() {
-        // Başlatma
+        // Initialization
         executor = Executors.newSingleThreadExecutor();
         System.out.println("[NotificationService] Ready");
     }
 
     @PreDestroy
     public void cleanup() {
-        // Temizleme
+        // Cleanup
         executor.shutdown();
         System.out.println("[NotificationService] Shutdown");
     }
@@ -954,31 +953,31 @@ public class NotificationService {
 }
 ```
 
-### Primary ve Qualifier
+### Primary and Qualifier
 
 ```java
-// Birden fazla aynı tipte bean varsa
+// When multiple beans of the same type exist
 @Service
-@Primary  // Varsayılan olarak bu kullanılır
+@Primary  // This is used by default
 public class DefaultEmailService implements EmailService { ... }
 
 @Service
 public class SmtpEmailService implements EmailService { ... }
 
-// Kullanım
+// Usage
 @Service
 public class UserService {
 
     @Autowired
-    private EmailService emailService;  // DefaultEmailService enjekte edilir
+    private EmailService emailService;  // DefaultEmailService is injected
 
     @Autowired
-    @Qualifier("smtpEmailService")  // Belirli bir bean
+    @Qualifier("smtpEmailService")  // Specific bean
     private EmailService smtpService;
 }
 ```
 
-### DI Performans Özellikleri
+### DI Performance Characteristics
 
 | Metric | Value |
 |--------|-------|
@@ -987,19 +986,19 @@ public class UserService {
 | Memory Overhead | ~50-100 bytes/bean |
 | Runtime Reflection | **NONE** |
 
-### DI vs Spring Boot Karşılaştırması
+### DI vs Spring Boot Comparison
 
-| Özellik | Rust-Java REST | Spring Boot |
+| Feature | Rust-Java REST | Spring Boot |
 |---------|----------------|-------------|
 | Startup Time | ~100ms | ~2-5s |
 | Memory Overhead | ~1-2 MB | ~30-50 MB |
 | Bean Lookup | O(1) direct | O(1) + proxy |
-| Runtime Reflection | Hayır | Evet |
-| AOP Support | Hayır | Evit |
-| Proxy Overhead | Hayır | Evit |
+| Runtime Reflection | No | Yes |
+| AOP Support | No | Yes |
+| Proxy Overhead | No | Yes |
 
 ---
 
-## Lisans
+## License
 
 MIT
