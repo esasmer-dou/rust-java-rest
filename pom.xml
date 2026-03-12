@@ -8,9 +8,9 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <name>Rust-Java REST Framework</name>
-    <description>Ultra-low latency REST API framework with Rust Hyper server and Java handlers</description>
+    <description>Ultra-low latency REST API framework with Rust Hyper server and Java handlers, Zero-overhead DI Container</description>
 
     <url>https://github.com/esasmer-dou/rust-java-rest</url>
     <licenses>
