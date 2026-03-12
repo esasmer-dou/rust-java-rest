@@ -55,11 +55,11 @@ public class ReactorRustHyperApplication {
         // 2. Initialize DI Container (ZERO runtime overhead)
         BeanContainer container = initDIContainer();
 
-        // 3. Scan and register routes
-        RouteScanner.scanAndRegister();
-
-        // 4. Register handlers with DI
+        // 3. Register handlers with DI FIRST (before route scanning)
         registerHandlers(container);
+
+        // 4. Scan and register routes AFTER handlers are registered
+        RouteScanner.scanAndRegister();
 
         System.out.println("[JAVA] Context initialized.");
 

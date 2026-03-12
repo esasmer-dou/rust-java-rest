@@ -97,8 +97,8 @@ final class BeanScanner {
         try {
             Class<?> clazz = Class.forName(className);
 
-            // Skip if already registered
-            if (container.getBean(clazz) != null) {
+            // Skip if already registered (use hasBean to avoid exception)
+            if (container.hasBean(clazz)) {
                 return;
             }
 
@@ -112,7 +112,7 @@ final class BeanScanner {
         } catch (NoClassDefFoundError e) {
             // Ignore classes with missing dependencies
         } catch (Exception e) {
-            System.err.println("[BeanScanner] Error processing class: " + className + " - " + e.getMessage());
+            // Ignore other errors silently - not all classes are beans
         }
     }
 
