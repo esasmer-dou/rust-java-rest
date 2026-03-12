@@ -48,8 +48,22 @@ Bu sürüm, Spring Boot benzeri **sıfır-overhead Dependency Injection** deste�
 </dependency>
 ```
 
-> **Not:** GitHub Packages erişimi için `~/.m2/settings.xml` dosyanıza GitHub token eklemeniz gerekebilir.
-> Detaylı bilgi: https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-apache-maven-registry
+> **Not:** GitHub Packages erişimi için `~/.m2/settings.xml` dosyanıza GitHub token eklemeniz gerekmektedir:
+>
+> ```xml
+> <settings>
+>     <servers>
+>         <server>
+>             <id>github</id>
+>             <username>GITHUB_USERNAME</username>
+>             <password>GITHUB_TOKEN</password>
+>         </server>
+>     </servers>
+> </settings>
+> ```
+>
+> Token oluşturmak için: GitHub → Settings → Developer settings → Personal access tokens → Generate new token (classic)
+> Gerekli scope: `read:packages`
 
 ### 2. DSL-JSON Annotation Processor Ekle
 
