@@ -1,0 +1,18 @@
+FROM alpine:3.19
+
+# Install wrk and other tools
+RUN apk add --no-cache \
+    wrk \
+    curl \
+    jq \
+    bash \
+    bc
+
+WORKDIR /benchmark
+
+COPY benchmark.sh /benchmark/
+COPY benchmark_post.lua /benchmark/
+
+RUN chmod +x /benchmark/benchmark.sh
+
+ENTRYPOINT ["/benchmark/benchmark.sh"]

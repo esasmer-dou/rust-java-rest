@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  rust-java-framework:
+    image: ghcr.io/esasmer-dou/rust-java-rest:2.0.0
+    container_name: rust-java-rest
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+    environment:
+      - JAVA_OPTS=-Xms4m -Xmx20m -XX:+UseSerialGC -XX:MaxMetaspaceSize=24m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/v1/candidates"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  spring-boot:
+    build:
+      context: ../spring-boot-simple-rest-api
+      dockerfile: Dockerfile
+    container_name: spring-boot-rest
+    ports:
+      - "8081:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+    environment:
+      - JAVA_OPTS=-Xms32m -Xmx128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/v1/candidates"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile.benchmark
+    container_name: benchmark-runner
+    depends_on:
+      rust-java-framework:
+        condition: service_healthy
+      spring-boot:
+        condition: service_healthy
+    environment:
+      - FRAMEWORK_HOST=rust-java-framework
+      - FRAMEWORK_PORT=8080
+      - SPRING_HOST=spring-boot
+      - SPRING_PORT=8080
+      - DURATION=30s
+    volumes:
+      - ./results:/benchmark/results
