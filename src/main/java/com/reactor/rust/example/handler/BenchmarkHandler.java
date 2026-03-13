@@ -37,8 +37,8 @@ public class BenchmarkHandler {
     private AppConfiguration.AppMetadata appMetadata;
 
     /**
-     * POST /api/v1/echo - Request body'yi geri döner
-     * Spring Boot: ResponseEntity<?> echo(@RequestBody OrderRequest request)
+     * POST /api/v1/echo - Request body'yi geri döner.
+     * Spring Boot equivalent: {@code ResponseEntity<?> echo(@RequestBody OrderRequest request)}
      */
     @RustRoute(
             method = "POST",
@@ -67,8 +67,8 @@ public class BenchmarkHandler {
     }
 
     /**
-     * GET /api/v1/candidates - 19 item'lı örnek order döner
-     * Spring Boot: ResponseEntity<?> fetchCandidates()
+     * GET /api/v1/candidates - 19 item'lı örnek order döner.
+     * Spring Boot equivalent: {@code ResponseEntity<?> fetchCandidates()}
      */
     @RustRoute(
             method = "GET",

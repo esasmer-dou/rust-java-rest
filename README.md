@@ -962,29 +962,116 @@ public class NotificationService {
 }
 ```
 
-### Primary and Qualifier
+### @Primary and @Qualifier
+
+When multiple beans implement the same interface, use `@Primary` to mark the default and `@Qualifier` to select a specific implementation.
+
+#### Define Interface with Multiple Implementations
 
 ```java
-// When multiple beans of the same type exist
+// Payment interface
+public interface PaymentService {
+    String processPayment(String orderId, double amount);
+    String getPaymentMethod();
+}
+
+// Primary implementation (default)
 @Service
-@Primary  // This is used by default
-public class DefaultEmailService implements EmailService { ... }
+@Primary  // <-- Makes this the default when multiple candidates exist
+public class CreditCardPaymentService implements PaymentService {
+    @Override
+    public String processPayment(String orderId, double amount) {
+        return "CC-" + System.currentTimeMillis();
+    }
 
+    @Override
+    public String getPaymentMethod() {
+        return "CREDIT_CARD";
+    }
+}
+
+// Alternative implementation
 @Service
-public class SmtpEmailService implements EmailService { ... }
+public class PayPalPaymentService implements PaymentService {
+    @Override
+    public String processPayment(String orderId, double amount) {
+        return "PP-" + System.currentTimeMillis();
+    }
 
-// Usage
+    @Override
+    public String getPaymentMethod() {
+        return "PAYPAL";
+    }
+}
+
+// Another alternative
 @Service
-public class UserService {
+public class BankTransferPaymentService implements PaymentService {
+    @Override
+    public String processPayment(String orderId, double amount) {
+        return "BT-" + System.currentTimeMillis();
+    }
 
-    @Autowired
-    private EmailService emailService;  // DefaultEmailService is injected
-
-    @Autowired
-    @Qualifier("smtpEmailService")  // Specific bean
-    private EmailService smtpService;
+    @Override
+    public String getPaymentMethod() {
+        return "BANK_TRANSFER";
+    }
 }
 ```
+
+#### Use in Handler
+
+```java
+@Component
+public class PaymentHandler {
+
+    // @Primary injection - gets CreditCardPaymentService by default
+    @Autowired
+    private PaymentService paymentService;
+
+    // @Qualifier injection - gets specific implementation
+    @Autowired
+    @Qualifier("payPalPaymentService")
+    private PaymentService payPalService;
+
+    @Autowired
+    @Qualifier("bankTransferPaymentService")
+    private PaymentService bankService;
+
+    @PostMapping(value = "/payment/process", requestType = PaymentRequest.class, responseType = PaymentResponse.class)
+    public ResponseEntity<PaymentResponse> processPayment(@RequestBody PaymentRequest request) {
+        // Uses @Primary (CreditCardPaymentService)
+        String txId = paymentService.processPayment(request.orderId(), request.amount());
+        return ResponseEntity.ok(new PaymentResponse(txId, paymentService.getPaymentMethod(), "SUCCESS"));
+    }
+
+    @PostMapping(value = "/payment/paypal", requestType = PaymentRequest.class, responseType = PaymentResponse.class)
+    public ResponseEntity<PaymentResponse> processPayPal(@RequestBody PaymentRequest request) {
+        // Uses @Qualifier("payPalPaymentService")
+        String txId = payPalService.processPayment(request.orderId(), request.amount());
+        return ResponseEntity.ok(new PaymentResponse(txId, payPalService.getPaymentMethod(), "SUCCESS"));
+    }
+
+    @GetMapping(value = "/payment/methods", responseType = PaymentMethodsResponse.class)
+    public ResponseEntity<PaymentMethodsResponse> getPaymentMethods() {
+        // Access all implementations
+        return ResponseEntity.ok(new PaymentMethodsResponse(List.of(
+            new PaymentMethodInfo("credit-card", paymentService.getPaymentMethod(), true),
+            new PaymentMethodInfo("paypal", payPalService.getPaymentMethod(), false),
+            new PaymentMethodInfo("bank-transfer", bankService.getPaymentMethod(), false)
+        )));
+    }
+}
+```
+
+#### Bean Naming Convention
+
+Bean names default to camelCase class name:
+- `CreditCardPaymentService` -> `creditCardPaymentService`
+- `PayPalPaymentService` -> `payPalPaymentService`
+- `BankTransferPaymentService` -> `bankTransferPaymentService`
+
+You can also specify a custom name with `@Service("customName")`.
 
 ### DI Performance Characteristics
 

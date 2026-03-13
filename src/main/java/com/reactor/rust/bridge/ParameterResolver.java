@@ -49,8 +49,8 @@ public final class ParameterResolver {
      *
      * @param method     Handler method
      * @param body       Request body bytes
-     * @param pathParams Path parameters (format: "key1=value1&key2=value2")
-     * @param queryString Query string (format: "key1=value1&key2=value2")
+     * @param pathParams Path parameters (format: "key1=value1&amp;key2=value2")
+     * @param queryString Query string (format: "key1=value1&amp;key2=value2")
      * @param headers    Headers (format: "Header1: value1\nHeader2: value2\n")
      * @return Array of resolved parameters ready for method invocation
      */

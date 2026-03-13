@@ -7,14 +7,13 @@ import java.lang.annotation.*;
  * Combined with method-level @GetMapping, @PostMapping, etc.
  *
  * Example:
- * <pre>
- * {@code
+ * <pre>{@code
  * @RequestMapping("/api/v1")
  * public class OrderController {
  *     @GetMapping("/orders")
  *     public ResponseEntity<List<Order>> getOrders() { ... }
  * }
- * </pre>
+ * }</pre>
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)

@@ -18,14 +18,14 @@ import com.reactor.rust.example.handler.OrderHandler;
  *   <li>Zero-overhead DI container (BeanContainer)</li>
  *   <li>Annotation-based component scanning</li>
  *   <li>Rust Hyper HTTP server via JNI</li>
- *   <li>Memory < 50 MB target</li>
+ *   <li>Memory &lt; 50 MB target</li>
  * </ul>
  *
  * <h2>Constraints:</h2>
  * <ul>
- *   <li>Constraint #1: Memory < 50 MB</li>
+ *   <li>Constraint #1: Memory &lt; 50 MB</li>
  *   <li>Constraint #4: Pure Java - NO reflection libraries at runtime</li>
- *   <li>Constraint #5: High Concurrency & Financial Standards</li>
+ *   <li>Constraint #5: High Concurrency and Financial Standards</li>
  *   <li>Constraint #7: RECORD ZORUNLULUĞU - Only Records for DTOs</li>
  * </ul>
  *
