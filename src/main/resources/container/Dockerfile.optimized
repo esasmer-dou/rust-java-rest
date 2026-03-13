@@ -1,0 +1,113 @@
+# Rust-Java REST Framework - Ultra Minimal Image with jlink
+#
+# Target: < 100MB total image size
+#
+# Build:
+#   docker build -t rust-java-rest:optimized -f src/main/resources/container/Dockerfile.optimized .
+#
+# Run:
+#   docker run -p 8080:8080 --memory=40m rust-java-rest:optimized
+
+# ============================================
+# STAGE 1: Build Java Application
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS java-builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    maven \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pom.xml .
+RUN mvn dependency:go-offline -B -q || true
+
+COPY src ./src
+RUN mvn package -DskipTests -B -q
+
+RUN mkdir -p target/lib && \
+    mvn dependency:copy-dependencies -DoutputDirectory=target/lib -B -q
+
+# ============================================
+# STAGE 2: Create Minimal JRE with jlink
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS jlink-builder
+
+WORKDIR /jre-build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create minimal JRE with only required modules
+RUN $JAVA_HOME/bin/jlink \
+    --add-modules java.base,java.logging,java.naming,jdk.unsupported \
+    --strip-debug \
+    --no-man-pages \
+    --no-header-files \
+    --compress=2 \
+    --output /jre-minimal
+
+# Strip debug symbols from shared libraries
+RUN find /jre-minimal -type f -name '*.so' -exec strip --strip-unneeded {} \; 2>/dev/null || true
+
+# Remove unnecessary files
+RUN rm -rf /jre-minimal/legal /jre-minimal/man /jre-minimal/include
+
+# ============================================
+# STAGE 3: Ultra Minimal Runtime (Distroless-like)
+# ============================================
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Only install bare minimum - no curl (use external health monitoring)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libc6 \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /var/lib/dpkg/info/* \
+    && apt-get clean 2>/dev/null || true
+
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+# Copy minimal JRE
+COPY --from=jlink-builder /jre-minimal /opt/java
+
+# Copy application
+COPY --from=java-builder /build/target/rust-java-rest-2.0.0.jar ./app.jar
+COPY --from=java-builder /build/target/lib ./lib/
+
+# Set JAVA_HOME and PATH
+ENV JAVA_HOME=/opt/java
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Ultra-Minimal JVM Options
+ENV JAVA_OPTS="\
+-Xms4m \
+-Xmx20m \
+-XX:+UseSerialGC \
+-XX:MaxHeapFreeRatio=10 \
+-XX:MinHeapFreeRatio=5 \
+-XX:+UseCompressedOops \
+-XX:+UseCompressedClassPointers \
+-XX:MaxMetaspaceSize=24m \
+-XX:CompressedClassSpaceSize=8m \
+-XX:InitialCodeCacheSize=1m \
+-XX:ReservedCodeCacheSize=8m \
+-XX:+TieredCompilation \
+-XX:TieredStopAtLevel=1 \
+-Djava.security.egd=file:/dev/./urandom \
+-Dfile.encoding=UTF-8 \
+-Djava.awt.headless=true"
+
+# Create necessary directories
+RUN mkdir -p /tmp && chown -R appuser:appgroup /app /tmp
+
+USER appuser
+
+EXPOSE 8080
+
+# Note: Health check disabled - use external monitoring (Kubernetes/Docker Swarm)
+# If health check needed, install curl: apt-get install -y curl
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -cp app.jar:lib/* com.reactor.rust.example.ReactorRustHyperApplication"]

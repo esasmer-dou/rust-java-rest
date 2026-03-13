@@ -657,56 +657,65 @@ java -Djava.library.path=/path/to/native/dir -jar myapp.jar
 
 ## Docker
 
-The framework provides optimized Docker image support for production.
+The framework provides ultra-minimal Docker images optimized for production.
+
+### Image Sizes
+
+| Image | Size | Base | Description |
+|-------|------|------|-------------|
+| `ghcr.io/esasmer-dou/rust-java-rest:latest` | **74MB** | Distroless | Minimal (jlink + Distroless) |
+| `ghcr.io/esasmer-dou/rust-java-rest:2.0.0` | **74MB** | Distroless | Version 2.0.0 |
 
 ### Pull from GitHub Container Registry
 
 ```bash
+# Minimal image (74MB)
 docker pull ghcr.io/esasmer-dou/rust-java-rest:2.0.0
-docker run -p 8080:8080 --memory=50m ghcr.io/esasmer-dou/rust-java-rest:2.0.0
+docker run -p 8080:8080 --memory=40m ghcr.io/esasmer-dou/rust-java-rest:2.0.0
 ```
 
-### Build
+### Build Options
 
+**Option 1: Minimal (Distroless + jlink) - 74MB**
 ```bash
-# In project directory
-cd rust-java-rest
+docker build -t rust-java-rest:minimal -f src/main/resources/container/Dockerfile.minimal .
+```
 
-# Build image
-docker build -t rust-java-rest:2.0.0 -f src/main/resources/container/Dockerfile .
+**Option 2: Standard (Debian + jlink) - 136MB**
+```bash
+docker build -t rust-java-rest:optimized -f src/main/resources/container/Dockerfile.optimized .
 ```
 
 ### Run
 
 ```bash
-# With 40MB memory limit
-docker run -d -p 8080:8080 --memory=40m --name rust-java-app rust-java-rest:2.0.0
-
-# With health check
-docker run -d -p 8080:8080 --memory=40m --health-cmd="curl -f http://localhost:8080/health" rust-java-rest:2.0.0
+# With 40MB memory limit (recommended)
+docker run -d -p 8080:8080 --memory=40m --name rust-java-app rust-java-rest:minimal
 ```
 
 ### Dockerfile Features
 
-| Feature | Value |
-|---------|-------|
-| Base Image | `eclipse-temurin:21-jre-jammy` |
-| Multi-stage Build | Yes (JDK → JRE) |
-| Non-root User | Yes (`appuser`) |
-| Health Check | Yes (10s interval) |
-| Memory Limit | 40MB |
-| JVM Heap | 4-20MB |
+| Feature | Minimal | Optimized |
+|---------|---------|-----------|
+| Base Image | Distroless | Debian slim |
+| Image Size | 74MB | 136MB |
+| jlink JRE | 35MB (minimal modules) | 35MB |
+| Health Check | External | curl included |
+| Memory Limit | 40MB | 40MB |
+| Non-root User | Yes | Yes |
 
-### JVM Settings
+### JVM Settings (Ultra-Minimal)
 
 ```bash
-# Default settings in Dockerfile
--Xms4m                          # Minimum heap
--Xmx20m                         # Maximum heap
+# Optimized for minimal memory footprint
+-Xms4m                          # Minimum heap (4MB)
+-Xmx20m                         # Maximum heap (20MB)
 -XX:+UseSerialGC                # Lowest memory GC
 -XX:MaxMetaspaceSize=24m        # Metaspace limit
 -XX:+TieredCompilation          # Fast startup
 -XX:TieredStopAtLevel=1         # C1 compiler only
+-XX:+UseCompressedOops          # Memory optimization
+-XX:+UseCompressedClassPointers # Memory optimization
 ```
 
 ### Docker Compose

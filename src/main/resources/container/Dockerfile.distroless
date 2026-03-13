@@ -1,0 +1,94 @@
+# Rust-Java REST Framework - Distroless Ultra-Minimal
+#
+# Target: < 70MB total image size
+#
+# Uses Google Distroless base with minimal JRE
+#
+# Build:
+#   docker build -t rust-java-rest:distroless -f src/main/resources/container/Dockerfile.distroless .
+#
+# Run:
+#   docker run -p 8080:8080 --memory=40m rust-java-rest:distroless
+
+# ============================================
+# STAGE 1: Build Java Application
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS java-builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    maven \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pom.xml .
+RUN mvn dependency:go-offline -B -q || true
+
+COPY src ./src
+RUN mvn package -DskipTests -B -q
+
+RUN mkdir -p target/lib && \
+    mvn dependency:copy-dependencies -DoutputDirectory=target/lib -B -q
+
+# ============================================
+# STAGE 2: Create Minimal JRE with jlink
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS jlink-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Minimal modules for our application
+RUN $JAVA_HOME/bin/jlink \
+    --add-modules java.base,java.logging,java.naming,jdk.unsupported \
+    --strip-debug \
+    --no-man-pages \
+    --no-header-files \
+    --compress=2 \
+    --output /jre-minimal
+
+RUN find /jre-minimal -type f -name '*.so' -exec strip --strip-unneeded {} \; 2>/dev/null || true
+RUN rm -rf /jre-minimal/legal /jre-minimal/man /jre-minimal/include
+
+# ============================================
+# STAGE 3: Distroless Runtime
+# ============================================
+FROM gcr.io/distroless/java-base-debian12:latest
+
+WORKDIR /app
+
+# Copy minimal JRE
+COPY --from=jlink-builder /jre-minimal /opt/java
+
+# Copy application (distroless runs as non-root by default)
+COPY --from=java-builder /build/target/rust-java-rest-2.0.0.jar ./app.jar
+COPY --from=java-builder /build/target/lib ./lib/
+
+ENV JAVA_HOME=/opt/java
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+# Ultra-Minimal JVM Options
+ENV JAVA_OPTS="\
+-Xms4m \
+-Xmx20m \
+-XX:+UseSerialGC \
+-XX:MaxHeapFreeRatio=10 \
+-XX:MinHeapFreeRatio=5 \
+-XX:+UseCompressedOops \
+-XX:+UseCompressedClassPointers \
+-XX:MaxMetaspaceSize=24m \
+-XX:CompressedClassSpaceSize=8m \
+-XX:InitialCodeCacheSize=1m \
+-XX:ReservedCodeCacheSize=8m \
+-XX:+TieredCompilation \
+-XX:TieredStopAtLevel=1 \
+-Djava.security.egd=file:/dev/./urandom \
+-Dfile.encoding=UTF-8"
+
+EXPOSE 8080
+
+# Note: Distroless doesn't have curl, healthcheck won't work
+# Use external health monitoring
+
+ENTRYPOINT ["/opt/java/bin/java", "-Xms4m", "-Xmx20m", "-XX:+UseSerialGC", "-XX:MaxHeapFreeRatio=10", "-XX:MinHeapFreeRatio=5", "-XX:+UseCompressedOops", "-XX:+UseCompressedClassPointers", "-XX:MaxMetaspaceSize=24m", "-XX:CompressedClassSpaceSize=8m", "-XX:InitialCodeCacheSize=1m", "-XX:ReservedCodeCacheSize=8m", "-XX:+TieredCompilation", "-XX:TieredStopAtLevel=1", "-Djava.security.egd=file:/dev/./urandom", "-Dfile.encoding=UTF-8", "-cp", "app.jar:lib/*", "com.reactor.rust.example.ReactorRustHyperApplication"]

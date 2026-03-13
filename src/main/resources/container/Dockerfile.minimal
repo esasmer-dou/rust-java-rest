@@ -1,0 +1,73 @@
+# Rust-Java REST Framework - Extreme Minimal (<80MB)
+#
+# Build:
+#   docker build -t rust-java-rest:minimal -f src/main/resources/container/Dockerfile.minimal .
+#
+# This version uses:
+# - jlink for custom JRE (~25MB)
+# - Pre-built JAR (fastest build)
+# - Minimal Debian base
+# - No curl (external health monitoring)
+
+# ============================================
+# STAGE 1: Build Application (reuse if exists)
+# ============================================
+FROM maven:3.9-eclipse-temurin-21-jammy AS builder
+
+WORKDIR /build
+
+# Cache dependencies
+COPY pom.xml .
+RUN mvn dependency:go-offline -B -q 2>/dev/null || true
+
+# Build application
+COPY src ./src
+RUN mvn package -DskipTests -DskipITs -B -q && \
+    mkdir -p target/lib && \
+    mvn dependency:copy-dependencies -DoutputDirectory=target/lib -B -q
+
+# ============================================
+# STAGE 2: Create Minimal JRE
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS jlink
+
+RUN apt-get update && apt-get install -y --no-install-recommends binutils && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN $JAVA_HOME/bin/jlink \
+    --add-modules java.base,java.logging,java.naming,jdk.unsupported \
+    --strip-debug \
+    --no-man-pages \
+    --no-header-files \
+    --compress=2 \
+    --output /jre && \
+    find /jre -type f -name '*.so' -exec strip --strip-unneeded {} \; 2>/dev/null || true && \
+    rm -rf /jre/legal /jre/man /jre/include
+
+# ============================================
+# STAGE 3: Runtime
+# ============================================
+FROM gcr.io/distroless/java-base-debian12:nonroot
+
+WORKDIR /app
+
+COPY --from=jlink /jre /opt/java
+COPY --from=builder /build/target/rust-java-rest-2.0.0.jar ./app.jar
+COPY --from=builder /build/target/lib ./lib/
+
+ENV JAVA_HOME=/opt/java
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+EXPOSE 8080
+
+ENTRYPOINT ["/opt/java/bin/java", \
+    "-Xms4m", "-Xmx20m", \
+    "-XX:+UseSerialGC", \
+    "-XX:MaxHeapFreeRatio=10", "-XX:MinHeapFreeRatio=5", \
+    "-XX:+UseCompressedOops", "-XX:+UseCompressedClassPointers", \
+    "-XX:MaxMetaspaceSize=24m", "-XX:CompressedClassSpaceSize=8m", \
+    "-XX:InitialCodeCacheSize=1m", "-XX:ReservedCodeCacheSize=8m", \
+    "-XX:+TieredCompilation", "-XX:TieredStopAtLevel=1", \
+    "-Djava.security.egd=file:/dev/./urandom", "-Dfile.encoding=UTF-8", \
+    "-cp", "app.jar:lib/*", \
+    "com.reactor.rust.example.ReactorRustHyperApplication"]
