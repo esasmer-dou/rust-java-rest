@@ -1,6 +1,7 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.annotations.ResponseStatus;
+import com.reactor.rust.async.AsyncHandlerExecutor;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
 
@@ -11,6 +12,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -46,6 +48,7 @@ public class HandlerRegistry {
         public final MethodHandle handle;
         public final boolean usesAnnotatedParams;
         public final boolean returnsResponseEntity;
+        public final boolean isAsync;
         public final int customResponseStatus;
 
         public HandlerDescriptor(Object bean,
@@ -55,6 +58,7 @@ public class HandlerRegistry {
                 MethodHandle handle,
                 boolean usesAnnotatedParams,
                 boolean returnsResponseEntity,
+                boolean isAsync,
                 int customResponseStatus) {
             this.bean = bean;
             this.method = method;
@@ -63,6 +67,7 @@ public class HandlerRegistry {
             this.handle = handle;
             this.usesAnnotatedParams = usesAnnotatedParams;
             this.returnsResponseEntity = returnsResponseEntity;
+            this.isAsync = isAsync;
             this.customResponseStatus = customResponseStatus;
         }
 
@@ -72,7 +77,7 @@ public class HandlerRegistry {
                 Class<?> requestType,
                 Class<?> responseType,
                 MethodHandle handle) {
-            this(bean, method, requestType, responseType, handle, false, false, 200);
+            this(bean, method, requestType, responseType, handle, false, false, false, 200);
         }
     }
 
@@ -111,6 +116,9 @@ public class HandlerRegistry {
             // Check if method returns ResponseEntity
             boolean returnsResponseEntity = ParameterResolver.returnsResponseEntity(method);
 
+            // Check if method returns CompletableFuture (async)
+            boolean isAsync = CompletableFuture.class.isAssignableFrom(method.getReturnType());
+
             // Check for @ResponseStatus annotation
             int customResponseStatus = 200;
             ResponseStatus responseStatus = method.getAnnotation(ResponseStatus.class);
@@ -121,7 +129,7 @@ public class HandlerRegistry {
             int id = idGenerator.getAndIncrement();
             handlers.put(id, new HandlerDescriptor(
                 bean, method, requestType, responseType, mh,
-                usesAnnotatedParams, returnsResponseEntity, customResponseStatus
+                usesAnnotatedParams, returnsResponseEntity, isAsync, customResponseStatus
             ));
 
             System.out.println("[JAVA] Handler registered: id=" + id
@@ -130,7 +138,8 @@ public class HandlerRegistry {
                     + " reqType=" + requestType.getName()
                     + " respType=" + responseType.getName()
                     + " annotatedParams=" + usesAnnotatedParams
-                    + " returnsResponseEntity=" + returnsResponseEntity);
+                    + " returnsResponseEntity=" + returnsResponseEntity
+                    + " isAsync=" + isAsync);
 
             return id;
 
@@ -267,5 +276,143 @@ public class HandlerRegistry {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
+    }
+
+    // ========================================
+    // ASYNC HANDLER SUPPORT (CompletableFuture)
+    // ========================================
+
+    /**
+     * Invoke async handler - returns CompletableFuture.
+     * Result will be written to a new buffer when complete.
+     *
+     * @param handlerId Handler ID
+     * @param inBytes Input body bytes
+     * @param pathParams Path parameters
+     * @param queryString Query string
+     * @param headers Headers
+     * @return CompletableFuture with response bytes
+     */
+    public CompletableFuture<byte[]> invokeAsync(
+            int handlerId,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) {
+        HandlerDescriptor desc = handlers.get(handlerId);
+
+        if (desc == null) {
+            return CompletableFuture.completedFuture(
+                    ("{\"error\":\"Unknown handlerId\"}").getBytes(StandardCharsets.UTF_8)
+            );
+        }
+
+        return AsyncHandlerExecutor.getInstance().submit(() -> {
+            try {
+                // Create buffer for response (256KB for large payloads)
+                ByteBuffer buffer = ByteBuffer.allocate(256 * 1024);
+
+                int written;
+                if (desc.usesAnnotatedParams) {
+                    written = invokeAnnotatedAsync(desc, buffer, 0, inBytes, pathParams, queryString, headers);
+                } else {
+                    written = invokeV4Async(desc, buffer, 0, inBytes, pathParams, queryString, headers);
+                }
+
+                // Extract bytes from buffer
+                byte[] result = new byte[written];
+                buffer.position(0);
+                buffer.get(result, 0, written);
+                return result;
+
+            } catch (Throwable e) {
+                // Log full stack trace for debugging
+                System.err.println("[HandlerRegistry] Error handling request: " + e.getClass().getName());
+                e.printStackTrace();
+                String errorMsg = e.getMessage();
+                if (errorMsg == null) {
+                    errorMsg = e.getClass().getName();
+                    if (e.getCause() != null) {
+                        errorMsg += ": " + e.getCause().getMessage();
+                    }
+                }
+                return ("{\"error\":\"" + escapeJson(errorMsg) + "\"}").getBytes(StandardCharsets.UTF_8);
+            }
+        });
+    }
+
+    /**
+     * Invoke V4 async handler that returns CompletableFuture.
+     */
+    @SuppressWarnings("unchecked")
+    private int invokeV4Async(
+            HandlerDescriptor desc,
+            ByteBuffer out,
+            int offset,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) throws Throwable {
+
+        Object result = desc.handle.invoke(out, offset, inBytes, pathParams, queryString, headers);
+
+        // If already CompletableFuture, wait for result
+        if (result instanceof CompletableFuture<?> future) {
+            Object asyncResult = future.join();
+            return processAsyncResult(asyncResult, out, offset);
+        }
+
+        // Direct result
+        return processAsyncResult(result, out, offset);
+    }
+
+    /**
+     * Invoke annotated async handler that returns CompletableFuture.
+     */
+    @SuppressWarnings("unchecked")
+    private int invokeAnnotatedAsync(
+            HandlerDescriptor desc,
+            ByteBuffer out,
+            int offset,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) throws Throwable {
+
+        Object[] args = ParameterResolver.resolveParameters(
+                desc.method, inBytes, pathParams, queryString, headers
+        );
+
+        Object result = desc.handle.invokeWithArguments(args);
+
+        // If CompletableFuture, wait for result
+        if (result instanceof CompletableFuture<?> future) {
+            Object asyncResult = future.join();
+            return processAsyncResult(asyncResult, out, offset);
+        }
+
+        return processAsyncResult(result, out, offset);
+    }
+
+    /**
+     * Process async result - handle different return types.
+     */
+    private int processAsyncResult(Object result, ByteBuffer out, int offset) {
+        if (result instanceof Integer) {
+            return (Integer) result;
+        }
+
+        if (result instanceof ResponseEntity<?> responseEntity) {
+            return writeResponseEntity(responseEntity, out, offset);
+        }
+
+        if (result != null) {
+            return DslJsonService.writeToBuffer(result, out, offset);
+        }
+
+        return 0;
     }
 }

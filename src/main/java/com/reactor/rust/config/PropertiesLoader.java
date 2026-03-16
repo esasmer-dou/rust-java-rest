@@ -121,4 +121,34 @@ public final class PropertiesLoader {
     public static Properties getAll() {
         return new Properties(properties);
     }
+
+    /**
+     * Get long property
+     */
+    public static long getLong(String key, long defaultValue) {
+        String value = get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Get double property
+     */
+    public static double getDouble(String key, double defaultValue) {
+        String value = get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
 }

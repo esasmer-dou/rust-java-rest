@@ -1,5 +1,6 @@
 package com.reactor.rust.di;
 
+import com.reactor.rust.config.PropertyInjector;
 import com.reactor.rust.di.annotation.*;
 import com.reactor.rust.di.exception.BeanCreationException;
 import com.reactor.rust.di.exception.CircularDependencyException;
@@ -363,6 +364,9 @@ public final class BeanContainer {
         }
         lazySuppliers.clear();
 
+        // Inject @RustProperty values into all beans (Constraint #8)
+        injectProperties();
+
         // Inject dependencies into all beans
         injectAll();
 
@@ -372,6 +376,15 @@ public final class BeanContainer {
         initialized = true;
 
         System.out.println("[BeanContainer] Started with " + beansByType.size() + " beans");
+    }
+
+    /**
+     * Inject @RustProperty values into all beans.
+     */
+    private void injectProperties() {
+        for (Object bean : new ArrayList<>(beansByType.values())) {
+            PropertyInjector.inject(bean);
+        }
     }
 
     /**

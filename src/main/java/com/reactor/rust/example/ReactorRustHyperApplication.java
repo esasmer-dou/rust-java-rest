@@ -7,6 +7,7 @@ import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.example.handler.BenchmarkHandler;
 import com.reactor.rust.example.handler.OrderHandler;
+import com.reactor.rust.websocket.WebSocketRegistry;
 
 /**
  * Main Application - Pure Java with Lightweight DI Container
@@ -60,6 +61,9 @@ public class ReactorRustHyperApplication {
 
         // 4. Scan and register routes AFTER handlers are registered
         RouteScanner.scanAndRegister();
+
+        // 5. Scan and register WebSocket handlers
+        registerWebSocketHandlers(container);
 
         System.out.println("[JAVA] Context initialized.");
 
@@ -118,5 +122,27 @@ public class ReactorRustHyperApplication {
         registry.registerBean(benchmarkHandler);
 
         System.out.println("[JAVA] Handlers registered with DI support");
+    }
+
+    /**
+     * Register WebSocket handlers with Rust.
+     *
+     * @param container initialized BeanContainer
+     */
+    private static void registerWebSocketHandlers(BeanContainer container) {
+        WebSocketRegistry wsRegistry = WebSocketRegistry.getInstance();
+
+        // Scan for @WebSocket annotated beans and register them
+        wsRegistry.scanAndRegister();
+
+        // Register each WebSocket route with Rust
+        for (String path : wsRegistry.getHandlerPaths()) {
+            // Use path hash as handler ID for WebSocket routes
+            int handlerId = path.hashCode();
+            NativeBridge.registerWebSocketRoute(path, handlerId);
+            System.out.println("[JAVA] WebSocket route registered: " + path + " -> handlerId=" + handlerId);
+        }
+
+        System.out.println("[JAVA] WebSocket handlers registered: " + wsRegistry.getHandlerPaths().size());
     }
 }

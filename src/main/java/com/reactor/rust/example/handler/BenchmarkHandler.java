@@ -116,6 +116,89 @@ public class BenchmarkHandler {
         return DslJsonService.writeToBuffer(request, out, offset);
     }
 
+    /**
+     * GET /api/v1/heavy - 100 item'lı ağır payload döner.
+     * Benchmark için büyük response testi.
+     */
+    @RustRoute(
+            method = "GET",
+            path = "/api/v1/heavy",
+            requestType = Void.class,
+            responseType = HeavyResponse.class
+    )
+    public int heavy(
+            ByteBuffer out,
+            int offset,
+            byte[] body,
+            String pathParams,
+            String query,
+            String headers
+    ) {
+        // Parse query param for item count (default 100)
+        int itemCount = 100;
+        if (query != null && query.contains("items=")) {
+            try {
+                String countStr = query.split("items=")[1].split("&")[0];
+                itemCount = Integer.parseInt(countStr);
+                if (itemCount < 1) itemCount = 100;
+                if (itemCount > 1000) itemCount = 1000;
+            } catch (Exception ignored) {}
+        }
+
+        // Create heavy list with large items
+        List<HeavyItem> items = new ArrayList<>(itemCount);
+        for (int i = 0; i < itemCount; i++) {
+            items.add(new HeavyItem(
+                    "ITEM-" + i + "-" + System.nanoTime(),
+                    "Detailed description for item number " + i + " with some additional text to increase payload size",
+                    99.99 + (i * 0.01),
+                    i % 5 == 0,
+                    new HeavyMetadata(
+                            "category-" + (i % 10),
+                            "warehouse-" + (i % 3),
+                            System.currentTimeMillis()
+                    )
+            ));
+        }
+
+        HeavyResponse response = new HeavyResponse(
+                "HEAVY-" + System.currentTimeMillis(),
+                "Heavy payload response with " + itemCount + " items",
+                itemCount,
+                System.currentTimeMillis(),
+                items
+        );
+
+        return DslJsonService.writeToBuffer(response, out, offset);
+    }
+
+    // ==================== Heavy DTOs ====================
+
+    @CompiledJson
+    public record HeavyItem(
+            String id,
+            String description,
+            double price,
+            boolean available,
+            HeavyMetadata metadata
+    ) {}
+
+    @CompiledJson
+    public record HeavyMetadata(
+            String category,
+            String warehouse,
+            long timestamp
+    ) {}
+
+    @CompiledJson
+    public record HeavyResponse(
+            String requestId,
+            String message,
+            int itemCount,
+            long timestamp,
+            List<HeavyItem> items
+    ) {}
+
     // ==================== DTOs (Records) ====================
 
     @CompiledJson
