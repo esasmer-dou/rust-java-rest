@@ -6,7 +6,10 @@ import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.example.handler.BenchmarkHandler;
+import com.reactor.rust.example.handler.FeatureHandler;
+import com.reactor.rust.example.handler.FileUploadHandler;
 import com.reactor.rust.example.handler.OrderHandler;
+import com.reactor.rust.example.handler.UserHandler;
 import com.reactor.rust.websocket.WebSocketRegistry;
 
 /**
@@ -116,10 +119,16 @@ public class ReactorRustHyperApplication {
         // Handlers are @Component annotated, so they're in the container
         OrderHandler orderHandler = container.getBean(OrderHandler.class);
         BenchmarkHandler benchmarkHandler = container.getBean(BenchmarkHandler.class);
+        UserHandler userHandler = container.getBean(UserHandler.class);
+        FeatureHandler featureHandler = container.getBean(FeatureHandler.class);
+        FileUploadHandler fileUploadHandler = container.getBean(FileUploadHandler.class);
 
         // Register with handler registry
         registry.registerBean(orderHandler);
         registry.registerBean(benchmarkHandler);
+        registry.registerBean(userHandler);
+        registry.registerBean(featureHandler);
+        registry.registerBean(fileUploadHandler);
 
         System.out.println("[JAVA] Handlers registered with DI support");
     }
