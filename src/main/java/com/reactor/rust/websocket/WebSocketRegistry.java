@@ -4,7 +4,7 @@ import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.websocket.annotation.*;
 
 import java.lang.reflect.Method;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -179,6 +179,27 @@ public final class WebSocketRegistry {
      */
     public WebSocketSession getSession(long sessionId) {
         return sessions.get(sessionId);
+    }
+
+    /**
+     * Get all active sessions.
+     */
+    public Map<Long, WebSocketSession> getAllSessions() {
+        return Collections.unmodifiableMap(sessions);
+    }
+
+    /**
+     * Get all session IDs.
+     */
+    public Set<Long> getSessionIds() {
+        return Collections.unmodifiableSet(sessions.keySet());
+    }
+
+    /**
+     * Get session count.
+     */
+    public int getSessionCount() {
+        return sessions.size();
     }
 
     /**

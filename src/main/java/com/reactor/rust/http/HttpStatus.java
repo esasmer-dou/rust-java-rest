@@ -21,6 +21,7 @@ public enum HttpStatus {
     SEE_OTHER(303, "See Other"),
     NOT_MODIFIED(304, "Not Modified"),
     TEMPORARY_REDIRECT(307, "Temporary Redirect"),
+    PERMANENT_REDIRECT(308, "Permanent Redirect"),
 
     // 4xx Client Error
     BAD_REQUEST(400, "Bad Request"),
