@@ -1,6 +1,7 @@
 package com.reactor.rust.example.handler;
 
 import com.reactor.rust.annotations.*;
+import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.example.dto.UserCreateRequest;
 import com.reactor.rust.example.dto.UserResponse;
 import com.reactor.rust.http.HttpStatus;
@@ -23,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - @ResponseStatus for custom HTTP status codes
  * - ResponseEntity<T> return type
  */
+@Component
 @RequestMapping("/users")
 public class UserHandler {
 

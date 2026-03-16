@@ -27,10 +27,21 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Also supports:
  * - ResponseEntity return type (automatic serialization)
  * - @ResponseStatus annotation for custom HTTP status codes
+ *
+ * OPTIMIZED:
+ * - Removed System.out.println from hot paths (uses lazy logging)
+ * - ThreadLocal ByteBuffer pool for async handlers
  */
 public class HandlerRegistry {
 
     private static final HandlerRegistry INSTANCE = new HandlerRegistry();
+
+    // ThreadLocal ByteBuffer pool for async handlers (64KB buffers)
+    private static final ThreadLocal<ByteBuffer> ASYNC_BUFFER_POOL =
+        ThreadLocal.withInitial(() -> ByteBuffer.allocate(64 * 1024));
+
+    // Lazy logger - only logs when DEBUG is true
+    private static final boolean DEBUG = Boolean.getBoolean("handler.debug");
 
     public static HandlerRegistry getInstance() {
         return INSTANCE;
@@ -90,7 +101,9 @@ public class HandlerRegistry {
     public void registerBean(Object bean) {
         if (!handlerBeans.contains(bean)) {
             handlerBeans.add(bean);
-            System.out.println(">>> [HandlerRegistry] bean registered = " + bean.getClass().getName());
+            if (DEBUG) {
+                System.out.println("[HandlerRegistry] bean registered = " + bean.getClass().getName());
+            }
         }
     }
 
@@ -132,14 +145,16 @@ public class HandlerRegistry {
                 usesAnnotatedParams, returnsResponseEntity, isAsync, customResponseStatus
             ));
 
-            System.out.println("[JAVA] Handler registered: id=" + id
-                    + " bean=" + bean.getClass().getName()
-                    + " method=" + method.getName()
-                    + " reqType=" + requestType.getName()
-                    + " respType=" + responseType.getName()
-                    + " annotatedParams=" + usesAnnotatedParams
-                    + " returnsResponseEntity=" + returnsResponseEntity
-                    + " isAsync=" + isAsync);
+            if (DEBUG) {
+                System.out.println("[HandlerRegistry] Handler registered: id=" + id
+                        + " bean=" + bean.getClass().getName()
+                        + " method=" + method.getName()
+                        + " reqType=" + requestType.getName()
+                        + " respType=" + responseType.getName()
+                        + " annotatedParams=" + usesAnnotatedParams
+                        + " returnsResponseEntity=" + returnsResponseEntity
+                        + " isAsync=" + isAsync);
+            }
 
             return id;
 
@@ -284,7 +299,7 @@ public class HandlerRegistry {
 
     /**
      * Invoke async handler - returns CompletableFuture.
-     * Result will be written to a new buffer when complete.
+     * Result will be written to a ThreadLocal buffer (zero-allocation).
      *
      * @param handlerId Handler ID
      * @param inBytes Input body bytes
@@ -310,8 +325,9 @@ public class HandlerRegistry {
 
         return AsyncHandlerExecutor.getInstance().submit(() -> {
             try {
-                // Create buffer for response (256KB for large payloads)
-                ByteBuffer buffer = ByteBuffer.allocate(256 * 1024);
+                // Reuse ThreadLocal buffer - no allocation
+                ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
+                buffer.clear(); // Reset position and limit
 
                 int written;
                 if (desc.usesAnnotatedParams) {
@@ -327,9 +343,11 @@ public class HandlerRegistry {
                 return result;
 
             } catch (Throwable e) {
-                // Log full stack trace for debugging
-                System.err.println("[HandlerRegistry] Error handling request: " + e.getClass().getName());
-                e.printStackTrace();
+                // Only log errors in DEBUG mode
+                if (DEBUG) {
+                    System.err.println("[HandlerRegistry] Error handling request: " + e.getClass().getName());
+                    e.printStackTrace();
+                }
                 String errorMsg = e.getMessage();
                 if (errorMsg == null) {
                     errorMsg = e.getClass().getName();

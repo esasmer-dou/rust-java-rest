@@ -139,19 +139,23 @@ public class ReactorRustHyperApplication {
      * @param container initialized BeanContainer
      */
     private static void registerWebSocketHandlers(BeanContainer container) {
-        WebSocketRegistry wsRegistry = WebSocketRegistry.getInstance();
+        try {
+            WebSocketRegistry wsRegistry = WebSocketRegistry.getInstance();
 
-        // Scan for @WebSocket annotated beans and register them
-        wsRegistry.scanAndRegister();
+            // Scan for @WebSocket annotated beans and register them
+            wsRegistry.scanAndRegister();
 
-        // Register each WebSocket route with Rust
-        for (String path : wsRegistry.getHandlerPaths()) {
-            // Use path hash as handler ID for WebSocket routes
-            int handlerId = path.hashCode();
-            NativeBridge.registerWebSocketRoute(path, handlerId);
-            System.out.println("[JAVA] WebSocket route registered: " + path + " -> handlerId=" + handlerId);
+            // Register each WebSocket route with Rust
+            for (String path : wsRegistry.getHandlerPaths()) {
+                // Use path hash as handler ID for WebSocket routes
+                int handlerId = path.hashCode();
+                NativeBridge.registerWebSocketRoute(path, handlerId);
+                System.out.println("[JAVA] WebSocket route registered: " + path + " -> handlerId=" + handlerId);
+            }
+
+            System.out.println("[JAVA] WebSocket handlers registered: " + wsRegistry.getHandlerPaths().size());
+        } catch (UnsatisfiedLinkError e) {
+            System.out.println("[JAVA] WebSocket not supported by native library - skipping WebSocket registration");
         }
-
-        System.out.println("[JAVA] WebSocket handlers registered: " + wsRegistry.getHandlerPaths().size());
     }
 }
