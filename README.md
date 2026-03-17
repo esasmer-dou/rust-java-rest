@@ -34,7 +34,122 @@ This release focuses on **extreme performance optimization**:
 | **ThreadLocal Buffer Pools** | Zero allocation parsing |
 | **Pre-allocated Error Bytes** | Fast error responses |
 
-**All v2.0.0 Features Included:**
+---
+
+## What's New in v3.0.0
+
+### 1. WebSocket Support 🆕
+
+Full WebSocket support with annotation-based handlers:
+
+```java
+@Component
+@WebSocket("/ws/chat/{roomId}")
+public class ChatWebSocketHandler {
+
+    @OnOpen
+    public void onOpen(WebSocketSession session) {
+        String roomId = session.getPathParams().get("roomId");
+        session.sendText("{\"type\":\"connected\",\"roomId\":\"" + roomId + "\"}");
+    }
+
+    @OnMessage
+    public void onMessage(WebSocketSession session, String message) {
+        // Broadcast to all sessions in room
+        WebSocketBroadcaster.getInstance()
+            .broadcastToRoom("room1", message);
+    }
+
+    @OnClose
+    public void onClose(WebSocketSession session) {
+        System.out.println("Session closed: " + session.getId());
+    }
+
+    @OnError
+    public void onError(WebSocketSession session, String error) {
+        System.err.println("Error: " + error);
+    }
+}
+```
+
+**Features:**
+- Path parameters (`/ws/chat/{roomId}`)
+- Room management and broadcasting
+- Binary and text messages
+- Session lifecycle callbacks
+
+### 2. Async Handlers (CompletableFuture) 🆕
+
+Non-blocking handlers with virtual threads (Java 21+):
+
+```java
+@PostMapping(value = "/order/create", requestType = OrderRequest.class)
+public CompletableFuture<ResponseEntity<OrderResponse>> createAsync(
+        @RequestBody OrderRequest request) {
+
+    return orderService.createOrderAsync(request)
+        .thenApply(order -> ResponseEntity.ok(
+            new OrderResponse(order.getId(), "Created")
+        ))
+        .exceptionally(ex -> ResponseEntity.status(500).body(
+            new OrderResponse(-1, "Error: " + ex.getMessage())
+        ));
+}
+
+// Combine multiple async calls
+@GetMapping(value = "/order/{id}/full")
+public CompletableFuture<ResponseEntity<FullOrderResponse>> getFullOrder(
+        @PathVariable("id") String orderId) {
+
+    CompletableFuture<Order> orderFuture = orderService.getOrderAsync(orderId);
+    CompletableFuture<List<Payment>> paymentsFuture = paymentService.getPaymentsAsync(orderId);
+
+    return CompletableFuture.allOf(orderFuture, paymentsFuture)
+        .thenApply(v -> new FullOrderResponse(orderFuture.join(), paymentsFuture.join()));
+}
+```
+
+### 3. Static File Serving 🆕
+
+Production-ready static file serving with caching:
+
+```java
+@Component
+@StaticFiles(
+    path = "/static",
+    location = "static",
+    cacheMaxAge = 3600,
+    indexFile = "index.html"
+)
+public class StaticFileConfig {}
+```
+
+```
+GET /static/css/style.css    → classpath:/static/css/style.css
+GET /static/js/app.js        → classpath:/static/js/app.js
+GET /static/                 → classpath:/static/index.html
+```
+
+**Features:**
+- 20+ MIME types supported
+- Automatic file caching (< 1MB files)
+- Multiple static locations
+- Cache-Control headers
+
+### 4. Phase 5 Performance Optimizations 🆕
+
+| Optimization | Before | After | Improvement |
+|--------------|--------|-------|-------------|
+| Annotation lookup | ~200ns | ~5ns | **40x faster** |
+| Parameter map lookup | O(n) | O(1) | **Robin-Hood hashing** |
+| Header encoding | String allocation | Zero-copy | **No GC pressure** |
+| Error responses | allocation | pre-allocated | **Zero allocation** |
+
+---
+
+## v2.0.0 Features (Included in v3.0.0)
+
+All v2.0.0 features are included:
 - Zero-overhead Dependency Injection (@Service, @Autowired, @PostConstruct)
 - Spring Boot-like annotations (@GetMapping, @PostMapping, etc.)
 - ResponseEntity<T> return type support
@@ -61,7 +176,7 @@ This release focuses on **extreme performance optimization**:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>2.0.0</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
@@ -836,6 +951,22 @@ com.myapp/
 | `@Primary` | Primary bean |
 | `@Qualifier` | Bean selection |
 
+### WebSocket Annotations (v3.0.0) 🆕
+
+| Annotation | Description |
+|------------|-------------|
+| `@WebSocket` | Mark WebSocket handler class |
+| `@OnOpen` | Connection opened callback |
+| `@OnMessage` | Message received handler |
+| `@OnClose` | Connection closed callback |
+| `@OnError` | Error handler |
+
+### Static Files Annotation (v3.0.0) 🆕
+
+| Annotation | Description |
+|------------|-------------|
+| `@StaticFiles` | Configure static file serving |
+
 ---
 
 ## Dependency Injection (DI)
@@ -1130,6 +1261,294 @@ You can also specify a custom name with `@Service("customName")`.
 | Runtime Reflection | No | Yes |
 | AOP Support | No | Yes |
 | Proxy Overhead | No | Yes |
+
+---
+
+## WebSocket Support (v3.0.0) 🆕
+
+Full WebSocket support with annotation-based handlers.
+
+### WebSocket Handler
+
+```java
+import com.reactor.rust.websocket.annotation.WebSocket;
+import com.reactor.rust.websocket.annotation.OnOpen;
+import com.reactor.rust.websocket.annotation.OnMessage;
+import com.reactor.rust.websocket.annotation.OnClose;
+import com.reactor.rust.websocket.annotation.OnError;
+import com.reactor.rust.websocket.WebSocketSession;
+
+@Component
+@WebSocket("/ws/echo")
+public class EchoWebSocketHandler {
+
+    @OnOpen
+    public void onOpen(WebSocketSession session) {
+        System.out.println("Session opened: " + session.getId());
+        session.sendText("{\"type\":\"connected\",\"sessionId\":\"" + session.getId() + "\"}");
+    }
+
+    @OnMessage
+    public void onMessage(WebSocketSession session, String message) {
+        session.sendText("{\"type\":\"echo\",\"message\":\"" + escapeJson(message) + "\"}");
+    }
+
+    @OnClose
+    public void onClose(WebSocketSession session) {
+        System.out.println("Session closed: " + session.getId());
+    }
+
+    @OnError
+    public void onError(WebSocketSession session, String error) {
+        System.err.println("Error: " + error);
+    }
+}
+```
+
+### Chat Room with Path Parameters
+
+```java
+@Component
+@WebSocket("/ws/chat/{roomId}")
+public class ChatWebSocketHandler {
+
+    private final ConcurrentHashMap<String, Set<WebSocketSession>> rooms = new ConcurrentHashMap<>();
+
+    @OnOpen
+    public void onOpen(WebSocketSession session) {
+        String roomId = session.getPathParams().get("roomId");
+        rooms.computeIfAbsent(roomId, k -> ConcurrentHashMap.newKeySet()).add(session);
+        broadcast(roomId, "{\"type\":\"join\",\"sessionId\":\"" + session.getId() + "\"}");
+    }
+
+    @OnMessage
+    public void onMessage(WebSocketSession session, String message) {
+        String roomId = session.getPathParams().get("roomId");
+        broadcast(roomId, "{\"type\":\"message\",\"text\":\"" + escapeJson(message) + "\"}");
+    }
+
+    private void broadcast(String roomId, String message) {
+        for (WebSocketSession s : rooms.get(roomId)) {
+            s.sendText(message);
+        }
+    }
+}
+```
+
+### WebSocket Broadcasting API
+
+```java
+import com.reactor.rust.websocket.WebSocketBroadcaster;
+
+WebSocketBroadcaster broadcaster = WebSocketBroadcaster.getInstance();
+
+// Broadcast to all sessions
+broadcaster.broadcast("{\"type\":\"notification\",\"text\":\"Hello all!\"}");
+
+// Broadcast to specific room
+broadcaster.broadcastToRoom("room1", "{\"type\":\"message\",\"text\":\"Hello room1!\"}");
+
+// Broadcast excluding sender
+broadcaster.broadcast(message, excludeSessionId);
+
+// Broadcast binary data
+broadcaster.broadcastBinary(data);
+broadcaster.broadcastBinaryToRoom("room1", data);
+
+// Room management
+broadcaster.joinRoom(sessionId, "room1");
+broadcaster.leaveRoom(sessionId, "room1");
+broadcaster.getSessionsInRoom("room1");
+```
+
+### JavaScript Client
+
+```javascript
+// Echo
+const ws = new WebSocket('ws://localhost:8080/ws/echo');
+ws.onopen = () => ws.send('Hello!');
+ws.onmessage = (e) => console.log(e.data);
+
+// Chat room
+const chat = new WebSocket('ws://localhost:8080/ws/chat/room1');
+chat.onopen = () => chat.send('Hi everyone!');
+chat.onmessage = (e) => console.log(e.data);
+```
+
+---
+
+## Async Handlers (CompletableFuture) (v3.0.0) 🆕
+
+Support for non-blocking async handlers with virtual threads (Java 21+).
+
+### Async Service
+
+```java
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class OrderService {
+
+    @Autowired
+    private PaymentService paymentService;
+
+    public CompletableFuture<Order> createOrderAsync(OrderRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            // This runs on a virtual thread (Java 21+)
+            Order order = new Order(generateId(), request);
+
+            // Process payment (blocking call)
+            paymentService.process(order);
+
+            return order;
+        });
+    }
+}
+```
+
+### Async Handler
+
+```java
+@RequestMapping("/order")
+public class OrderHandler {
+
+    @Autowired
+    private OrderService orderService;
+
+    @PostMapping(value = "/create", requestType = OrderRequest.class, responseType = OrderResponse.class)
+    public CompletableFuture<ResponseEntity<OrderResponse>> createAsync(
+            @RequestBody OrderRequest request) {
+
+        return orderService.createOrderAsync(request)
+            .thenApply(order -> ResponseEntity.ok(
+                new OrderResponse(order.getId(), "Created", order.getAmount())
+            ))
+            .exceptionally(ex -> ResponseEntity.status(500).body(
+                new OrderResponse(-1, "Error: " + ex.getMessage(), 0)
+            ));
+    }
+
+    // Multiple async calls combined
+    @GetMapping(value = "/{id}/full", responseType = FullOrderResponse.class)
+    public CompletableFuture<ResponseEntity<FullOrderResponse>> getFullOrder(
+            @PathVariable("id") String orderId) {
+
+        CompletableFuture<Order> orderFuture = orderService.getOrderAsync(orderId);
+        CompletableFuture<List<Payment>> paymentsFuture = paymentService.getPaymentsAsync(orderId);
+
+        return CompletableFuture.allOf(orderFuture, paymentsFuture)
+            .thenApply(v -> ResponseEntity.ok(new FullOrderResponse(
+                orderFuture.join(),
+                paymentsFuture.join()
+            )));
+    }
+}
+```
+
+### AsyncHandlerExecutor API
+
+```java
+import com.reactor.rust.async.AsyncHandlerExecutor;
+
+AsyncHandlerExecutor executor = AsyncHandlerExecutor.getInstance();
+
+// Submit async task
+CompletableFuture<Order> future = executor.submit(() -> {
+    return db.query("SELECT * FROM orders WHERE id = ?", id);
+});
+
+// Submit with timeout (5 seconds)
+CompletableFuture<Order> future = executor.submit(() -> {
+    return externalApi.call();
+}, 5000);
+```
+
+---
+
+## Static File Serving (v3.0.0) 🆕
+
+Production-ready static file serving with caching and MIME type detection.
+
+### Basic Configuration
+
+```java
+import com.reactor.rust.annotations.StaticFiles;
+
+@Component
+@StaticFiles(path = "/static", location = "static")
+public class StaticFileConfig {}
+```
+
+This serves files from `classpath:/static/` at `/static/*`:
+
+```
+GET /static/css/style.css    → classpath:/static/css/style.css
+GET /static/js/app.js        → classpath:/static/js/app.js
+GET /static/                 → classpath:/static/index.html (default)
+GET /static/images/logo.png  → classpath:/static/images/logo.png
+```
+
+### Full Configuration Options
+
+```java
+@Component
+@StaticFiles(
+    path = "/public",
+    location = "public",
+    directoryListing = false,    // Enable directory listing (default: false)
+    cacheMaxAge = 3600,          // Cache max-age in seconds (default: 3600)
+    indexFile = "index.html"     // Index file for directories (default: "index.html")
+)
+public class PublicStaticFiles {}
+```
+
+### Multiple Static Locations
+
+```java
+@Component
+@StaticFiles(path = "/assets", location = "assets")
+public class AssetsConfig {}
+
+@Component
+@StaticFiles(path = "/uploads", location = "uploads", cacheMaxAge = 0)
+public class UploadsConfig {}
+
+@Component
+@StaticFiles(path = "/", location = "public", indexFile = "index.html")
+public class RootStaticFiles {}
+```
+
+### Supported MIME Types
+
+| Extension | MIME Type |
+|-----------|-----------|
+| .html, .htm | text/html |
+| .css | text/css |
+| .js | application/javascript |
+| .json | application/json |
+| .png | image/png |
+| .jpg, .jpeg | image/jpeg |
+| .gif | image/gif |
+| .svg | image/svg+xml |
+| .ico | image/x-icon |
+| .webp | image/webp |
+| .woff, .woff2 | font/woff, font/woff2 |
+| .ttf | font/ttf |
+| .mp4 | video/mp4 |
+| .webm | video/webm |
+| .mp3 | audio/mpeg |
+| .pdf | application/pdf |
+| .xml | application/xml |
+| .txt | text/plain |
+
+### File Caching
+
+Small files (< 1MB) are automatically cached in memory.
+
+```java
+// Clear cache programmatically (development mode)
+StaticFileRegistry.getInstance().clearCache();
+```
 
 ---
 
