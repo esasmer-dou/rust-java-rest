@@ -1,3 +1,9 @@
+# Rust-Java REST Framework v3.0.1
+
+> **Note:** v3.0.1 fixes native library updates. See v3.0.0 below for full feature list.
+
+---
+
 # Rust-Java REST Framework v3.0.0
 
 ## Major Release: Ultra Low Latency & Complete Feature Set
