@@ -35,3 +35,6 @@ logs/
 
 # Test
 test-output/
+
+# Benchmark
+benchmark/

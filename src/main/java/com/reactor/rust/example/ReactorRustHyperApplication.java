@@ -11,6 +11,7 @@ import com.reactor.rust.example.handler.FileUploadHandler;
 import com.reactor.rust.example.handler.OrderHandler;
 import com.reactor.rust.example.handler.UserHandler;
 import com.reactor.rust.websocket.WebSocketRegistry;
+import com.reactor.rust.staticfiles.StaticFileScanner;
 
 /**
  * Main Application - Pure Java with Lightweight DI Container
@@ -67,6 +68,9 @@ public class ReactorRustHyperApplication {
 
         // 5. Scan and register WebSocket handlers
         registerWebSocketHandlers(container);
+
+        // 6. Scan and register static file handlers
+        StaticFileScanner.scanAndRegister(container.getBeansOfType(Object.class));
 
         System.out.println("[JAVA] Context initialized.");
 
