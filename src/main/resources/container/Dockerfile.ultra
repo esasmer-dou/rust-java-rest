@@ -1,0 +1,144 @@
+# Rust-Java REST Framework - Ultra Low Memory Image
+#
+# Builds BOTH Rust and Java inside container for maximum compatibility
+# Target: < 50MB memory usage, minimal image size
+#
+# Build:
+#   docker build -t rust-java-rest:ultra -f src/main/resources/container/Dockerfile.ultra .
+#
+# Run:
+#   docker run -d -p 8080:8080 --memory=50m --name rust-java rust-java-rest:ultra
+
+# ============================================
+# STAGE 1: Build Rust Library
+# ============================================
+FROM rust:1.85-slim-bookworm AS rust-builder
+
+WORKDIR /rust-build
+
+# Copy Rust source
+COPY rust-spring/Cargo.toml ./
+COPY rust-spring/src ./src
+
+# Build for standard linux (glibc required for JNI)
+RUN cargo build --release && \
+    strip --strip-unneeded target/release/librust_hyper.so
+
+# ============================================
+# STAGE 2: Build Java Application
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS java-builder
+
+WORKDIR /java-build
+
+# Install Maven
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    maven \
+    && rm -rf /var/lib/apt/lists/*
+
+# Cache dependencies first
+COPY rust-java-rest/pom.xml .
+RUN mvn dependency:go-offline -B -q 2>/dev/null || true
+
+# Copy source and build
+COPY rust-java-rest/src ./src
+
+# Copy Rust library to resources
+RUN mkdir -p src/main/resources/native/linux-x64
+COPY --from=rust-builder /rust-build/target/release/librust_hyper.so \
+    src/main/resources/native/linux-x64/
+
+# Build JAR
+RUN mvn package -DskipTests -B -q
+
+# Extract dependencies
+RUN mkdir -p target/lib && \
+    mvn dependency:copy-dependencies -DoutputDirectory=target/lib -B -q
+
+# ============================================
+# STAGE 3: Create Minimal JRE
+# ============================================
+FROM eclipse-temurin:21-jdk-jammy AS jlink-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create minimal JRE with required modules
+RUN $JAVA_HOME/bin/jlink \
+    --add-modules java.base,java.logging,java.naming,jdk.unsupported,java.management \
+    --strip-debug \
+    --no-man-pages \
+    --no-header-files \
+    --compress=2 \
+    --output /jre-minimal
+
+# Strip shared libraries
+RUN find /jre-minimal -type f -name '*.so' -exec strip --strip-unneeded {} \; 2>/dev/null || true
+RUN rm -rf /jre-minimal/legal /jre-minimal/man /jre-minimal/include
+
+# ============================================
+# STAGE 4: Ultra Minimal Runtime
+# ============================================
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libc6 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
+    && apt-get clean
+
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+# Copy minimal JRE
+COPY --from=jlink-builder /jre-minimal /opt/java
+
+# Copy application
+COPY --from=java-builder /java-build/target/rust-java-rest-2.0.0.jar ./app.jar
+COPY --from=java-builder /java-build/target/lib ./lib/
+
+# Set JAVA_HOME
+ENV JAVA_HOME=/opt/java
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/app/lib"
+
+# ULTRA-LOW MEMORY JVM OPTIONS (Target: <50MB total)
+ENV JAVA_OPTS="\
+-Xms4m \
+-Xmx24m \
+-XX:+UseSerialGC \
+-XX:MaxHeapFreeRatio=10 \
+-XX:MinHeapFreeRatio=5 \
+-XX:+UseCompressedOops \
+-XX:+UseCompressedClassPointers \
+-XX:MaxMetaspaceSize=20m \
+-XX:CompressedClassSpaceSize=8m \
+-XX:InitialCodeCacheSize=1m \
+-XX:ReservedCodeCacheSize=8m \
+-XX:+TieredCompilation \
+-XX:TieredStopAtLevel=1 \
+-XX:CICompilerCount=1 \
+-XX:+UseStringDeduplication \
+-Xss256k \
+-XX:ThreadStackSize=256 \
+-Djava.security.egd=file:/dev/./urandom \
+-Dfile.encoding=UTF-8 \
+-Djava.awt.headless=true \
+-Djava.library.path=/app/lib"
+
+# Setup directories and permissions
+RUN mkdir -p /tmp && chown -R appuser:appgroup /app /tmp
+
+USER appuser
+
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=5s --timeout=3s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -cp app.jar:lib/* com.reactor.rust.example.ReactorRustHyperApplication"]

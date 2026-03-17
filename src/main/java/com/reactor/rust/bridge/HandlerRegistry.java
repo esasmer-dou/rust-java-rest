@@ -4,10 +4,12 @@ import com.reactor.rust.annotations.ResponseStatus;
 import com.reactor.rust.async.AsyncHandlerExecutor;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
+import com.reactor.rust.util.FastMapV2;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -18,19 +20,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Handler registry with MethodHandle-based invocation.
- *
- * Supports two handler styles:
- * 1. V4 signature: (ByteBuffer out, int offset, byte[] body, String pathParams, String queryString, String headers)
- * 2. Annotated parameters: (@PathVariable, @RequestParam, @HeaderParam, @RequestBody, @CookieValue)
- *
- * Also supports:
- * - ResponseEntity return type (automatic serialization)
- * - @ResponseStatus annotation for custom HTTP status codes
- *
- * OPTIMIZED:
- * - Removed System.out.println from hot paths (uses lazy logging)
- * - ThreadLocal ByteBuffer pool for async handlers
+ * Optimized handler registry with:
+ * - MethodMetadata cache (zero runtime annotation lookup)
+ * - FastMapV2 for parameter resolution (O(1) lookup)
+ * - ThreadLocal ByteBuffer pool
+ * - Exact MethodHandle invocation for common signatures
  */
 public class HandlerRegistry {
 
@@ -39,6 +33,12 @@ public class HandlerRegistry {
     // ThreadLocal ByteBuffer pool for async handlers (64KB buffers)
     private static final ThreadLocal<ByteBuffer> ASYNC_BUFFER_POOL =
         ThreadLocal.withInitial(() -> ByteBuffer.allocate(64 * 1024));
+
+    // ThreadLocal FastMapV2 pools for zero-allocation parameter parsing
+    private static final ThreadLocal<FastMapV2> PARAM_MAP_POOL =
+        ThreadLocal.withInitial(FastMapV2::new);
+    private static final ThreadLocal<FastMapV2> HEADER_MAP_POOL =
+        ThreadLocal.withInitial(FastMapV2::new);
 
     // Lazy logger - only logs when DEBUG is true
     private static final boolean DEBUG = Boolean.getBoolean("handler.debug");
@@ -62,6 +62,9 @@ public class HandlerRegistry {
         public final boolean isAsync;
         public final int customResponseStatus;
 
+        // Cached metadata for fast parameter resolution
+        public final MethodMetadata metadata;
+
         public HandlerDescriptor(Object bean,
                 Method method,
                 Class<?> requestType,
@@ -80,6 +83,7 @@ public class HandlerRegistry {
             this.returnsResponseEntity = returnsResponseEntity;
             this.isAsync = isAsync;
             this.customResponseStatus = customResponseStatus;
+            this.metadata = MethodMetadata.getOrCreate(method, requestType, responseType);
         }
 
         // Legacy constructor for backwards compatibility
@@ -184,7 +188,7 @@ public class HandlerRegistry {
         try {
             // Choose invocation strategy based on method signature
             if (desc.usesAnnotatedParams) {
-                return invokeAnnotated(desc, out, offset, inBytes, pathParams, queryString, headers);
+                return invokeAnnotatedFast(desc, out, offset, inBytes, pathParams, queryString, headers);
             } else {
                 return invokeV4(desc, out, offset, inBytes, pathParams, queryString, headers);
             }
@@ -222,9 +226,9 @@ public class HandlerRegistry {
     }
 
     /**
-     * Invoke handler with annotated parameters (new style).
+     * Fast annotated invocation using FastMapV2 for O(1) parameter lookup.
      */
-    private int invokeAnnotated(
+    private int invokeAnnotatedFast(
             HandlerDescriptor desc,
             ByteBuffer out,
             int offset,
@@ -234,29 +238,169 @@ public class HandlerRegistry {
             String headers
     ) throws Throwable {
 
-        // Resolve parameters from annotations
-        Object[] args = ParameterResolver.resolveParameters(
-            desc.method, inBytes, pathParams, queryString, headers
-        );
+        // Use ThreadLocal FastMapV2 pools - O(1) lookup, zero allocation
+        FastMapV2 paramMap = PARAM_MAP_POOL.get();
+        FastMapV2 headerMap = HEADER_MAP_POOL.get();
 
-        // Invoke method
-        Object result = desc.handle.invokeWithArguments(args);
+        try {
+            paramMap.clear();
+            headerMap.clear();
 
-        // Handle different return types
-        if (result instanceof Integer) {
-            return (Integer) result;
+            // Fast parse using FastMapV2
+            parseParamsFast(paramMap, pathParams);
+            parseParamsFast(paramMap, queryString);
+            parseHeadersFast(headerMap, headers);
+
+            // Resolve parameters using cached metadata
+            Object[] args = resolveArgumentsFast(
+                desc.metadata.paramInfos,
+                inBytes, paramMap, headerMap
+            );
+
+            // Invoke method
+            Object result = desc.handle.invokeWithArguments(args);
+
+            // Handle different return types
+            if (result instanceof Integer) {
+                return (Integer) result;
+            }
+
+            if (result instanceof ResponseEntity<?> responseEntity) {
+                return writeResponseEntity(responseEntity, out, offset);
+            }
+
+            // Auto-serialize response object
+            if (result != null && desc.responseType != Void.class) {
+                return DslJsonService.writeToBuffer(result, out, offset);
+            }
+
+            return 0;
+
+        } finally {
+            paramMap.clear();
+            headerMap.clear();
+        }
+    }
+
+    /**
+     * Fast parameter parsing into FastMapV2.
+     */
+    private void parseParamsFast(FastMapV2 map, String params) {
+        if (params == null || params.isEmpty()) return;
+
+        int start = 0;
+        int len = params.length();
+
+        for (int i = 0; i <= len; i++) {
+            if (i == len || params.charAt(i) == '&') {
+                if (i > start) {
+                    int eqIdx = params.indexOf('=', start);
+                    if (eqIdx > start && eqIdx < i) {
+                        String key = params.substring(start, eqIdx);
+                        String value = params.substring(eqIdx + 1, i);
+                        map.put(key, value);
+                    }
+                }
+                start = i + 1;
+            }
+        }
+    }
+
+    /**
+     * Fast header parsing into FastMapV2.
+     */
+    private void parseHeadersFast(FastMapV2 map, String headers) {
+        if (headers == null || headers.isEmpty()) return;
+
+        int start = 0;
+        int len = headers.length();
+
+        for (int i = 0; i <= len; i++) {
+            if (i == len || headers.charAt(i) == '\n') {
+                if (i > start) {
+                    int colonIdx = headers.indexOf(':', start);
+                    if (colonIdx > start && colonIdx < i) {
+                        String key = headers.substring(start, colonIdx).trim().toLowerCase();
+                        String value = headers.substring(colonIdx + 1, i).trim();
+                        if (!key.isEmpty()) {
+                            map.put(key, value);
+                        }
+                    }
+                }
+                start = i + 1;
+            }
+        }
+    }
+
+    /**
+     * Resolve arguments using pre-computed parameter info.
+     */
+    private Object[] resolveArgumentsFast(
+            MethodMetadata.ParamInfo[] paramInfos,
+            byte[] body,
+            FastMapV2 params,
+            FastMapV2 headers
+    ) {
+        Object[] args = new Object[paramInfos.length];
+
+        for (int i = 0; i < paramInfos.length; i++) {
+            MethodMetadata.ParamInfo info = paramInfos[i];
+
+            switch (info.paramType) {
+                case PATH_VARIABLE:
+                case REQUEST_PARAM:
+                    String value = params.get(info.name);
+                    if (value == null && info.defaultValue != null) {
+                        value = info.defaultValue;
+                    }
+                    args[i] = convertType(value, info.type);
+                    break;
+
+                case HEADER_PARAM:
+                    String headerValue = headers.get(info.name.toLowerCase());
+                    if (headerValue == null && info.defaultValue != null) {
+                        headerValue = info.defaultValue;
+                    }
+                    args[i] = convertType(headerValue, info.type);
+                    break;
+
+                case REQUEST_BODY:
+                    if (body != null && body.length > 0) {
+                        args[i] = DslJsonService.parse(body, info.type);
+                    } else {
+                        args[i] = null;
+                    }
+                    break;
+
+                case LEGACY_BUFFER:
+                    args[i] = null;
+                    break;
+
+                case LEGACY_INT:
+                    args[i] = 0;
+                    break;
+
+                default:
+                    args[i] = null;
+            }
         }
 
-        if (result instanceof ResponseEntity<?> responseEntity) {
-            return writeResponseEntity(responseEntity, out, offset);
-        }
+        return args;
+    }
 
-        // Auto-serialize response object
-        if (result != null && desc.responseType != Void.class) {
-            return DslJsonService.writeToBuffer(result, out, offset);
-        }
+    /**
+     * Convert string to target type (optimized).
+     */
+    private Object convertType(String value, Class<?> targetType) {
+        if (value == null) return null;
 
-        return 0;
+        if (targetType == String.class) return value;
+        if (targetType == int.class || targetType == Integer.class) return Integer.parseInt(value);
+        if (targetType == long.class || targetType == Long.class) return Long.parseLong(value);
+        if (targetType == double.class || targetType == Double.class) return Double.parseDouble(value);
+        if (targetType == boolean.class || targetType == Boolean.class) return Boolean.parseBoolean(value);
+
+        return value;
     }
 
     /**
@@ -297,17 +441,6 @@ public class HandlerRegistry {
     // ASYNC HANDLER SUPPORT (CompletableFuture)
     // ========================================
 
-    /**
-     * Invoke async handler - returns CompletableFuture.
-     * Result will be written to a ThreadLocal buffer (zero-allocation).
-     *
-     * @param handlerId Handler ID
-     * @param inBytes Input body bytes
-     * @param pathParams Path parameters
-     * @param queryString Query string
-     * @param headers Headers
-     * @return CompletableFuture with response bytes
-     */
     public CompletableFuture<byte[]> invokeAsync(
             int handlerId,
             byte[] inBytes,
@@ -325,27 +458,24 @@ public class HandlerRegistry {
 
         return AsyncHandlerExecutor.getInstance().submit(() -> {
             try {
-                // Reuse ThreadLocal buffer - no allocation
                 ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
-                buffer.clear(); // Reset position and limit
+                buffer.clear();
 
                 int written;
                 if (desc.usesAnnotatedParams) {
-                    written = invokeAnnotatedAsync(desc, buffer, 0, inBytes, pathParams, queryString, headers);
+                    written = invokeAnnotatedFast(desc, buffer, 0, inBytes, pathParams, queryString, headers);
                 } else {
                     written = invokeV4Async(desc, buffer, 0, inBytes, pathParams, queryString, headers);
                 }
 
-                // Extract bytes from buffer
                 byte[] result = new byte[written];
                 buffer.position(0);
                 buffer.get(result, 0, written);
                 return result;
 
             } catch (Throwable e) {
-                // Only log errors in DEBUG mode
                 if (DEBUG) {
-                    System.err.println("[HandlerRegistry] Error handling request: " + e.getClass().getName());
+                    System.err.println("[HandlerRegistry] Error: " + e.getClass().getName());
                     e.printStackTrace();
                 }
                 String errorMsg = e.getMessage();
@@ -360,9 +490,6 @@ public class HandlerRegistry {
         });
     }
 
-    /**
-     * Invoke V4 async handler that returns CompletableFuture.
-     */
     @SuppressWarnings("unchecked")
     private int invokeV4Async(
             HandlerDescriptor desc,
@@ -376,37 +503,6 @@ public class HandlerRegistry {
 
         Object result = desc.handle.invoke(out, offset, inBytes, pathParams, queryString, headers);
 
-        // If already CompletableFuture, wait for result
-        if (result instanceof CompletableFuture<?> future) {
-            Object asyncResult = future.join();
-            return processAsyncResult(asyncResult, out, offset);
-        }
-
-        // Direct result
-        return processAsyncResult(result, out, offset);
-    }
-
-    /**
-     * Invoke annotated async handler that returns CompletableFuture.
-     */
-    @SuppressWarnings("unchecked")
-    private int invokeAnnotatedAsync(
-            HandlerDescriptor desc,
-            ByteBuffer out,
-            int offset,
-            byte[] inBytes,
-            String pathParams,
-            String queryString,
-            String headers
-    ) throws Throwable {
-
-        Object[] args = ParameterResolver.resolveParameters(
-                desc.method, inBytes, pathParams, queryString, headers
-        );
-
-        Object result = desc.handle.invokeWithArguments(args);
-
-        // If CompletableFuture, wait for result
         if (result instanceof CompletableFuture<?> future) {
             Object asyncResult = future.join();
             return processAsyncResult(asyncResult, out, offset);
