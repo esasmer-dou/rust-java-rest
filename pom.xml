@@ -8,7 +8,7 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.0.1</version>
+    <version>3.0.2</version>
     <name>Rust-Java REST Framework</name>
     <description>Ultra-low latency REST API framework with Rust Hyper server and Java handlers, Zero-overhead DI Container, Phase 5 Optimizations</description>
 
