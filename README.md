@@ -1,20 +1,20 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.0.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Memory](https://img.shields.io/badge/memory-28MB-green.svg)]()
 [![Latency](https://img.shields.io/badge/latency-5ms-brightgreen.svg)]()
 
 Ultra-fast REST API framework combining Rust Hyper HTTP server with Java handlers.
 
-## v3.0.0 - Ultra Low Latency & Memory Optimization
+## v3.0.2 - Ultra Low Latency & Memory Optimization
 
 This release focuses on **extreme performance optimization**:
 - **Sub-10ms latency** (5-8ms average)
 - **Sub-30MB memory** (28.99 MB container memory)
 - **Zero-allocation** per-request processing
 
-### Performance (v3.0.0 vs Spring Boot)
+### Performance (v3.0.2 vs Spring Boot)
 
 | Metric | Rust-Java REST | Spring Boot | Improvement |
 |--------|----------------|-------------|-------------|
@@ -796,7 +796,7 @@ The framework provides ultra-minimal Docker images optimized for production.
 | Image | Size | Base | Runtime Memory | Description |
 |-------|------|------|----------------|-------------|
 | `rust-java-rest:ultra` | **149MB** | Debian slim | **28 MB** | Ultra-low memory (v3.0.0) |
-| `ghcr.io/esasmer-dou/rust-java-rest:3.0.0` | **149MB** | Debian slim | **28 MB** | GitHub Registry |
+| `ghcr.io/esasmer-dou/rust-java-rest:3.0.2` | **149MB** | Debian slim | **28 MB** | GitHub Registry |
 | `rust-java-rest:minimal` | **74MB** | Distroless | ~35 MB | Minimal (v2.0.0) |
 | `rust-java-rest:optimized` | **136MB** | Debian slim | ~35 MB | With curl |
 
@@ -804,8 +804,8 @@ The framework provides ultra-minimal Docker images optimized for production.
 
 ```bash
 # Ultra-low memory image (v3.0.0) - RECOMMENDED
-docker pull ghcr.io/esasmer-dou/rust-java-rest:3.0.0
-docker run -p 8080:8080 --memory=50m ghcr.io/esasmer-dou/rust-java-rest:3.0.0
+docker pull ghcr.io/esasmer-dou/rust-java-rest:3.0.2
+docker run -p 8080:8080 --memory=50m ghcr.io/esasmer-dou/rust-java-rest:3.0.2
 
 # Legacy minimal image (v2.0.0)
 docker pull ghcr.io/esasmer-dou/rust-java-rest:2.0.0
