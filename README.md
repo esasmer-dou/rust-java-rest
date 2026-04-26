@@ -17,6 +17,62 @@ This is not positioned as "5x faster than Spring Boot in every workload". The st
 small JSON, raw/precomputed JSON, and read-heavy response paths. Dynamic heavy Java object graphs are
 still bounded and lower RSS than Spring Boot, but not a 5x throughput class.
 
+### What's New for Users
+
+**Package and native runtime**
+
+- Maven package is published as `com.reactor:rust-java-rest:3.1.0-rc1`.
+- GitHub Release includes the runnable JAR, sources, javadoc, Windows DLL, and Linux SO.
+- Normal Maven/JAR usage does not require manual DLL/SO copying. The JAR embeds:
+  `native/windows-x64/rust_hyper.dll` and `native/linux-x64/librust_hyper.so`.
+- Manual native override is still available with `-Drust.lib.path=/absolute/path/to/library`.
+- Native ABI checking fails fast if Java loads an old incompatible DLL/SO.
+
+**New response APIs**
+
+- `RawResponse.text(...)`, `RawResponse.bytes(...)`, and `RawResponse.json(...)` return
+  pre-serialized payloads without building a Java response DTO graph.
+- `RawResponse.registeredJson(...)` registers immutable JSON once in Rust for hot read-heavy paths.
+- `RawResponse.nativeJson(nativeId)` returns a previously registered native response.
+- `FileResponse.of(path)` and `FileResponse.download(path, fileName, contentType)` let Rust stream
+  large/static/export files without moving file bytes through Java/JNI.
+- `@MaxRequestBodySize(bytes)` and `@MaxResponseSize(bytes)` add per-route body limits.
+
+**Direct serialization path**
+
+- `JsonBufferWriter` lets hot handlers write JSON directly into a native direct `ByteBuffer`.
+- `DirectJsonWriter<T>` is the generated/build-time writer contract for DTO-specific direct writers.
+- `@DirectQueryInt("param")` lets Rust parse selected query integer params and pass primitive `int`
+  values into Java, reducing per-request query allocation on selected hot routes.
+
+**WebSocket updates**
+
+- `WebSocketSession.sendText(...)`, `sendBinary(...)`, `close()`, and `close(code, reason)` now use
+  Rust-side session registration instead of stale native pointers.
+- `WebSocketSession.getPathParams()` and `getQueryParams()` are available to handlers.
+- Outbound WebSocket sends are bounded by queue capacity, max frame size, and timeout. Slow consumers
+  are rejected/closed instead of growing memory without bounds.
+
+**Built-in observability**
+
+- `GET /metrics` returns native plus Java Prometheus metrics.
+- `GET /metrics/summary` returns compact JSON runtime/request memory summary.
+- `GET /metrics/reset` resets Java and native metrics for benchmark runs.
+- `GET /diagnostics/memory` returns JVM heap/non-heap, direct buffer pools, native memory diagnostics,
+  response pool counters, in-flight bytes, and native metrics in one JSON report.
+- `GET /diagnostics/native/trim` asks native runtime to release/trim retained memory where supported.
+
+**Runtime tuning properties**
+
+- HTTP limits and timeouts are configurable through `reactor.rust.http.*`.
+- WebSocket frame, queue, and send timeout limits are configurable through `reactor.rust.websocket.*`.
+- JNI worker count and queue capacity are configurable through `reactor.rust.jni.*`.
+- Native response pool caps are configurable through `reactor.rust.response-pool.*`.
+- Native response cache bounds are configurable through `reactor.rust.native-cache.*`.
+- Rust runtime thread counts and stack size are configurable through `reactor.rust.runtime.*`.
+- JSON writer retention caps are configurable through `reactor.rust.json.*`.
+- Logging levels are configurable through `reactor.rust.log.level` and `reactor.rust.java.log.level`.
+
 ### Container Benchmark Snapshot
 
 Profile: `low-rss`, CPU limit `2`, Rust-Java memory limit `128m`, Spring Boot memory limit `512m`,
