@@ -9,13 +9,14 @@ Ultra-fast REST API framework combining Rust Hyper HTTP server with Java handler
 
 ## v3.1.0-rc1 - Rust I/O Plane Performance Preview
 
-This release candidate focuses on the production direction of the framework:
-Java business logic remains in Java while Rust owns the HTTP I/O plane, bounded native memory,
-large response handling, WebSocket transport, and selected serialization-heavy paths.
+This release candidate clarifies the framework's direction: keep application code simple in Java, while
+Rust handles the low-level HTTP runtime, native memory boundaries, large response delivery, WebSocket
+transport, and selected hot serialization paths.
 
-This is not positioned as "5x faster than Spring Boot in every workload". The strongest results are
-small JSON, raw/precomputed JSON, and read-heavy response paths. Dynamic heavy Java object graphs are
-still bounded and lower RSS than Spring Boot, but not a 5x throughput class.
+In practice, the biggest gains appear when endpoints are small, read-heavy, precomputed, raw JSON, or
+file/export oriented. Regular dynamic DTO endpoints still work the familiar Java way; they benefit from
+the lighter runtime, but their final performance also depends on how much object creation and business
+logic each request performs.
 
 ### What's New for Users
 
