@@ -2,40 +2,34 @@ version: '3.8'
 
 services:
   rust-java-framework:
-    image: ghcr.io/esasmer-dou/rust-java-rest:2.0.0
+    build:
+      context: ..
+      dockerfile: benchmark/docker/framework.Dockerfile
+      args:
+        JAR_FILE: target/rust-java-rest-3.1.0-rc1.jar
+    image: rust-java-rest:benchmark
     container_name: rust-java-rest
     ports:
       - "8080:8080"
-    deploy:
-      resources:
-        limits:
-          memory: 50M
+    mem_limit: 128m
+    cpus: 2.0
     environment:
-      - JAVA_OPTS=-Xms4m -Xmx20m -XX:+UseSerialGC -XX:MaxMetaspaceSize=24m
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/v1/candidates"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      - JAVA_OPTS=-Xms8m -Xmx48m -Xquickstart -Xtune:virtualized -Xshareclasses:none -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom
 
   spring-boot:
     build:
-      context: ../spring-boot-simple-rest-api
-      dockerfile: Dockerfile
+      context: ../../spring-boot-simple-rest-api/com.divit.spring-boot-simple-rest-api
+      dockerfile: Dockerfile.benchmark
+      args:
+        JAR_FILE: target/com.divit.spring-boot-simple-rest-api-0.0.1-SNAPSHOT.jar
+    image: spring-boot-rest:benchmark
     container_name: spring-boot-rest
     ports:
       - "8081:8080"
-    deploy:
-      resources:
-        limits:
-          memory: 200M
+    mem_limit: 512m
+    cpus: 2.0
     environment:
-      - JAVA_OPTS=-Xms32m -Xmx128m
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/v1/candidates"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      - JAVA_OPTS=-Xms64m -Xmx256m -Xquickstart -Xtune:virtualized -Xshareclasses:none -Dserver.port=8080 -Dlogging.level.root=WARN -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom
 
   benchmark:
     build:
@@ -43,15 +37,17 @@ services:
       dockerfile: Dockerfile.benchmark
     container_name: benchmark-runner
     depends_on:
-      rust-java-framework:
-        condition: service_healthy
-      spring-boot:
-        condition: service_healthy
+      - rust-java-framework
+      - spring-boot
     environment:
-      - FRAMEWORK_HOST=rust-java-framework
-      - FRAMEWORK_PORT=8080
-      - SPRING_HOST=spring-boot
-      - SPRING_PORT=8080
+      - FRAMEWORK_URL=http://rust-java-framework:8080
+      - SPRING_URL=http://spring-boot:8080
+      - FRAMEWORK_CONTAINER=rust-java-rest
+      - SPRING_CONTAINER=spring-boot-rest
       - DURATION=30s
+      - WARMUP=10s
+      - THREADS=4
+      - CONCURRENCY_LEVELS=64 256 512 1000
     volumes:
       - ./results:/benchmark/results
+      - /var/run/docker.sock:/var/run/docker.sock

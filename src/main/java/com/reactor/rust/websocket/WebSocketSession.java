@@ -1,7 +1,10 @@
 package com.reactor.rust.websocket;
 
+import com.reactor.rust.bridge.NativeBridge;
+
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -18,9 +21,6 @@ public class WebSocketSession {
     private final Map<String, String> queryParams;
     private final Map<String, Object> attributes;
     private volatile boolean open = true;
-
-    // Native pointer for Rust-side connection
-    private long nativePtr = 0;
 
     public WebSocketSession(String path) {
         this(path, Map.of(), Map.of());
@@ -94,7 +94,8 @@ public class WebSocketSession {
         if (!open) {
             throw new IllegalStateException("Session is closed");
         }
-        nativeSendText(nativePtr, message);
+        Objects.requireNonNull(message, "message");
+        ensureSendAccepted(NativeBridge.sendWebSocketText(id, message));
     }
 
     /**
@@ -104,7 +105,8 @@ public class WebSocketSession {
         if (!open) {
             throw new IllegalStateException("Session is closed");
         }
-        nativeSendBinary(nativePtr, data, data.length);
+        Objects.requireNonNull(data, "data");
+        ensureSendAccepted(NativeBridge.sendWebSocketBinary(id, data, data.length));
     }
 
     /**
@@ -116,7 +118,7 @@ public class WebSocketSession {
         }
         byte[] data = new byte[buffer.remaining()];
         buffer.get(data);
-        nativeSendBinary(nativePtr, data, data.length);
+        ensureSendAccepted(NativeBridge.sendWebSocketBinary(id, data, data.length));
     }
 
     /**
@@ -125,7 +127,7 @@ public class WebSocketSession {
     public void close() {
         if (open) {
             open = false;
-            nativeClose(nativePtr);
+            NativeBridge.closeWebSocket(id);
         }
     }
 
@@ -135,22 +137,34 @@ public class WebSocketSession {
     public void close(int code, String reason) {
         if (open) {
             open = false;
-            nativeCloseWithReason(nativePtr, code, reason);
+            NativeBridge.closeWebSocketWithReason(id, code, reason == null ? "" : reason);
         }
     }
 
     /**
-     * Set native pointer (called from Rust).
+     * Mark closed from Rust close callback.
      */
-    public void setNativePtr(long ptr) {
-        this.nativePtr = ptr;
+    void markClosed() {
+        open = false;
     }
 
-    // Native methods implemented in Rust
-    private native void nativeSendText(long ptr, String message);
-    private native void nativeSendBinary(long ptr, byte[] data, int len);
-    private native void nativeClose(long ptr);
-    private native void nativeCloseWithReason(long ptr, int code, String reason);
+    private void ensureSendAccepted(int status) {
+        if (status == NativeBridge.WS_SEND_OK) {
+            return;
+        }
+        if (status == NativeBridge.WS_SEND_NOT_FOUND) {
+            open = false;
+            throw new IllegalStateException("WebSocket session is not registered in native runtime: " + id);
+        }
+        if (status == NativeBridge.WS_SEND_QUEUE_FULL) {
+            open = false;
+            throw new IllegalStateException("WebSocket outbound queue is full; slow consumer closed: " + id);
+        }
+        if (status == NativeBridge.WS_SEND_TOO_LARGE) {
+            throw new IllegalArgumentException("WebSocket frame exceeds configured max frame size");
+        }
+        throw new IllegalStateException("WebSocket native send failed with status " + status + " for session " + id);
+    }
 
     @Override
     public String toString() {

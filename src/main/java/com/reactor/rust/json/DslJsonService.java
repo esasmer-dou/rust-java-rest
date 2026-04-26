@@ -3,9 +3,13 @@ package com.reactor.rust.json;
 import com.dslplatform.json.Configuration;
 import com.dslplatform.json.DslJson;
 import com.dslplatform.json.JsonWriter;
+import com.reactor.rust.config.PropertiesLoader;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.ServiceLoader;
 
 /**
@@ -62,9 +66,18 @@ public final class DslJsonService {
         DSL_JSON = json;
     }
 
+    private static final int WRITER_INITIAL_BYTES = Math.max(
+            1024,
+            PropertiesLoader.getInt("reactor.rust.json.writer-initial-bytes", 4096)
+    );
+    private static final int WRITER_RETAIN_MAX_BYTES = Math.max(
+            WRITER_INITIAL_BYTES,
+            PropertiesLoader.getInt("reactor.rust.json.writer-retain-max-bytes", 256 * 1024)
+    );
+
     // Thread-local writer pool - eliminates allocation per serialize call
     private static final ThreadLocal<JsonWriter> WRITER_CACHE =
-        ThreadLocal.withInitial(() -> DSL_JSON.newWriter(4096)); // 4KB initial buffer
+        ThreadLocal.withInitial(DslJsonService::newWriter);
 
     // Pre-allocated null bytes
     private static final byte[] NULL_BYTES = "null".getBytes(StandardCharsets.UTF_8);
@@ -74,6 +87,16 @@ public final class DslJsonService {
     private static final byte[] ERROR_SUFFIX = "\"}".getBytes(StandardCharsets.UTF_8);
 
     private DslJsonService() {}
+
+    private static JsonWriter newWriter() {
+        return DSL_JSON.newWriter(WRITER_INITIAL_BYTES);
+    }
+
+    private static void releaseOversizedWriter(JsonWriter writer) {
+        if (writer.getByteBuffer().length > WRITER_RETAIN_MAX_BYTES) {
+            WRITER_CACHE.set(newWriter());
+        }
+    }
 
     /**
      * Serialize object to ByteBuffer (zero-copy compatible).
@@ -85,6 +108,10 @@ public final class DslJsonService {
      */
     public static int writeToBuffer(Object obj, ByteBuffer out, int offset) {
         if (obj == null) {
+            int remaining = Math.max(0, out.capacity() - offset);
+            if (NULL_BYTES.length > remaining) {
+                return -NULL_BYTES.length;
+            }
             out.position(offset);
             out.put(NULL_BYTES);
             return NULL_BYTES.length;
@@ -93,22 +120,26 @@ public final class DslJsonService {
         try {
             // Reuse ThreadLocal writer - no allocation
             JsonWriter writer = WRITER_CACHE.get();
-            writer.reset();
-            DSL_JSON.serialize(writer, obj);
+            try {
+                writer.reset();
+                DSL_JSON.serialize(writer, obj);
 
-            // Write directly to buffer
-            byte[] data = writer.getByteBuffer();
-            int size = writer.size();
+                // Write directly to buffer
+                byte[] data = writer.getByteBuffer();
+                int size = writer.size();
 
-            // Check if buffer has enough capacity
-            int remaining = out.capacity() - offset;
-            if (size > remaining) {
-                throw new RuntimeException("Buffer overflow: needed " + size + " bytes but only " + remaining + " available");
+                // Check if buffer has enough capacity
+                int remaining = Math.max(0, out.capacity() - offset);
+                if (size > remaining) {
+                    return -size;
+                }
+
+                out.position(offset);
+                out.put(data, 0, size);
+                return size;
+            } finally {
+                releaseOversizedWriter(writer);
             }
-
-            out.position(offset);
-            out.put(data, 0, size);
-            return size;
         } catch (Exception e) {
             String errorType = e.getClass().getName();
             String errorMsg = e.getMessage();
@@ -130,6 +161,70 @@ public final class DslJsonService {
             return DSL_JSON.deserialize(clazz, bytes, bytes.length);
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse JSON: " + e.getMessage(), e);
+        }
+    }
+
+    public static byte[] toBytes(Object obj) {
+        if (obj == null) {
+            return NULL_BYTES;
+        }
+
+        try {
+            JsonWriter writer = WRITER_CACHE.get();
+            try {
+                writer.reset();
+                DSL_JSON.serialize(writer, obj);
+                return Arrays.copyOf(writer.getByteBuffer(), writer.size());
+            } finally {
+                releaseOversizedWriter(writer);
+            }
+        } catch (Exception e) {
+            String errorType = e.getClass().getName();
+            String errorMsg = e.getMessage();
+            String fullError = errorType + ": " + (errorMsg != null ? errorMsg : "no message");
+            throw new RuntimeException("Failed to serialize JSON: " + fullError, e);
+        }
+    }
+
+    /**
+     * Deserialize directly from a ByteBuffer-backed stream.
+     * This avoids the JNI byte[] copy for modern handlers.
+     */
+    public static <T> T parse(ByteBuffer buffer, int length, Class<T> clazz) {
+        if (buffer == null || length <= 0) return null;
+        try {
+            ByteBuffer duplicate = buffer.duplicate();
+            duplicate.position(0);
+            duplicate.limit(Math.min(length, duplicate.capacity()));
+            return DSL_JSON.deserialize(clazz, new ByteBufferInputStream(duplicate));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse JSON: " + e.getMessage(), e);
+        }
+    }
+
+    private static final class ByteBufferInputStream extends InputStream {
+        private final ByteBuffer buffer;
+
+        private ByteBufferInputStream(ByteBuffer buffer) {
+            this.buffer = buffer;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (!buffer.hasRemaining()) {
+                return -1;
+            }
+            return buffer.get() & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] bytes, int off, int len) throws IOException {
+            if (!buffer.hasRemaining()) {
+                return -1;
+            }
+            int toRead = Math.min(len, buffer.remaining());
+            buffer.get(bytes, off, toRead);
+            return toRead;
         }
     }
 

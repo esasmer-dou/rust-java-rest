@@ -1,6 +1,7 @@
 package com.reactor.rust.config;
 
 import com.reactor.rust.annotations.RustProperty;
+import com.reactor.rust.logging.FrameworkLogger;
 
 import java.lang.reflect.Field;
 
@@ -46,9 +47,9 @@ public final class PropertyInjector {
                 try {
                     field.setAccessible(true);
                     field.set(bean, value);
-                    System.out.println("[PropertyInjector] Injected " + key + " = " + value + " into " + clazz.getSimpleName());
+                    FrameworkLogger.debug("[PropertyInjector] Injected " + key + " = " + value + " into " + clazz.getSimpleName());
                 } catch (IllegalAccessException e) {
-                    System.err.println("[PropertyInjector] Failed to inject " + key + ": " + e.getMessage());
+                    FrameworkLogger.warn("[PropertyInjector] Failed to inject " + key + ": " + e.getMessage());
                 }
             }
         }

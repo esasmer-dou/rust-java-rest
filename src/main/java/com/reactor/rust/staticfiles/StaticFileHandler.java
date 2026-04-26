@@ -1,8 +1,10 @@
 package com.reactor.rust.staticfiles;
 
 import com.reactor.rust.di.BeanContainer;
+import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.HttpStatus;
 import com.reactor.rust.http.ResponseEntity;
+import com.reactor.rust.logging.FrameworkLogger;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,7 +45,7 @@ public class StaticFileHandler {
      * @param acceptEncoding Accept-Encoding header value
      * @return ResponseEntity with file content or 404
      */
-    public ResponseEntity<StaticFileResponse> serveFile(String requestPath, String acceptEncoding) {
+    public ResponseEntity<?> serveFile(String requestPath, String acceptEncoding) {
         StaticFileConfig cfg = getConfig();
 
         if (!cfg.isEnabled()) {
@@ -63,24 +65,32 @@ public class StaticFileHandler {
 
         // Try to load file
         try {
-            byte[] content;
             String contentType = StaticFileConfig.getMimeType(filePath);
             Map<String, String> headers = new HashMap<>();
+            byte[] content;
 
             // Try filesystem first, then classpath
             Path fsPath = Paths.get(cfg.getResourcePath(), filePath);
             if (Files.exists(fsPath) && Files.isRegularFile(fsPath)) {
-                content = Files.readAllBytes(fsPath);
-
                 // Add last modified for caching
                 long lastModified = Files.getLastModifiedTime(fsPath).toMillis();
                 headers.put("Last-Modified", formatHttpDate(lastModified));
 
-                // Generate ETag
                 if (cfg.isEnableEtag()) {
-                    String etag = generateETag(content, lastModified);
+                    String etag = generateFileETag(Files.size(fsPath), lastModified);
                     headers.put("ETag", "\"" + etag + "\"");
                 }
+
+                if (cfg.getCacheMaxAge() > 0) {
+                    headers.put("Cache-Control", "public, max-age=" + cfg.getCacheMaxAge());
+                }
+
+                FileResponse response = FileResponse.of(fsPath, contentType);
+                for (Map.Entry<String, String> header : headers.entrySet()) {
+                    response.header(header.getKey(), header.getValue());
+                }
+
+                return ResponseEntity.status(HttpStatus.OK, response);
             } else {
                 // Try classpath
                 String resourcePath = cfg.getResourcePath() + "/" + filePath;
@@ -98,7 +108,7 @@ public class StaticFileHandler {
                 }
             }
 
-            // Check if client accepts gzip
+            // Classpath resources have no filesystem path; keep this path for small packaged assets.
             boolean useGzip = cfg.isEnableGzip() &&
                     StaticFileConfig.shouldGzip(contentType) &&
                     acceptEncoding != null &&
@@ -127,7 +137,7 @@ public class StaticFileHandler {
             return entity;
 
         } catch (IOException e) {
-            System.err.println("[StaticFiles] Error serving file: " + e.getMessage());
+            FrameworkLogger.warn("[StaticFiles] Error serving file: " + e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR, null);
         }
     }
@@ -187,6 +197,10 @@ public class StaticFileHandler {
         } catch (Exception e) {
             return Long.toHexString(lastModified);
         }
+    }
+
+    private String generateFileETag(long size, long lastModified) {
+        return Long.toHexString(size) + "-" + Long.toHexString(lastModified);
     }
 
     /**

@@ -1,5 +1,8 @@
 package com.reactor.rust.websocket;
 
+import com.reactor.rust.bridge.NativeBridge;
+import com.reactor.rust.logging.FrameworkLogger;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -162,7 +165,7 @@ public final class WebSocketBroadcaster {
                         session.sendText(message);
                         count++;
                     } catch (Exception e) {
-                        System.err.println("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
+                        debugError("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
                     }
                 }
             }
@@ -219,7 +222,7 @@ public final class WebSocketBroadcaster {
                         session.sendText(message);
                         count++;
                     } catch (Exception e) {
-                        System.err.println("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
+                        debugError("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
                     }
                 }
             }
@@ -256,7 +259,7 @@ public final class WebSocketBroadcaster {
                         session.sendBinary(data);
                         count++;
                     } catch (Exception e) {
-                        System.err.println("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
+                        debugError("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
                     }
                 }
             }
@@ -300,7 +303,7 @@ public final class WebSocketBroadcaster {
                         session.sendBinary(data);
                         count++;
                     } catch (Exception e) {
-                        System.err.println("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
+                        debugError("[WebSocketBroadcaster] Error sending to session " + sessionId + ": " + e.getMessage());
                     }
                 }
             }
@@ -325,11 +328,17 @@ public final class WebSocketBroadcaster {
                     session.sendText(message);
                     count++;
                 } catch (Exception e) {
-                    System.err.println("[WebSocketBroadcaster] Error sending to session " + session.getId() + ": " + e.getMessage());
+                    debugError("[WebSocketBroadcaster] Error sending to session " + session.getId() + ": " + e.getMessage());
                 }
             }
         }
         return count;
+    }
+
+    private static void debugError(String message) {
+        if (NativeBridge.isDebugLoggingEnabled()) {
+            FrameworkLogger.debugError(message);
+        }
     }
 
     /**

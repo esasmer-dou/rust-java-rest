@@ -1,3 +1,15 @@
+FROM rust:1.91-alpine AS load-probe-builder
+
+RUN apk add --no-cache musl-dev
+
+WORKDIR /build
+
+COPY load-probe/Cargo.toml ./Cargo.toml
+COPY load-probe/Cargo.lock ./Cargo.lock
+COPY load-probe/src ./src
+
+RUN cargo build --release --locked
+
 FROM alpine:3.19
 
 # Install wrk and other tools
@@ -6,13 +18,17 @@ RUN apk add --no-cache \
     curl \
     jq \
     bash \
-    bc
+    bc \
+    docker-cli
 
 WORKDIR /benchmark
 
+COPY --from=load-probe-builder /build/target/release/load-probe /usr/local/bin/load-probe
 COPY benchmark.sh /benchmark/
+COPY production_benchmark.sh /benchmark/
 COPY benchmark_post.lua /benchmark/
 
 RUN chmod +x /benchmark/benchmark.sh
+RUN chmod +x /benchmark/production_benchmark.sh
 
-ENTRYPOINT ["/benchmark/benchmark.sh"]
+ENTRYPOINT ["/benchmark/production_benchmark.sh"]

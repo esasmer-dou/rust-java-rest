@@ -1,5 +1,7 @@
 package com.reactor.rust.di;
 
+import com.reactor.rust.logging.FrameworkLogger;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -39,7 +41,7 @@ final class BeanScanner {
                 }
             }
         } catch (IOException e) {
-            System.err.println("[BeanScanner] Error scanning package: " + packageName + " - " + e.getMessage());
+            FrameworkLogger.warn("[BeanScanner] Error scanning package: " + packageName + " - " + e.getMessage());
         }
     }
 
@@ -86,7 +88,7 @@ final class BeanScanner {
                 }
             }
         } catch (IOException e) {
-            System.err.println("[BeanScanner] Error scanning JAR: " + e.getMessage());
+            FrameworkLogger.warn("[BeanScanner] Error scanning JAR: " + e.getMessage());
         }
     }
 

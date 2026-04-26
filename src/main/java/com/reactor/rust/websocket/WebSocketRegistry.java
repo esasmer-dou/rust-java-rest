@@ -1,6 +1,8 @@
 package com.reactor.rust.websocket;
 
+import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.di.BeanContainer;
+import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.websocket.annotation.*;
 
 import java.lang.reflect.Method;
@@ -42,7 +44,7 @@ public final class WebSocketRegistry {
         WebSocketHandlerInfo info = new WebSocketHandlerInfo(handler, clazz);
 
         handlers.put(path, info);
-        System.out.println("[WebSocketRegistry] Registered handler: " + path + " -> " + clazz.getName());
+        debugLog("[WebSocketRegistry] Registered handler: " + path + " -> " + clazz.getName());
     }
 
     /**
@@ -76,7 +78,7 @@ public final class WebSocketRegistry {
     public void onOpen(long sessionId, String path, String pathParams, String queryParams) {
         WebSocketHandlerInfo handler = handlers.get(path);
         if (handler == null) {
-            System.err.println("[WebSocketRegistry] No handler for path: " + path);
+            debugError("[WebSocketRegistry] No handler for path: " + path);
             return;
         }
 
@@ -93,7 +95,7 @@ public final class WebSocketRegistry {
             try {
                 handler.onOpenMethod.invoke(handler.bean, session);
             } catch (Exception e) {
-                System.err.println("[WebSocketRegistry] Error in onOpen: " + e.getMessage());
+                debugError("[WebSocketRegistry] Error in onOpen: " + e.getMessage());
             }
         }
     }
@@ -112,7 +114,7 @@ public final class WebSocketRegistry {
             try {
                 handler.onMessageMethod.invoke(handler.bean, session, message);
             } catch (Exception e) {
-                System.err.println("[WebSocketRegistry] Error in onMessage: " + e.getMessage());
+                debugError("[WebSocketRegistry] Error in onMessage: " + e.getMessage());
             }
         }
     }
@@ -131,7 +133,7 @@ public final class WebSocketRegistry {
             try {
                 handler.onBinaryMethod.invoke(handler.bean, session, data);
             } catch (Exception e) {
-                System.err.println("[WebSocketRegistry] Error in onBinary: " + e.getMessage());
+                debugError("[WebSocketRegistry] Error in onBinary: " + e.getMessage());
             }
         }
     }
@@ -142,6 +144,7 @@ public final class WebSocketRegistry {
     public void onClose(long sessionId) {
         WebSocketSession session = sessions.remove(sessionId);
         if (session == null) return;
+        session.markClosed();
 
         WebSocketHandlerInfo handler = handlers.get(session.getPath());
         if (handler == null) return;
@@ -150,7 +153,7 @@ public final class WebSocketRegistry {
             try {
                 handler.onCloseMethod.invoke(handler.bean, session);
             } catch (Exception e) {
-                System.err.println("[WebSocketRegistry] Error in onClose: " + e.getMessage());
+                debugError("[WebSocketRegistry] Error in onClose: " + e.getMessage());
             }
         }
     }
@@ -169,7 +172,7 @@ public final class WebSocketRegistry {
             try {
                 handler.onErrorMethod.invoke(handler.bean, session, errorMessage);
             } catch (Exception e) {
-                System.err.println("[WebSocketRegistry] Error in onError: " + e.getMessage());
+                debugError("[WebSocketRegistry] Error in onError: " + e.getMessage());
             }
         }
     }
@@ -217,6 +220,18 @@ public final class WebSocketRegistry {
             }
         }
         return map;
+    }
+
+    private static void debugLog(String message) {
+        if (NativeBridge.isDebugLoggingEnabled()) {
+            FrameworkLogger.debug(message);
+        }
+    }
+
+    private static void debugError(String message) {
+        if (NativeBridge.isDebugLoggingEnabled()) {
+            FrameworkLogger.debugError(message);
+        }
     }
 
     /**

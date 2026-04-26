@@ -1,5 +1,7 @@
 package com.reactor.rust.bridge;
 
+import com.reactor.rust.logging.FrameworkLogger;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -55,7 +57,7 @@ public final class NativeLibraryLoader {
             try {
                 System.loadLibrary(LIBRARY_NAME);
                 loaded = true;
-                System.out.println("[NativeLibraryLoader] Loaded from java.library.path: " + LIBRARY_NAME);
+                FrameworkLogger.info("[NativeLibraryLoader] Loaded from java.library.path: " + LIBRARY_NAME);
                 return;
             } catch (UnsatisfiedLinkError e) {
                 // Fall through to JAR extraction
@@ -79,7 +81,7 @@ public final class NativeLibraryLoader {
         }
         System.load(path);
         loaded = true;
-        System.out.println("[NativeLibraryLoader] Loaded from custom path: " + path);
+        FrameworkLogger.info("[NativeLibraryLoader] Loaded from custom path: " + path);
     }
 
     /**
@@ -90,15 +92,15 @@ public final class NativeLibraryLoader {
         String resourcePath = platform.getLibraryResourcePath();
         String libraryFileName = platform.getLibraryFileName();
 
-        System.out.println("[NativeLibraryLoader] Detected platform: " + platform);
-        System.out.println("[NativeLibraryLoader] Looking for resource: " + resourcePath);
+        FrameworkLogger.info("[NativeLibraryLoader] Detected platform: " + platform);
+        FrameworkLogger.info("[NativeLibraryLoader] Looking for resource: " + resourcePath);
 
         // Extract library from JAR to temp file
         Path tempFile = extractLibrary(resourcePath, libraryFileName);
 
         // Load the extracted library
         System.load(tempFile.toString());
-        System.out.println("[NativeLibraryLoader] Loaded from extracted: " + tempFile);
+        FrameworkLogger.info("[NativeLibraryLoader] Loaded from extracted: " + tempFile);
 
         // Delete on exit (best effort)
         tempFile.toFile().deleteOnExit();
@@ -120,7 +122,7 @@ public final class NativeLibraryLoader {
         }
 
         System.load(path.toString());
-        System.out.println("[NativeLibraryLoader] Loaded from custom path: " + path);
+        FrameworkLogger.info("[NativeLibraryLoader] Loaded from custom path: " + path);
     }
 
     /**

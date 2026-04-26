@@ -1,6 +1,7 @@
 package com.reactor.rust.middleware;
 
 import com.reactor.rust.di.BeanContainer;
+import com.reactor.rust.logging.FrameworkLogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,7 +34,7 @@ public final class MiddlewareRegistry {
             }
         }
         rebuildChain();
-        System.out.println("[MiddlewareRegistry] Registered " + middlewares.size() + " middlewares");
+        FrameworkLogger.info("[MiddlewareRegistry] Registered " + middlewares.size() + " middlewares");
     }
 
     /**

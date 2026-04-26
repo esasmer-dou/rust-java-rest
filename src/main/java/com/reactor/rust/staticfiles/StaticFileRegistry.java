@@ -1,6 +1,7 @@
 package com.reactor.rust.staticfiles;
 
 import com.reactor.rust.annotations.StaticFiles;
+import com.reactor.rust.logging.FrameworkLogger;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -87,7 +88,7 @@ public class StaticFileRegistry {
         );
 
         configs.put(urlPath, config);
-        System.out.println("[StaticFiles] Registered: " + urlPath + " -> " + annotation.location());
+        FrameworkLogger.info("[StaticFiles] Registered: " + urlPath + " -> " + annotation.location());
     }
 
     /**

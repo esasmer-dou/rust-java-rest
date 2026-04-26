@@ -5,6 +5,7 @@ import com.reactor.rust.di.annotation.*;
 import com.reactor.rust.di.exception.BeanCreationException;
 import com.reactor.rust.di.exception.CircularDependencyException;
 import com.reactor.rust.di.exception.NoSuchBeanException;
+import com.reactor.rust.logging.FrameworkLogger;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
@@ -375,7 +376,7 @@ public final class BeanContainer {
 
         initialized = true;
 
-        System.out.println("[BeanContainer] Started with " + beansByType.size() + " beans");
+        FrameworkLogger.info("[BeanContainer] Started with " + beansByType.size() + " beans");
     }
 
     /**
@@ -395,7 +396,7 @@ public final class BeanContainer {
             try {
                 callback.run();
             } catch (Exception e) {
-                System.err.println("[BeanContainer] Error during shutdown: " + e.getMessage());
+                FrameworkLogger.warn("[BeanContainer] Error during shutdown: " + e.getMessage());
             }
         }
         preDestroyCallbacks.clear();
@@ -405,7 +406,7 @@ public final class BeanContainer {
         primaryBeans.clear();
         initialized = false;
 
-        System.out.println("[BeanContainer] Shutdown complete");
+        FrameworkLogger.info("[BeanContainer] Shutdown complete");
     }
 
     // ========================================
@@ -460,7 +461,7 @@ public final class BeanContainer {
 
                         registerBeanInternal(returnType, beanInstance, beanName, isPrimary);
 
-                        System.out.println("[BeanContainer] @Bean registered: " + beanName + " -> " + returnType.getSimpleName());
+                        FrameworkLogger.debug("[BeanContainer] @Bean registered: " + beanName + " -> " + returnType.getSimpleName());
                     }
 
                 } catch (Exception e) {
@@ -612,7 +613,7 @@ public final class BeanContainer {
                             method.setAccessible(true);
                             method.invoke(bean);
                         } catch (Exception e) {
-                            System.err.println("[BeanContainer] @PreDestroy failed: " + e.getMessage());
+                            FrameworkLogger.warn("[BeanContainer] @PreDestroy failed: " + e.getMessage());
                         }
                     });
                 }
@@ -644,7 +645,7 @@ public final class BeanContainer {
             // Register bean
             registerBeanInternal(beanClass, instance, beanName, isPrimary);
 
-            System.out.println("[BeanContainer] @Component registered: " + beanName + " -> " + beanClass.getSimpleName());
+            FrameworkLogger.debug("[BeanContainer] @Component registered: " + beanName + " -> " + beanClass.getSimpleName());
 
         } catch (Exception e) {
             throw new BeanCreationException("Failed to create bean: " + beanClass.getName(), e);

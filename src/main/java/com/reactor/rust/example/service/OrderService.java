@@ -4,6 +4,7 @@ import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.PostConstruct;
 import com.reactor.rust.di.annotation.Service;
 import com.reactor.rust.example.dto.*;
+import com.reactor.rust.logging.FrameworkLogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +27,7 @@ public class OrderService {
 
     @PostConstruct
     public void init() {
-        System.out.println("[OrderService] Initialized");
+        FrameworkLogger.debug("[OrderService] Initialized");
     }
 
     /**

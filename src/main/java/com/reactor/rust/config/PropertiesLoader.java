@@ -1,5 +1,7 @@
 package com.reactor.rust.config;
 
+import com.reactor.rust.logging.FrameworkLogger;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -32,7 +34,7 @@ public final class PropertiesLoader {
         try (InputStream is = PropertiesLoader.class.getClassLoader().getResourceAsStream(CONFIG_FILE)) {
             if (is != null) {
                 properties.load(is);
-                System.out.println("[JAVA] Properties loaded from classpath: " + CONFIG_FILE);
+                FrameworkLogger.info("[JAVA] Properties loaded from classpath: " + CONFIG_FILE);
                 return;
             }
         } catch (IOException ignored) {}
@@ -43,7 +45,7 @@ public final class PropertiesLoader {
             if (Files.exists(filePath)) {
                 try (InputStream is = Files.newInputStream(filePath)) {
                     properties.load(is);
-                    System.out.println("[JAVA] Properties loaded from file: " + filePath.toAbsolutePath());
+                    FrameworkLogger.info("[JAVA] Properties loaded from file: " + filePath.toAbsolutePath());
                     return;
                 } catch (IOException ignored) {}
             }
@@ -51,7 +53,7 @@ public final class PropertiesLoader {
 
         // Load defaults
         loadDefaults();
-        System.out.println("[JAVA] Using default properties");
+        FrameworkLogger.info("[JAVA] Using default properties");
     }
 
     /**
@@ -61,6 +63,34 @@ public final class PropertiesLoader {
         properties.setProperty("server.port", "8080");
         properties.setProperty("server.host", "0.0.0.0");
         properties.setProperty("native.library.path", "native/rust_hyper.dll");
+        properties.setProperty("reactor.rust.http.max-request-body-bytes", "1048576");
+        properties.setProperty("reactor.rust.http.max-response-body-bytes", "8388608");
+        properties.setProperty("reactor.rust.http.max-inflight-body-bytes", "33554432");
+        properties.setProperty("reactor.rust.http.max-inflight-response-bytes", "67108864");
+        properties.setProperty("reactor.rust.http.max-connections", "1024");
+        properties.setProperty("reactor.rust.http.max-request-header-bytes", "16384");
+        properties.setProperty("reactor.rust.http.max-request-headers", "64");
+        properties.setProperty("reactor.rust.http.header-read-timeout-ms", "5000");
+        properties.setProperty("reactor.rust.http.request-body-timeout-ms", "10000");
+        properties.setProperty("reactor.rust.http.idle-timeout-ms", "30000");
+        properties.setProperty("reactor.rust.http.http1-only-enabled", "false");
+        properties.setProperty("reactor.rust.http.keep-alive-enabled", "true");
+        properties.setProperty("reactor.rust.log.level", "error");
+        properties.setProperty("reactor.rust.java.log.level", "warn");
+        properties.setProperty("reactor.rust.jni.workers", "0");
+        properties.setProperty("reactor.rust.jni.queue-capacity", "1024");
+        properties.setProperty("reactor.rust.response-pool.small-capacity", "256");
+        properties.setProperty("reactor.rust.response-pool.medium-capacity", "384");
+        properties.setProperty("reactor.rust.response-pool.large-capacity", "16");
+        properties.setProperty("reactor.rust.response-pool.huge-capacity", "2");
+        properties.setProperty("reactor.rust.native-cache.max-entries", "1024");
+        properties.setProperty("reactor.rust.native-cache.max-bytes", "16777216");
+        properties.setProperty("reactor.rust.native-cache.ttl-ms", "300000");
+        properties.setProperty("reactor.rust.runtime.worker-threads", "0");
+        properties.setProperty("reactor.rust.runtime.max-blocking-threads", "0");
+        properties.setProperty("reactor.rust.runtime.thread-stack-bytes", "0");
+        properties.setProperty("reactor.rust.json.writer-initial-bytes", "4096");
+        properties.setProperty("reactor.rust.json.writer-retain-max-bytes", "262144");
     }
 
     /**

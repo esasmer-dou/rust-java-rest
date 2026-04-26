@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     apt-get clean
 
 # Copy JAR and dependencies
-COPY --from=java-builder /build/target/rust-java-rest-2.0.0.jar ./app.jar
+COPY --from=java-builder /build/target/rust-java-rest-3.1.0-rc1.jar ./app.jar
 COPY --from=java-builder /build/target/lib ./lib/
 
 # Native library is bundled in JAR - no separate copy needed!

@@ -1,38 +1,50 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.0.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.1.0--rc1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Memory](https://img.shields.io/badge/memory-28MB-green.svg)]()
-[![Latency](https://img.shields.io/badge/latency-5ms-brightgreen.svg)]()
+[![Profile](https://img.shields.io/badge/profile-low--rss-green.svg)]()
+[![Status](https://img.shields.io/badge/status-performance--preview-orange.svg)]()
 
 Ultra-fast REST API framework combining Rust Hyper HTTP server with Java handlers.
 
-## v3.0.2 - Ultra Low Latency & Memory Optimization
+## v3.1.0-rc1 - Rust I/O Plane Performance Preview
 
-This release focuses on **extreme performance optimization**:
-- **Sub-10ms latency** (5-8ms average)
-- **Sub-30MB memory** (28.99 MB container memory)
-- **Zero-allocation** per-request processing
+This release candidate focuses on the production direction of the framework:
+Java business logic remains in Java while Rust owns the HTTP I/O plane, bounded native memory,
+large response handling, WebSocket transport, and selected serialization-heavy paths.
 
-### Performance (v3.0.2 vs Spring Boot)
+This is not positioned as "5x faster than Spring Boot in every workload". The strongest results are
+small JSON, raw/precomputed JSON, and read-heavy response paths. Dynamic heavy Java object graphs are
+still bounded and lower RSS than Spring Boot, but not a 5x throughput class.
 
-| Metric | Rust-Java REST | Spring Boot | Improvement |
-|--------|----------------|-------------|-------------|
-| Memory | **28 MB** | ~94 MB | 70% less |
-| Latency (avg) | **5-8 ms** | ~144 ms | 95% faster |
-| RPS (100 conn) | **3,626** | ~850 | 4x faster |
-| Docker Image | **149 MB** | ~300 MB | 50% smaller |
-| Per-request alloc | **0 bytes** | ~2 KB | 100% reduction |
+### Container Benchmark Snapshot
 
-### New Optimizations (Phase 5)
+Profile: `low-rss`, CPU limit `2`, Rust-Java memory limit `128m`, Spring Boot memory limit `512m`,
+OpenJ9/Semeru 21, concurrency `1000`, duration `20s`.
+
+| Endpoint | Rust-Java RPS | Spring Boot RPS | Ratio | Rust P99 | Spring P99 | Rust Max Mem | Spring Max Mem |
+|----------|--------------:|----------------:|------:|---------:|-----------:|-------------:|---------------:|
+| candidates | 10,510 | 4,665 | 2.25x | 303ms | 639ms | 113 MiB | 281 MiB |
+| echo | 11,171 | 4,128 | 2.71x | 289ms | 640ms | 117 MiB | 299 MiB |
+| heavy100 raw | 10,106 | 4,281 | 2.36x | 290ms | 513ms | 98 MiB | 254 MiB |
+| heavy100 dynamic | 2,469 | 1,791 | 1.38x | 552ms | 2.43s | 105 MiB | 280 MiB |
+
+Benchmark run id: `container_20260425_204114`. The RC release notes include the c=1000 summary table.
+
+### New Optimizations
 
 | Optimization | Impact |
 |--------------|--------|
-| **MethodMetadata Cache** | Annotation lookup: 200ns → 5ns |
-| **FastMapV2 (Robin-Hood)** | O(n) → O(1) lookup |
-| **Zero-Copy Headers (Rust)** | No String allocation |
-| **ThreadLocal Buffer Pools** | Zero allocation parsing |
-| **Pre-allocated Error Bytes** | Fast error responses |
+| **Bounded JNI worker queue** | Predictable overload behavior instead of unbounded blocking/allocation |
+| **Direct response buffer writers** | Avoid DTO graph and serializer-owned byte[] for selected hot endpoints |
+| **Primitive direct route API** | Query ints can be parsed in Rust and passed as primitives through JNI |
+| **Generated-style JSON parser/writer prototype** | Echo path avoids generic reflection/map-style parsing |
+| **Response pool and native memory diagnostics** | Lower RSS retention risk and measurable native memory behavior |
+| **Raw/File/native response paths** | Large/static/read-heavy responses avoid carrying Java body bytes per request |
+| **Timeout/keep-alive/header/body limits** | Production safety knobs for slow clients and bounded resource usage |
+| **Low-RSS / throughput / micro-RSS profiles** | Runtime can be tuned by workload instead of one-size-fits-all config |
+
+Release notes: `docs/release-notes/v3.1.0-rc1.md`.
 
 ---
 
@@ -176,7 +188,7 @@ All v2.0.0 features are included:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.0.2</version>
+    <version>3.1.0-rc1</version>
 </dependency>
 ```
 
@@ -796,7 +808,7 @@ The framework provides ultra-minimal Docker images optimized for production.
 | Image | Size | Base | Runtime Memory | Description |
 |-------|------|------|----------------|-------------|
 | `rust-java-rest:ultra` | **149MB** | Debian slim | **28 MB** | Ultra-low memory (v3.0.0) |
-| `ghcr.io/esasmer-dou/rust-java-rest:3.0.2` | **149MB** | Debian slim | **28 MB** | GitHub Registry |
+| `ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc1` | Debian slim | low-rss profile | RC / performance preview |
 | `rust-java-rest:minimal` | **74MB** | Distroless | ~35 MB | Minimal (v2.0.0) |
 | `rust-java-rest:optimized` | **136MB** | Debian slim | ~35 MB | With curl |
 
@@ -804,8 +816,8 @@ The framework provides ultra-minimal Docker images optimized for production.
 
 ```bash
 # Ultra-low memory image (v3.0.0) - RECOMMENDED
-docker pull ghcr.io/esasmer-dou/rust-java-rest:3.0.2
-docker run -p 8080:8080 --memory=50m ghcr.io/esasmer-dou/rust-java-rest:3.0.2
+docker pull ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc1
+docker run -p 8080:8080 --memory=128m ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc1
 
 # Legacy minimal image (v2.0.0)
 docker pull ghcr.io/esasmer-dou/rust-java-rest:2.0.0

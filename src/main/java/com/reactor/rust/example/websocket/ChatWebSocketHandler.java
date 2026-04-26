@@ -1,6 +1,7 @@
 package com.reactor.rust.example.websocket;
 
 import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.websocket.WebSocketSession;
 import com.reactor.rust.websocket.annotation.*;
 
@@ -27,7 +28,7 @@ public class ChatWebSocketHandler {
         // Add session to room
         rooms.computeIfAbsent(roomId, k -> ConcurrentHashMap.newKeySet()).add(session);
 
-        System.out.println("[Chat] User joined room: " + roomId + " (sessionId: " + session.getId() + ")");
+        FrameworkLogger.debug("[Chat] User joined room: " + roomId + " (sessionId: " + session.getId() + ")");
 
         // Broadcast join message
         broadcast(roomId, "{\"type\":\"join\",\"sessionId\":" + session.getId() + ",\"room\":\"" + roomId + "\"}");
@@ -38,7 +39,7 @@ public class ChatWebSocketHandler {
         String roomId = session.getPathParams().get("roomId");
         if (roomId == null) roomId = "default";
 
-        System.out.println("[Chat] Message in room " + roomId + ": " + message);
+        FrameworkLogger.debug("[Chat] Message in room " + roomId + ": " + message);
 
         // Broadcast to all users in room
         broadcast(roomId, "{\"type\":\"message\",\"sessionId\":" + session.getId() + ",\"text\":\"" + escapeJson(message) + "\"}");
@@ -55,7 +56,7 @@ public class ChatWebSocketHandler {
             roomSessions.remove(session);
         }
 
-        System.out.println("[Chat] User left room: " + roomId + " (sessionId: " + session.getId() + ")");
+        FrameworkLogger.debug("[Chat] User left room: " + roomId + " (sessionId: " + session.getId() + ")");
 
         // Broadcast leave message
         broadcast(roomId, "{\"type\":\"leave\",\"sessionId\":" + session.getId() + "}");
@@ -63,7 +64,7 @@ public class ChatWebSocketHandler {
 
     @OnError
     public void onError(WebSocketSession session, String error) {
-        System.err.println("[Chat] Error: " + error);
+        FrameworkLogger.debugError("[Chat] Error: " + error);
     }
 
     /**

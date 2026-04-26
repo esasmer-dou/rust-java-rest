@@ -10,6 +10,8 @@ import com.reactor.rust.example.handler.FeatureHandler;
 import com.reactor.rust.example.handler.FileUploadHandler;
 import com.reactor.rust.example.handler.OrderHandler;
 import com.reactor.rust.example.handler.UserHandler;
+import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.metrics.MetricsHandler;
 import com.reactor.rust.websocket.WebSocketRegistry;
 import com.reactor.rust.staticfiles.StaticFileScanner;
 
@@ -52,7 +54,7 @@ import com.reactor.rust.staticfiles.StaticFileScanner;
 public class ReactorRustHyperApplication {
 
     public static void main(String[] args) {
-        System.out.println("[JAVA] Starting Rust-Java REST Framework...");
+        FrameworkLogger.info("[JAVA] Starting Rust-Java REST Framework...");
 
         // 1. Load properties
         PropertiesLoader.load();
@@ -72,14 +74,24 @@ public class ReactorRustHyperApplication {
         // 6. Scan and register static file handlers
         StaticFileScanner.scanAndRegister(container.getBeansOfType(Object.class));
 
-        System.out.println("[JAVA] Context initialized.");
+        // 7. Configure native runtime before starting Hyper.
+        NativeBridge.configureRuntimeFromProperties();
 
-        // 5. Start HTTP server
+        FrameworkLogger.info("[JAVA] Context initialized.");
+
+        // 8. Start HTTP server
         int port = PropertiesLoader.getInt("server.port", 8080);
-        System.out.println("[JAVA] Starting Rust Hyper server on port " + port + "...");
+        FrameworkLogger.info("[JAVA] Starting Rust Hyper server on port " + port + "...");
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                NativeBridge.stopHttpServer();
+            } catch (UnsatisfiedLinkError ignored) {
+                // Native library may be unavailable during failed startup.
+            }
+        }, "rust-hyper-shutdown"));
         NativeBridge.startHttpServer(port);
 
-        // 6. Keep JVM alive - Rust server runs in separate thread
+        // 9. Keep JVM alive - Rust server runs in separate thread
         try {
             Thread.sleep(Long.MAX_VALUE);
         } catch (InterruptedException e) {
@@ -103,7 +115,7 @@ public class ReactorRustHyperApplication {
         // Start container - resolves all dependencies
         container.start();
 
-        System.out.println("[JAVA] DI Container started with " +
+        FrameworkLogger.info("[JAVA] DI Container started with " +
             container.getBeanNames().size() + " beans");
 
         return container;
@@ -126,6 +138,7 @@ public class ReactorRustHyperApplication {
         UserHandler userHandler = container.getBean(UserHandler.class);
         FeatureHandler featureHandler = container.getBean(FeatureHandler.class);
         FileUploadHandler fileUploadHandler = container.getBean(FileUploadHandler.class);
+        MetricsHandler metricsHandler = new MetricsHandler();
 
         // Register with handler registry
         registry.registerBean(orderHandler);
@@ -133,8 +146,9 @@ public class ReactorRustHyperApplication {
         registry.registerBean(userHandler);
         registry.registerBean(featureHandler);
         registry.registerBean(fileUploadHandler);
+        registry.registerBean(metricsHandler);
 
-        System.out.println("[JAVA] Handlers registered with DI support");
+        FrameworkLogger.info("[JAVA] Handlers registered with DI support");
     }
 
     /**
@@ -154,12 +168,12 @@ public class ReactorRustHyperApplication {
                 // Use path hash as handler ID for WebSocket routes
                 int handlerId = path.hashCode();
                 NativeBridge.registerWebSocketRoute(path, handlerId);
-                System.out.println("[JAVA] WebSocket route registered: " + path + " -> handlerId=" + handlerId);
+                FrameworkLogger.debug("[JAVA] WebSocket route registered: " + path + " -> handlerId=" + handlerId);
             }
 
-            System.out.println("[JAVA] WebSocket handlers registered: " + wsRegistry.getHandlerPaths().size());
+            FrameworkLogger.info("[JAVA] WebSocket handlers registered: " + wsRegistry.getHandlerPaths().size());
         } catch (UnsatisfiedLinkError e) {
-            System.out.println("[JAVA] WebSocket not supported by native library - skipping WebSocket registration");
+            FrameworkLogger.warn("[JAVA] WebSocket not supported by native library - skipping WebSocket registration");
         }
     }
 }

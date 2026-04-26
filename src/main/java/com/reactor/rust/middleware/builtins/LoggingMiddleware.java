@@ -1,6 +1,7 @@
 package com.reactor.rust.middleware.builtins;
 
 import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.middleware.Middleware;
 import com.reactor.rust.middleware.MiddlewareChain;
 import com.reactor.rust.middleware.MiddlewareContext;
@@ -15,9 +16,10 @@ public class LoggingMiddleware implements Middleware {
     public MiddlewareChain.Result process(MiddlewareContext context, MiddlewareChain chain) {
         long startTime = System.currentTimeMillis();
 
-        // Log request
-        System.out.println("[HTTP] --> " + context.method() + " " + context.path() +
-                (context.queryString() != null && !context.queryString().isEmpty() ? "?" + context.queryString() : ""));
+        if (FrameworkLogger.isDebugEnabled()) {
+            FrameworkLogger.debug("[HTTP] --> " + context.method() + " " + context.path() +
+                    (context.queryString() != null && !context.queryString().isEmpty() ? "?" + context.queryString() : ""));
+        }
 
         // Process chain
         MiddlewareChain.Result result = chain.next(context);
@@ -33,8 +35,10 @@ public class LoggingMiddleware implements Middleware {
             status = "200";
         }
 
-        System.out.println("[HTTP] <-- " + context.method() + " " + context.path() +
-                " " + status + " (" + duration + "ms)");
+        if (FrameworkLogger.isDebugEnabled()) {
+            FrameworkLogger.debug("[HTTP] <-- " + context.method() + " " + context.path() +
+                    " " + status + " (" + duration + "ms)");
+        }
 
         return result;
     }

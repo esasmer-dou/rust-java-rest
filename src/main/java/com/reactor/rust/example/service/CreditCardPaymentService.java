@@ -2,6 +2,7 @@ package com.reactor.rust.example.service;
 
 import com.reactor.rust.di.annotation.Primary;
 import com.reactor.rust.di.annotation.Service;
+import com.reactor.rust.logging.FrameworkLogger;
 
 /**
  * Credit Card Payment Service - PRIMARY implementation.
@@ -28,9 +29,9 @@ public class CreditCardPaymentService implements PaymentService {
     @Override
     public String processPayment(String orderId, double amount) {
         String transactionId = "CC-" + System.currentTimeMillis();
-        System.out.println("[CreditCardPaymentService] Processing payment for order: " + orderId);
-        System.out.println("[CreditCardPaymentService] Amount: $" + amount);
-        System.out.println("[CreditCardPaymentService] Transaction ID: " + transactionId);
+        FrameworkLogger.debug("[CreditCardPaymentService] Processing payment for order: " + orderId);
+        FrameworkLogger.debug("[CreditCardPaymentService] Amount: $" + amount);
+        FrameworkLogger.debug("[CreditCardPaymentService] Transaction ID: " + transactionId);
         return transactionId;
     }
 
@@ -41,7 +42,7 @@ public class CreditCardPaymentService implements PaymentService {
 
     @Override
     public boolean refund(String transactionId) {
-        System.out.println("[CreditCardPaymentService] Refunding transaction: " + transactionId);
+        FrameworkLogger.debug("[CreditCardPaymentService] Refunding transaction: " + transactionId);
         return true;
     }
 }

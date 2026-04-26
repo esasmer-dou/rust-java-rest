@@ -1,6 +1,7 @@
 package com.reactor.rust.example.service;
 
 import com.reactor.rust.di.annotation.Service;
+import com.reactor.rust.logging.FrameworkLogger;
 
 /**
  * Bank Transfer Payment Service - Another alternative implementation.
@@ -21,9 +22,9 @@ public class BankTransferPaymentService implements PaymentService {
     @Override
     public String processPayment(String orderId, double amount) {
         String transactionId = "BT-" + System.currentTimeMillis();
-        System.out.println("[BankTransferPaymentService] Processing bank transfer for order: " + orderId);
-        System.out.println("[BankTransferPaymentService] Amount: $" + amount);
-        System.out.println("[BankTransferPaymentService] Transaction ID: " + transactionId);
+        FrameworkLogger.debug("[BankTransferPaymentService] Processing bank transfer for order: " + orderId);
+        FrameworkLogger.debug("[BankTransferPaymentService] Amount: $" + amount);
+        FrameworkLogger.debug("[BankTransferPaymentService] Transaction ID: " + transactionId);
         return transactionId;
     }
 
@@ -34,7 +35,7 @@ public class BankTransferPaymentService implements PaymentService {
 
     @Override
     public boolean refund(String transactionId) {
-        System.out.println("[BankTransferPaymentService] Refunding bank transfer: " + transactionId);
+        FrameworkLogger.debug("[BankTransferPaymentService] Refunding bank transfer: " + transactionId);
         return true;
     }
 }

@@ -1,6 +1,7 @@
 package com.reactor.rust.example.service;
 
 import com.reactor.rust.di.annotation.Service;
+import com.reactor.rust.logging.FrameworkLogger;
 
 /**
  * PayPal Payment Service - Alternative implementation (NOT primary).
@@ -22,9 +23,9 @@ public class PayPalPaymentService implements PaymentService {
     @Override
     public String processPayment(String orderId, double amount) {
         String transactionId = "PP-" + System.currentTimeMillis();
-        System.out.println("[PayPalPaymentService] Processing PayPal payment for order: " + orderId);
-        System.out.println("[PayPalPaymentService] Amount: $" + amount);
-        System.out.println("[PayPalPaymentService] Transaction ID: " + transactionId);
+        FrameworkLogger.debug("[PayPalPaymentService] Processing PayPal payment for order: " + orderId);
+        FrameworkLogger.debug("[PayPalPaymentService] Amount: $" + amount);
+        FrameworkLogger.debug("[PayPalPaymentService] Transaction ID: " + transactionId);
         return transactionId;
     }
 
@@ -35,7 +36,7 @@ public class PayPalPaymentService implements PaymentService {
 
     @Override
     public boolean refund(String transactionId) {
-        System.out.println("[PayPalPaymentService] Refunding PayPal transaction: " + transactionId);
+        FrameworkLogger.debug("[PayPalPaymentService] Refunding PayPal transaction: " + transactionId);
         return true;
     }
 }

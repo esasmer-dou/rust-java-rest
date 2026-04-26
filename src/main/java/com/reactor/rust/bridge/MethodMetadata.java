@@ -2,6 +2,7 @@ package com.reactor.rust.bridge;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -22,6 +23,11 @@ public final class MethodMetadata {
     public final int customResponseStatus;
     public final Class<?> requestType;
     public final Class<?> responseType;
+    public final boolean needsPathParams;
+    public final boolean needsQueryParams;
+    public final boolean needsHeaders;
+    public final boolean needsBody;
+    public final boolean needsCookies;
 
     // Pre-computed parameter info for annotation-based resolution
     public final ParamInfo[] paramInfos;
@@ -70,6 +76,11 @@ public final class MethodMetadata {
         Parameter[] params = method.getParameters();
         this.paramInfos = new ParamInfo[params.length];
         boolean hasAnnotations = false;
+        boolean pathParams = false;
+        boolean queryParams = false;
+        boolean headers = false;
+        boolean body = false;
+        boolean cookies = false;
 
         for (int i = 0; i < params.length; i++) {
             Parameter param = params[i];
@@ -80,9 +91,27 @@ public final class MethodMetadata {
                 info.paramType != ParamType.LEGACY_INT) {
                 hasAnnotations = true;
             }
+
+            switch (info.paramType) {
+                case PATH_VARIABLE -> pathParams = true;
+                case REQUEST_PARAM -> queryParams = true;
+                case HEADER_PARAM -> headers = true;
+                case REQUEST_BODY -> body = true;
+                case COOKIE_VALUE -> {
+                    headers = true;
+                    cookies = true;
+                }
+                default -> {
+                }
+            }
         }
 
         this.usesAnnotatedParams = hasAnnotations;
+        this.needsPathParams = pathParams;
+        this.needsQueryParams = queryParams;
+        this.needsHeaders = headers;
+        this.needsBody = body;
+        this.needsCookies = cookies;
 
         // Check return type once
         this.returnsResponseEntity = com.reactor.rust.http.ResponseEntity.class
@@ -121,7 +150,7 @@ public final class MethodMetadata {
             param.getAnnotation(com.reactor.rust.annotations.HeaderParam.class);
         if (headerParam != null) {
             return new ParamInfo(index, type, ParamType.HEADER_PARAM,
-                headerParam.value().toLowerCase(), headerParam.required(),
+                headerParam.value().toLowerCase(Locale.ROOT), headerParam.required(),
                 headerParam.defaultValue().isEmpty() ? null : headerParam.defaultValue());
         }
 

@@ -3,6 +3,7 @@ package com.reactor.rust.exception;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
+import com.reactor.rust.logging.FrameworkLogger;
 
 import java.lang.reflect.Method;
 import java.util.*;
@@ -50,7 +51,7 @@ public final class ExceptionHandlerRegistry {
         for (Object bean : BeanContainer.getInstance().getBeansOfType(Object.class)) {
             registerExceptionHandlers(bean);
         }
-        System.out.println("[ExceptionHandlerRegistry] Registered " + handlers.size() + " exception handlers");
+        FrameworkLogger.info("[ExceptionHandlerRegistry] Registered " + handlers.size() + " exception handlers");
     }
 
     /**
@@ -88,7 +89,7 @@ public final class ExceptionHandlerRegistry {
             for (Class<? extends Throwable> exType : exceptionTypes) {
                 HandlerMethod handler = new HandlerMethod(bean, method, exType);
                 handlers.put(exType, handler);
-                System.out.println("[ExceptionHandlerRegistry] Registered handler for: " + exType.getName());
+                FrameworkLogger.debug("[ExceptionHandlerRegistry] Registered handler for: " + exType.getName());
             }
         }
     }
@@ -136,7 +137,7 @@ public final class ExceptionHandlerRegistry {
             return result;
 
         } catch (Exception invokeError) {
-            System.err.println("[ExceptionHandlerRegistry] Error invoking handler: " + invokeError.getMessage());
+            FrameworkLogger.warn("[ExceptionHandlerRegistry] Error invoking handler: " + invokeError.getMessage());
             return new ErrorResponse(500, "Internal server error");
         }
     }

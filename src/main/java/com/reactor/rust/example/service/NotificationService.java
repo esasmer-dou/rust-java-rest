@@ -3,6 +3,7 @@ package com.reactor.rust.example.service;
 import com.reactor.rust.di.annotation.PostConstruct;
 import com.reactor.rust.di.annotation.PreDestroy;
 import com.reactor.rust.di.annotation.Service;
+import com.reactor.rust.logging.FrameworkLogger;
 
 /**
  * Notification Service - Handles notifications.
@@ -17,13 +18,13 @@ public class NotificationService {
     @PostConstruct
     public void init() {
         this.initialized = true;
-        System.out.println("[NotificationService] Initialized and ready");
+        FrameworkLogger.debug("[NotificationService] Initialized and ready");
     }
 
     @PreDestroy
     public void cleanup() {
         this.initialized = false;
-        System.out.println("[NotificationService] Shutdown complete");
+        FrameworkLogger.debug("[NotificationService] Shutdown complete");
     }
 
     /**
@@ -31,10 +32,10 @@ public class NotificationService {
      */
     public void notify(String message) {
         if (!initialized) {
-            System.err.println("[NotificationService] Service not initialized!");
+            FrameworkLogger.warn("[NotificationService] Service not initialized!");
             return;
         }
-        System.out.println("[NotificationService] " + message);
+        FrameworkLogger.debug("[NotificationService] " + message);
     }
 
     /**

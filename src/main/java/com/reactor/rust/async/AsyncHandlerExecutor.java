@@ -1,5 +1,7 @@
 package com.reactor.rust.async;
 
+import com.reactor.rust.logging.FrameworkLogger;
+
 import java.util.concurrent.*;
 import java.util.function.Supplier;
 
@@ -33,7 +35,7 @@ public final class AsyncHandlerExecutor {
                 }
         );
 
-        System.out.println("[AsyncExecutor] Initialized (virtualThreads=" + virtualThreadsAvailable + ")");
+        FrameworkLogger.info("[AsyncExecutor] Initialized (virtualThreads=" + virtualThreadsAvailable + ")");
     }
 
     public static AsyncHandlerExecutor getInstance() {
@@ -94,6 +96,6 @@ public final class AsyncHandlerExecutor {
             fallbackExecutor.shutdownNow();
             Thread.currentThread().interrupt();
         }
-        System.out.println("[AsyncExecutor] Shutdown complete");
+        FrameworkLogger.info("[AsyncExecutor] Shutdown complete");
     }
 }
