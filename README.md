@@ -19,59 +19,198 @@ still bounded and lower RSS than Spring Boot, but not a 5x throughput class.
 
 ### What's New for Users
 
-**Package and native runtime**
+The normal application model is unchanged: your controllers/handlers, services, components, and
+business logic still live in Java. The new features are opt-in tools for lower latency, lower RSS, and
+safer production behavior.
 
-- Maven package is published as `com.reactor:rust-java-rest:3.1.0-rc1`.
-- GitHub Release includes the runnable JAR, sources, javadoc, Windows DLL, and Linux SO.
-- Normal Maven/JAR usage does not require manual DLL/SO copying. The JAR embeds:
-  `native/windows-x64/rust_hyper.dll` and `native/linux-x64/librust_hyper.so`.
-- Manual native override is still available with `-Drust.lib.path=/absolute/path/to/library`.
-- Native ABI checking fails fast if Java loads an old incompatible DLL/SO.
+#### 1. Install once, native runtime included
 
-**New response APIs**
+What it does: adds the Java framework and the matching Rust native runtime with one Maven dependency.
+For normal usage you do not copy DLL/SO files manually. The JAR already contains:
+`native/windows-x64/rust_hyper.dll` and `native/linux-x64/librust_hyper.so`.
 
-- `RawResponse.text(...)`, `RawResponse.bytes(...)`, and `RawResponse.json(...)` return
-  pre-serialized payloads without building a Java response DTO graph.
-- `RawResponse.registeredJson(...)` registers immutable JSON once in Rust for hot read-heavy paths.
-- `RawResponse.nativeJson(nativeId)` returns a previously registered native response.
-- `FileResponse.of(path)` and `FileResponse.download(path, fileName, contentType)` let Rust stream
-  large/static/export files without moving file bytes through Java/JNI.
-- `@MaxRequestBodySize(bytes)` and `@MaxResponseSize(bytes)` add per-route body limits.
+How to use it:
 
-**Direct serialization path**
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>3.1.0-rc1</version>
+</dependency>
+```
 
-- `JsonBufferWriter` lets hot handlers write JSON directly into a native direct `ByteBuffer`.
-- `DirectJsonWriter<T>` is the generated/build-time writer contract for DTO-specific direct writers.
-- `@DirectQueryInt("param")` lets Rust parse selected query integer params and pass primitive `int`
-  values into Java, reducing per-request query allocation on selected hot routes.
+Only use a manual native path when you intentionally want to test or deploy a custom native build:
 
-**WebSocket updates**
+```bash
+java -Drust.lib.path=/opt/native/librust_hyper.so -jar app.jar
+```
 
-- `WebSocketSession.sendText(...)`, `sendBinary(...)`, `close()`, and `close(code, reason)` now use
-  Rust-side session registration instead of stale native pointers.
-- `WebSocketSession.getPathParams()` and `getQueryParams()` are available to handlers.
-- Outbound WebSocket sends are bounded by queue capacity, max frame size, and timeout. Slow consumers
-  are rejected/closed instead of growing memory without bounds.
+If Java loads an old native library, startup fails early with an ABI mismatch instead of failing later
+under traffic.
 
-**Built-in observability**
+#### 2. Use `RawResponse` when the response is already JSON/text/bytes
 
-- `GET /metrics` returns native plus Java Prometheus metrics.
-- `GET /metrics/summary` returns compact JSON runtime/request memory summary.
-- `GET /metrics/reset` resets Java and native metrics for benchmark runs.
-- `GET /diagnostics/memory` returns JVM heap/non-heap, direct buffer pools, native memory diagnostics,
-  response pool counters, in-flight bytes, and native metrics in one JSON report.
-- `GET /diagnostics/native/trim` asks native runtime to release/trim retained memory where supported.
+What it does: returns a payload directly without creating a response DTO and serializing it again.
 
-**Runtime tuning properties**
+Use it when the response is precomputed, cached, simple, or already serialized. Do not use it for every
+dynamic endpoint by default; normal DTO responses are still fine for regular business APIs.
 
-- HTTP limits and timeouts are configurable through `reactor.rust.http.*`.
-- WebSocket frame, queue, and send timeout limits are configurable through `reactor.rust.websocket.*`.
-- JNI worker count and queue capacity are configurable through `reactor.rust.jni.*`.
-- Native response pool caps are configurable through `reactor.rust.response-pool.*`.
-- Native response cache bounds are configurable through `reactor.rust.native-cache.*`.
-- Rust runtime thread counts and stack size are configurable through `reactor.rust.runtime.*`.
-- JSON writer retention caps are configurable through `reactor.rust.json.*`.
-- Logging levels are configurable through `reactor.rust.log.level` and `reactor.rust.java.log.level`.
+Example:
+
+```java
+@GetMapping(value = "/health/raw", requestType = Void.class, responseType = RawResponse.class)
+public RawResponse health() {
+    return RawResponse.text("{\"status\":\"ok\"}", "application/json; charset=utf-8");
+}
+```
+
+For read-heavy payloads that repeat often, register once in Rust and return the native id:
+
+```java
+private static final RawResponse CACHED_CONFIG =
+        RawResponse.registeredJson("""
+        {"feature":"enabled","version":"3.1.0-rc1"}
+        """.getBytes(StandardCharsets.UTF_8));
+
+@GetMapping(value = "/config", requestType = Void.class, responseType = RawResponse.class)
+public RawResponse config() {
+    return RawResponse.nativeJson(CACHED_CONFIG.getNativeId());
+}
+```
+
+#### 3. Use `FileResponse` for files, exports, and static downloads
+
+What it does: Java returns the file path and headers; Rust streams the file to the socket. The file body
+does not move through Java heap or a JNI response frame.
+
+Use it for large downloads, generated exports, reports, static files, and any response where loading the
+whole file into a Java `byte[]` would hurt memory.
+
+Example:
+
+```java
+@GetMapping(value = "/reports/daily", requestType = Void.class, responseType = FileResponse.class)
+public FileResponse dailyReport() {
+    Path file = Path.of("/data/reports/daily.csv");
+    return FileResponse.download(file, "daily.csv", "text/csv")
+            .header("Cache-Control", "no-store");
+}
+```
+
+#### 4. Use per-route body limits instead of one global oversized limit
+
+What it does: keeps default memory limits tight while allowing specific routes to accept or return
+larger bodies.
+
+Use it when one endpoint legitimately needs bigger request or response bodies. Avoid raising global
+limits just because one route needs them.
+
+Example:
+
+```java
+@PostMapping(value = "/upload", requestType = UploadRequest.class, responseType = UploadResult.class)
+@MaxRequestBodySize(8 * 1024 * 1024)
+@MaxResponseSize(2 * 1024 * 1024)
+public UploadResult upload(@RequestBody UploadRequest request) {
+    return uploadService.save(request);
+}
+```
+
+#### 5. Use `JsonBufferWriter` for hot JSON endpoints
+
+What it does: lets a handler write JSON directly into the native response buffer. This avoids building a
+large Java DTO graph and avoids an extra serializer-owned `byte[]` for selected hot paths.
+
+Use it for endpoints that are called very frequently or produce heavy JSON in a predictable shape. Keep
+normal DTO handlers for ordinary business endpoints where maintainability is more important than the
+last allocation.
+
+Example:
+
+```java
+@RustRoute(
+        method = "GET",
+        path = "/api/v1/heavy",
+        requestType = Void.class,
+        responseType = HeavyResponse.class
+)
+@DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+public int heavy(ByteBuffer out, int offset, int items) {
+    JsonBufferWriter json = JsonBufferWriter.wrap(out, offset);
+    json.beginObject()
+            .fieldInt("items", items)
+            .comma()
+            .fieldString("status", "ok")
+            .endObject();
+    return json.result();
+}
+```
+
+`@DirectQueryInt` means Rust parses `?items=100` and passes a primitive `int` to Java. That avoids
+allocating and parsing query strings on this hot route.
+
+#### 6. WebSocket sends are now bounded and production-safe
+
+What it does: `WebSocketSession.sendText(...)`, `sendBinary(...)`, and `close(...)` now use a Rust-side
+session registry with bounded outbound queues.
+
+Use it the same way as before, but expect slow consumers to be rejected/closed instead of allowing
+unbounded memory growth.
+
+Example:
+
+```java
+@OnMessage
+public void onMessage(WebSocketSession session, String message) {
+    String roomId = session.getPathParams().get("roomId");
+    WebSocketBroadcaster.getInstance().broadcastToRoom(roomId, message, session);
+}
+```
+
+Tune the queue and frame limits when you know your WebSocket traffic profile:
+
+```properties
+reactor.rust.websocket.max-frame-bytes=1048576
+reactor.rust.websocket.outbound-queue-capacity=1024
+reactor.rust.websocket.send-timeout-ms=5000
+```
+
+#### 7. Built-in observability is available immediately
+
+What it does: exposes the metrics needed to understand latency, memory, backpressure, and native
+runtime behavior.
+
+Use it during benchmark runs, container tuning, and production readiness checks.
+
+```bash
+curl http://localhost:8080/metrics
+curl http://localhost:8080/metrics/summary
+curl http://localhost:8080/diagnostics/memory
+curl http://localhost:8080/diagnostics/native/trim
+```
+
+`/metrics/reset` is useful for controlled benchmark runs, but should be protected or disabled in a real
+production deployment.
+
+#### 8. Runtime tuning is now explicit
+
+What it does: lets you choose between low RSS, throughput, and stricter overload behavior without
+changing Java business code.
+
+Start conservative for production-like services:
+
+```properties
+reactor.rust.http.max-request-body-bytes=1048576
+reactor.rust.http.max-response-body-bytes=8388608
+reactor.rust.http.max-inflight-response-bytes=67108864
+reactor.rust.http.max-connections=1024
+reactor.rust.jni.queue-capacity=1024
+reactor.rust.log.level=error
+reactor.rust.java.log.level=warn
+```
+
+If you increase per-request limits, also cap total in-flight bytes. Raising only
+`max-response-body-bytes` can improve one endpoint but damage RSS under concurrency.
 
 ### Container Benchmark Snapshot
 
