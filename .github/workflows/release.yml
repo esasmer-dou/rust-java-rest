@@ -19,6 +19,8 @@ jobs:
   release:
     name: Build, publish package, and create release
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
@@ -80,8 +82,6 @@ jobs:
 
       - name: Publish Maven package
         run: mvn -B -DskipTests deploy
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare release assets
         shell: bash
