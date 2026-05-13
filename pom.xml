@@ -56,6 +56,19 @@
         </repository>
     </distributionManagement>
 
+    <repositories>
+        <repository>
+            <id>github-java-rust-dubbo</id>
+            <name>GitHub Packages - java-rust-dubbo</name>
+            <url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo</url>
+        </repository>
+        <repository>
+            <id>github-rust-java-rest</id>
+            <name>GitHub Packages - rust-java-rest</name>
+            <url>https://maven.pkg.github.com/esasmer-dou/rust-java-rest</url>
+        </repository>
+    </repositories>
+
     <dependencies>
 
         <!-- DSL-JSON 2.0.2 - Compile-time JSON serialization (ZERO runtime reflection) -->
