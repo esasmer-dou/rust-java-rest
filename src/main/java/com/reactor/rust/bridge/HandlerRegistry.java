@@ -1,8 +1,10 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.annotations.ResponseStatus;
+import com.reactor.rust.annotations.ContentType;
 import com.reactor.rust.async.AsyncHandlerExecutor;
 import com.reactor.rust.http.FileResponse;
+import com.reactor.rust.http.MediaType;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,6 +60,8 @@ public class HandlerRegistry {
     private static final byte[] ERROR_PREFIX = "{\"error\":\"".getBytes(StandardCharsets.UTF_8);
     private static final byte[] ERROR_SUFFIX = "\"}".getBytes(StandardCharsets.UTF_8);
     private static final int MAX_EXACT_ANNOTATED_PARAMS = 8;
+    private static final byte[] DEFAULT_JSON_CONTENT_TYPE_HEADER =
+            ("Content-Type: " + MediaType.APPLICATION_JSON_UTF8 + "\n").getBytes(StandardCharsets.UTF_8);
 
     public static HandlerRegistry getInstance() {
         return INSTANCE;
@@ -78,6 +83,7 @@ public class HandlerRegistry {
         public final boolean returnsResponseEntity;
         public final boolean isAsync;
         public final int customResponseStatus;
+        public final byte[] defaultContentTypeHeader;
 
         // Cached metadata for fast parameter resolution
         public final MethodMetadata metadata;
@@ -92,7 +98,8 @@ public class HandlerRegistry {
                 boolean usesDirectQueryInt,
                 boolean returnsResponseEntity,
                 boolean isAsync,
-                int customResponseStatus) {
+                int customResponseStatus,
+                byte[] defaultContentTypeHeader) {
             this.bean = bean;
             this.method = method;
             this.requestType = requestType;
@@ -104,6 +111,8 @@ public class HandlerRegistry {
             this.returnsResponseEntity = returnsResponseEntity;
             this.isAsync = isAsync;
             this.customResponseStatus = customResponseStatus;
+            this.defaultContentTypeHeader =
+                    defaultContentTypeHeader != null ? defaultContentTypeHeader : DEFAULT_JSON_CONTENT_TYPE_HEADER;
             this.metadata = MethodMetadata.getOrCreate(method, requestType, responseType);
         }
 
@@ -113,7 +122,8 @@ public class HandlerRegistry {
                 Class<?> requestType,
                 Class<?> responseType,
                 MethodHandle handle) {
-            this(bean, method, requestType, responseType, handle, false, false, false, false, false, 200);
+            this(bean, method, requestType, responseType, handle, false, false, false, false, false, 200,
+                    DEFAULT_JSON_CONTENT_TYPE_HEADER);
         }
     }
 
@@ -174,7 +184,7 @@ public class HandlerRegistry {
             }
 
             // Check if method returns CompletableFuture (async)
-            boolean isAsync = CompletableFuture.class.isAssignableFrom(method.getReturnType());
+            boolean isAsync = CompletionStage.class.isAssignableFrom(method.getReturnType());
 
             // Check for @ResponseStatus annotation
             int customResponseStatus = 200;
@@ -182,11 +192,13 @@ public class HandlerRegistry {
             if (responseStatus != null) {
                 customResponseStatus = responseStatus.value();
             }
+            byte[] defaultContentTypeHeader = defaultContentTypeHeader(method);
 
             int id = idGenerator.getAndIncrement();
             handlers.put(id, new HandlerDescriptor(
                 bean, method, requestType, responseType, mh,
-                usesAnnotatedParams, directV5, directQueryInt, returnsResponseEntity, isAsync, customResponseStatus
+                usesAnnotatedParams, directV5, directQueryInt, returnsResponseEntity, isAsync, customResponseStatus,
+                defaultContentTypeHeader
             ));
 
             if (DEBUG) {
@@ -199,7 +211,8 @@ public class HandlerRegistry {
                         + " directBodyBuffer=" + directV5
                         + " directQueryInt=" + directQueryInt
                         + " returnsResponseEntity=" + returnsResponseEntity
-                        + " isAsync=" + isAsync);
+                    + " isAsync=" + isAsync
+                    + " defaultContentType=" + new String(defaultContentTypeHeader, StandardCharsets.UTF_8).trim());
             }
 
             return id;
@@ -207,6 +220,15 @@ public class HandlerRegistry {
         } catch (IllegalAccessException e) {
             throw new RuntimeException("Failed to create MethodHandle for handler", e);
         }
+    }
+
+    private static byte[] defaultContentTypeHeader(Method method) {
+        ContentType contentType = method.getAnnotation(ContentType.class);
+        String value = contentType != null && contentType.value() != null && !contentType.value().isBlank()
+                ? contentType.value()
+                : MediaType.APPLICATION_JSON_UTF8;
+        return ("Content-Type: " + normalizeTextualContentType(value) + "\n")
+                .getBytes(StandardCharsets.UTF_8);
     }
 
     private static boolean isLegacyV4(Method method) {
@@ -394,11 +416,11 @@ public class HandlerRegistry {
         }
 
         if (result instanceof ResponseEntity<?> responseEntity) {
-            return writeResponseEntity(responseEntity, out, offset);
+            return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
         }
 
         if (desc.customResponseStatus != 200 && result != null) {
-            return writeObjectFrame(desc.customResponseStatus, result, out, offset);
+            return writeObjectFrame(desc.customResponseStatus, result, desc.defaultContentTypeHeader, out, offset);
         }
 
         if (result == null) {
@@ -456,19 +478,19 @@ public class HandlerRegistry {
             }
 
             if (result instanceof ResponseEntity<?> responseEntity) {
-                return writeResponseEntity(responseEntity, out, offset);
+                return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
             }
 
             // Auto-serialize response object
             if (result != null && desc.responseType != Void.class) {
                 if (desc.customResponseStatus != 200) {
-                    return writeObjectFrame(desc.customResponseStatus, result, out, offset);
+                    return writeObjectFrame(desc.customResponseStatus, result, desc.defaultContentTypeHeader, out, offset);
                 }
-                return DslJsonService.writeToBuffer(result, out, offset);
+                return writeObjectFrame(200, result, desc.defaultContentTypeHeader, out, offset);
             }
 
             if (desc.customResponseStatus != 200) {
-                return writeFrameWithBytes(desc.customResponseStatus, EMPTY_BYTES, EMPTY_BYTES, out, offset);
+                return writeFrameWithBytes(desc.customResponseStatus, desc.defaultContentTypeHeader, EMPTY_BYTES, out, offset);
             }
 
             return 0;
@@ -522,18 +544,18 @@ public class HandlerRegistry {
             }
 
             if (result instanceof ResponseEntity<?> responseEntity) {
-                return writeResponseEntity(responseEntity, out, offset);
+                return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
             }
 
             if (result != null && desc.responseType != Void.class) {
                 if (desc.customResponseStatus != 200) {
-                    return writeObjectFrame(desc.customResponseStatus, result, out, offset);
+                    return writeObjectFrame(desc.customResponseStatus, result, desc.defaultContentTypeHeader, out, offset);
                 }
-                return DslJsonService.writeToBuffer(result, out, offset);
+                return writeObjectFrame(200, result, desc.defaultContentTypeHeader, out, offset);
             }
 
             if (desc.customResponseStatus != 200) {
-                return writeFrameWithBytes(desc.customResponseStatus, EMPTY_BYTES, EMPTY_BYTES, out, offset);
+                return writeFrameWithBytes(desc.customResponseStatus, desc.defaultContentTypeHeader, EMPTY_BYTES, out, offset);
             }
 
             return 0;
@@ -852,12 +874,19 @@ public class HandlerRegistry {
     /**
      * Write ResponseEntity to buffer.
      */
-    private int writeResponseEntity(ResponseEntity<?> responseEntity, ByteBuffer out, int offset) {
+    private int writeResponseEntity(
+            ResponseEntity<?> responseEntity,
+            byte[] defaultContentTypeHeader,
+            ByteBuffer out,
+            int offset
+    ) {
         int statusCode = responseEntity.getStatus() != null
                 ? responseEntity.getStatus().getCode()
                 : 200;
-        byte[] headerBytes = encodeHeaders(responseEntity.getHeaders());
         Object body = responseEntity.getBody();
+        byte[] headerBytes = body != null && !(body instanceof FileResponse) && !(body instanceof RawResponse)
+                ? encodeHeadersWithDefaultContentType(responseEntity.getHeaders(), defaultContentTypeHeader)
+                : encodeHeaders(responseEntity.getHeaders());
         int frameAndHeadersSize = RESPONSE_FRAME_HEADER_SIZE + headerBytes.length;
 
         if (body == null) {
@@ -895,19 +924,30 @@ public class HandlerRegistry {
         System.arraycopy(escaped, 0, body, pos, escaped.length);
         pos += escaped.length;
         System.arraycopy(ERROR_SUFFIX, 0, body, pos, ERROR_SUFFIX.length);
-        return writeFrameWithBytes(500, EMPTY_BYTES, body, out, offset);
+        return writeFrameWithBytes(500, DEFAULT_JSON_CONTENT_TYPE_HEADER, body, out, offset);
     }
 
-    private int writeObjectFrame(int statusCode, Object body, ByteBuffer out, int offset) {
+    private int writeObjectFrame(
+            int statusCode,
+            Object body,
+            byte[] headerBytes,
+            ByteBuffer out,
+            int offset
+    ) {
+        byte[] safeHeaderBytes = headerBytes != null ? headerBytes : DEFAULT_JSON_CONTENT_TYPE_HEADER;
         int bodyLen = 0;
         if (body != null) {
-            bodyLen = DslJsonService.writeToBuffer(body, out, offset + RESPONSE_FRAME_HEADER_SIZE);
+            bodyLen = DslJsonService.writeToBuffer(
+                    body,
+                    out,
+                    offset + RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length
+            );
             if (bodyLen < 0) {
-                return -(RESPONSE_FRAME_HEADER_SIZE + -bodyLen);
+                return -(RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length + -bodyLen);
             }
         }
-        writeFrameHeader(statusCode, EMPTY_BYTES, bodyLen, out, offset);
-        return RESPONSE_FRAME_HEADER_SIZE + bodyLen;
+        writeFrameHeader(statusCode, safeHeaderBytes, bodyLen, out, offset);
+        return RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length + bodyLen;
     }
 
     private int writeFrameWithBytes(
@@ -1038,13 +1078,65 @@ public class HandlerRegistry {
             if (entry.getKey() == null || entry.getValue() == null) {
                 continue;
             }
-            sb.append(entry.getKey()).append(": ").append(entry.getValue()).append('\n');
+            String value = "Content-Type".equalsIgnoreCase(entry.getKey())
+                    ? normalizeTextualContentType(entry.getValue())
+                    : entry.getValue();
+            sb.append(entry.getKey()).append(": ").append(value).append('\n');
         }
 
         if (sb.length() == 0) {
             return EMPTY_BYTES;
         }
         return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] encodeHeadersWithDefaultContentType(
+            Map<String, String> headers,
+            byte[] defaultContentTypeHeader
+    ) {
+        byte[] headerBytes = encodeHeaders(headers);
+        if (hasContentType(headers)) {
+            return headerBytes;
+        }
+        byte[] defaultHeader = defaultContentTypeHeader != null
+                ? defaultContentTypeHeader
+                : DEFAULT_JSON_CONTENT_TYPE_HEADER;
+        if (headerBytes.length == 0) {
+            return defaultHeader;
+        }
+        byte[] merged = new byte[defaultHeader.length + headerBytes.length];
+        System.arraycopy(defaultHeader, 0, merged, 0, defaultHeader.length);
+        System.arraycopy(headerBytes, 0, merged, defaultHeader.length, headerBytes.length);
+        return merged;
+    }
+
+    private boolean hasContentType(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return false;
+        }
+        for (String key : headers.keySet()) {
+            if ("Content-Type".equalsIgnoreCase(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalizeTextualContentType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return contentType;
+        }
+        String value = contentType.trim();
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (lower.contains("charset=")) {
+            return value;
+        }
+        if (lower.startsWith("text/")
+                || lower.startsWith("application/json")
+                || lower.contains("+json")) {
+            return value + "; charset=utf-8";
+        }
+        return value;
     }
 
     /**
@@ -1076,6 +1168,20 @@ public class HandlerRegistry {
             return CompletableFuture.completedFuture(
                     ("{\"error\":\"Unknown handlerId\"}").getBytes(StandardCharsets.UTF_8)
             );
+        }
+
+        if (desc.isAsync) {
+            try {
+                Object raw = invokeAsyncRaw(desc, inBytes, pathParams, queryString, headers);
+                if (raw instanceof CompletionStage<?> stage) {
+                    return stage.toCompletableFuture()
+                            .thenApply(result -> encodeAsyncResult(desc, result))
+                            .exceptionally(this::encodeAsyncError);
+                }
+                return CompletableFuture.completedFuture(encodeAsyncResult(desc, raw));
+            } catch (Throwable e) {
+                return CompletableFuture.completedFuture(encodeAsyncError(e));
+            }
         }
 
         return AsyncHandlerExecutor.getInstance().submit(() -> {
@@ -1112,6 +1218,77 @@ public class HandlerRegistry {
         });
     }
 
+    private Object invokeAsyncRaw(
+            HandlerDescriptor desc,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) throws Throwable {
+        if (desc.usesAnnotatedParams) {
+            FastMapV2 paramMap = PARAM_MAP_POOL.get();
+            FastMapV2 headerMap = HEADER_MAP_POOL.get();
+            paramMap.clear();
+            headerMap.clear();
+            parseParamsFast(paramMap, pathParams);
+            parseParamsFast(paramMap, queryString);
+            parseHeadersFast(headerMap, headers);
+            return invokeAnnotatedHandle(desc, inBytes, paramMap, headerMap);
+        }
+
+        ByteBuffer out = ASYNC_BUFFER_POOL.get();
+        out.clear();
+        if (desc.usesDirectBodyBuffer) {
+            ByteBuffer inBuffer = ByteBuffer.wrap(inBytes == null ? EMPTY_BYTES : inBytes);
+            return desc.handle.invoke(
+                    out,
+                    0,
+                    inBuffer,
+                    inBuffer.remaining(),
+                    pathParams,
+                    queryString,
+                    headers
+            );
+        }
+        return desc.handle.invoke(out, 0, inBytes, pathParams, queryString, headers);
+    }
+
+    private byte[] encodeAsyncResult(HandlerDescriptor desc, Object result) {
+        try {
+            ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
+            buffer.clear();
+            int written = processAsyncResult(desc, result, buffer, 0);
+            byte[] response = new byte[written];
+            buffer.position(0);
+            buffer.get(response, 0, written);
+            return response;
+        } catch (Throwable e) {
+            return encodeAsyncError(e);
+        }
+    }
+
+    private byte[] encodeAsyncError(Throwable e) {
+        if (DEBUG) {
+            FrameworkLogger.debugError("[HandlerRegistry] Async error: " + e.getClass().getName());
+            e.printStackTrace();
+        }
+        String errorMsg = e.getMessage();
+        if (errorMsg == null) {
+            errorMsg = e.getClass().getName();
+            if (e.getCause() != null) {
+                errorMsg += ": " + e.getCause().getMessage();
+            }
+        }
+        ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
+        buffer.clear();
+        byte[] body = ("{\"error\":\"" + escapeJson(errorMsg) + "\"}").getBytes(StandardCharsets.UTF_8);
+        int written = writeFrameWithBytes(500, DEFAULT_JSON_CONTENT_TYPE_HEADER, body, buffer, 0);
+        byte[] response = new byte[written];
+        buffer.position(0);
+        buffer.get(response, 0, response.length);
+        return response;
+    }
+
     @SuppressWarnings("unchecked")
     private int invokeV4Async(
             HandlerDescriptor desc,
@@ -1127,34 +1304,34 @@ public class HandlerRegistry {
 
         if (result instanceof CompletableFuture<?> future) {
             Object asyncResult = future.join();
-            return processAsyncResult(asyncResult, out, offset);
+            return processAsyncResult(desc, asyncResult, out, offset);
         }
 
-        return processAsyncResult(result, out, offset);
+        return processAsyncResult(desc, result, out, offset);
     }
 
     /**
      * Process async result - handle different return types.
      */
-    private int processAsyncResult(Object result, ByteBuffer out, int offset) {
-            if (result instanceof Integer) {
-                return (Integer) result;
-            }
+    private int processAsyncResult(HandlerDescriptor desc, Object result, ByteBuffer out, int offset) {
+        if (result instanceof Integer) {
+            return (Integer) result;
+        }
 
-            if (result instanceof FileResponse fileResponse) {
-                return writeFileResponse(fileResponse, 200, EMPTY_BYTES, out, offset);
-            }
+        if (result instanceof FileResponse fileResponse) {
+            return writeFileResponse(fileResponse, 200, EMPTY_BYTES, out, offset);
+        }
 
-            if (result instanceof RawResponse rawResponse) {
-                return writeRawResponse(rawResponse, 200, EMPTY_BYTES, out, offset);
-            }
+        if (result instanceof RawResponse rawResponse) {
+            return writeRawResponse(rawResponse, 200, EMPTY_BYTES, out, offset);
+        }
 
-            if (result instanceof ResponseEntity<?> responseEntity) {
-                return writeResponseEntity(responseEntity, out, offset);
-            }
+        if (result instanceof ResponseEntity<?> responseEntity) {
+            return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
+        }
 
         if (result != null) {
-            return DslJsonService.writeToBuffer(result, out, offset);
+            return writeObjectFrame(200, result, desc.defaultContentTypeHeader, out, offset);
         }
 
         return 0;

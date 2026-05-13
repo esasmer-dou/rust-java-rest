@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
 import java.util.Properties;
 
 /**
@@ -91,6 +92,24 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.runtime.thread-stack-bytes", "0");
         properties.setProperty("reactor.rust.json.writer-initial-bytes", "4096");
         properties.setProperty("reactor.rust.json.writer-retain-max-bytes", "262144");
+        properties.setProperty("reactor.rust.async.max-inflight", "1024");
+        properties.setProperty("reactor.rust.async.response-timeout-ms", "2000");
+    }
+
+    public static boolean hasExternalOverride(String key) {
+        return System.getProperty(key) != null || System.getenv(toEnvKey(key)) != null;
+    }
+
+    public static void setProfileValue(String key, String value) {
+        if (!hasExternalOverride(key)) {
+            properties.setProperty(key, value);
+        }
+    }
+
+    public static void setDefault(String key, String value) {
+        if (get(key) == null) {
+            properties.setProperty(key, value);
+        }
     }
 
     /**
@@ -103,7 +122,7 @@ public final class PropertiesLoader {
             return value;
         }
         // Check environment variable
-        value = System.getenv(key.replace('.', '_').toUpperCase());
+        value = System.getenv(toEnvKey(key));
         if (value != null) {
             return value;
         }
@@ -180,5 +199,9 @@ public final class PropertiesLoader {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    private static String toEnvKey(String key) {
+        return key.replace('.', '_').replace('-', '_').toUpperCase(Locale.ROOT);
     }
 }

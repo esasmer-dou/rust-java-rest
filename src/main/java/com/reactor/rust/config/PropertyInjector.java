@@ -33,7 +33,15 @@ public final class PropertyInjector {
     }
 
     private static void injectFields(Object bean, Class<?> clazz) {
-        for (Field field : clazz.getDeclaredFields()) {
+        Field[] fields;
+        try {
+            fields = clazz.getDeclaredFields();
+        } catch (NoClassDefFoundError e) {
+            FrameworkLogger.warn("[PropertyInjector] Skipping optional dependency fields for "
+                    + clazz.getName() + ": " + e.getMessage());
+            return;
+        }
+        for (Field field : fields) {
             RustProperty annotation = field.getAnnotation(RustProperty.class);
             if (annotation == null) {
                 continue;

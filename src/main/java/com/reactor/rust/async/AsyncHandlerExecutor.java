@@ -1,6 +1,7 @@
 package com.reactor.rust.async;
 
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.config.PropertiesLoader;
 
 import java.util.concurrent.*;
 import java.util.function.Supplier;
@@ -21,9 +22,13 @@ public final class AsyncHandlerExecutor {
     private final ExecutorService fallbackExecutor;
 
     private final boolean virtualThreadsAvailable;
+    private final Semaphore inFlight;
+    private final int maxInflight;
 
     private AsyncHandlerExecutor() {
         this.virtualThreadsAvailable = isVirtualThreadAvailable();
+        this.maxInflight = Math.max(1, PropertiesLoader.getInt("reactor.rust.async.max-inflight", 1024));
+        this.inFlight = new Semaphore(maxInflight);
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
         this.fallbackExecutor = Executors.newFixedThreadPool(
                 Runtime.getRuntime().availableProcessors() * 2,
@@ -35,7 +40,8 @@ public final class AsyncHandlerExecutor {
                 }
         );
 
-        FrameworkLogger.info("[AsyncExecutor] Initialized (virtualThreads=" + virtualThreadsAvailable + ")");
+        FrameworkLogger.info("[AsyncExecutor] Initialized (virtualThreads="
+                + virtualThreadsAvailable + ", maxInflight=" + maxInflight + ")");
     }
 
     public static AsyncHandlerExecutor getInstance() {
@@ -59,8 +65,17 @@ public final class AsyncHandlerExecutor {
      * Submit async task and return CompletableFuture.
      */
     public <T> CompletableFuture<T> submit(Supplier<T> task) {
+        if (!inFlight.tryAcquire()) {
+            return CompletableFuture.failedFuture(new RejectedExecutionException("async handler bulkhead full"));
+        }
         Executor executor = virtualThreadsAvailable ? virtualThreadExecutor : fallbackExecutor;
-        return CompletableFuture.supplyAsync(task, executor);
+        try {
+            return CompletableFuture.supplyAsync(task, executor)
+                    .whenComplete((ignored, error) -> inFlight.release());
+        } catch (RuntimeException e) {
+            inFlight.release();
+            return CompletableFuture.failedFuture(e);
+        }
     }
 
     /**

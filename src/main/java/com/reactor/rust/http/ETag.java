@@ -2,6 +2,7 @@ package com.reactor.rust.http;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 /**
@@ -78,7 +79,7 @@ public final class ETag {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
             md.update(content);
-            md.update(Long.toString(lastModified).getBytes());
+            md.update(Long.toString(lastModified).getBytes(StandardCharsets.UTF_8));
             byte[] digest = md.digest();
             return new ETag(bytesToHex(digest).substring(0, 16), false);
         } catch (NoSuchAlgorithmException e) {

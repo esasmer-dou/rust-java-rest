@@ -7,6 +7,10 @@ import com.reactor.rust.websocket.WebSocketRegistry;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -20,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class NativeBridge {
 
-    private static final int EXPECTED_NATIVE_ABI_VERSION = 9;
+    private static final int EXPECTED_NATIVE_ABI_VERSION = 10;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;
     private static final long DEFAULT_MAX_IN_FLIGHT_BODY_BYTES = 64L * 1024L * 1024L;
@@ -46,6 +50,7 @@ public class NativeBridge {
     private static final int DEFAULT_NATIVE_CACHE_MAX_ENTRIES = 1024;
     private static final long DEFAULT_NATIVE_CACHE_MAX_BYTES = 16L * 1024L * 1024L;
     private static final long DEFAULT_NATIVE_CACHE_TTL_MS = 300_000L;
+    private static final int DEFAULT_ASYNC_RESPONSE_TIMEOUT_MS = 2_000;
     public static final int WS_SEND_OK = 1;
     public static final int WS_SEND_NOT_FOUND = 0;
     public static final int WS_SEND_QUEUE_FULL = -1;
@@ -59,6 +64,7 @@ public class NativeBridge {
             new byte[] {'R', 'J', 'R', 'S', 'P', 'V', '1', '!'};
     private static final int RESPONSE_FRAME_HEADER_SIZE = 18;
     private static final byte[] EMPTY_REQUEST_BODY = new byte[0];
+    private static volatile int asyncResponseTimeoutMs = DEFAULT_ASYNC_RESPONSE_TIMEOUT_MS;
 
     static {
         NativeLibraryLoader.load();
@@ -73,6 +79,8 @@ public class NativeBridge {
     public static native String nativeMemoryDiagnosticsJson();
 
     public static native void nativeResetMetrics();
+
+    public static native void completeAsyncResponse(long requestId, byte[] responseFrame);
 
     public static native int registerStaticResponse(byte[] body, String encodedHeaders, int statusCode);
 
@@ -142,7 +150,8 @@ public class NativeBridge {
             long runtimeThreadStackBytes,
             boolean http1OnlyEnabled,
             boolean keepAliveEnabled,
-            int nativeLogLevel
+            int nativeLogLevel,
+            int asyncResponseTimeoutMs
     );
 
     public static native void startHttpServer(int port);
@@ -264,6 +273,11 @@ public class NativeBridge {
                 "reactor.rust.log.level",
                 "error"
         ));
+        asyncResponseTimeoutMs = Math.max(1, PropertiesLoader.getInt(
+                "reactor.rust.async.response-timeout-ms",
+                DEFAULT_ASYNC_RESPONSE_TIMEOUT_MS
+        ));
+        NativeBridge.asyncResponseTimeoutMs = asyncResponseTimeoutMs;
 
         try {
             int nativeAbi = nativeAbiVersion();
@@ -299,7 +313,8 @@ public class NativeBridge {
                     runtimeThreadStackBytes,
                     http1OnlyEnabled,
                     keepAliveEnabled,
-                    nativeLogLevel
+                    nativeLogLevel,
+                    asyncResponseTimeoutMs
             );
             configureNativeResponseCache(nativeCacheMaxEntries, nativeCacheMaxBytes, nativeCacheTtlMs);
         } catch (UnsatisfiedLinkError e) {
@@ -337,7 +352,8 @@ public class NativeBridge {
                 + ", nativeCacheMaxEntries=" + nativeCacheMaxEntries
                 + ", nativeCacheMaxBytes=" + nativeCacheMaxBytes
                 + ", nativeCacheTtlMs=" + nativeCacheTtlMs
-                + ", nativeLogLevel=" + nativeLogLevel);
+                + ", nativeLogLevel=" + nativeLogLevel
+                + ", asyncResponseTimeoutMs=" + asyncResponseTimeoutMs);
     }
 
     public static boolean isDebugLoggingEnabled() {
@@ -449,6 +465,85 @@ public class NativeBridge {
         }
 
         return invokeQueryIntHandler(handlerId, outBuffer, offset, capacity, queryInt);
+    }
+
+    public static boolean handleRustAsyncBodylessRequest(
+            int handlerId,
+            long requestId,
+            String pathParams,
+            String queryString,
+            String headers
+    ) {
+        return startAsyncHandler(handlerId, requestId, EMPTY_REQUEST_BODY, pathParams, queryString, headers);
+    }
+
+    public static boolean handleRustAsyncRequest(
+            int handlerId,
+            long requestId,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) {
+        return startAsyncHandler(handlerId, requestId, inBytes, pathParams, queryString, headers);
+    }
+
+    private static boolean startAsyncHandler(
+            int handlerId,
+            long requestId,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) {
+        try {
+            HandlerRegistry.getInstance()
+                    .invokeAsync(handlerId, inBytes, pathParams, queryString, headers)
+                    .orTimeout(asyncResponseTimeoutMs, TimeUnit.MILLISECONDS)
+                    .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
+            return true;
+        } catch (Throwable e) {
+            completeAsyncHandler(requestId, null, e);
+            return true;
+        }
+    }
+
+    private static void completeAsyncHandler(long requestId, byte[] frame, Throwable error) {
+        byte[] responseFrame = frame;
+        if (error != null) {
+            Throwable root = unwrapCompletion(error);
+            int status = root instanceof TimeoutException ? 504 : 500;
+            responseFrame = errorFrame(status, root);
+        } else if (responseFrame == null) {
+            responseFrame = errorFrame(500, new IllegalStateException("async handler completed with null frame"));
+        }
+        try {
+            completeAsyncResponse(requestId, responseFrame);
+        } catch (Throwable ignored) {
+            // Request may have timed out on the Rust side; late completion is intentionally dropped.
+        }
+    }
+
+    private static Throwable unwrapCompletion(Throwable error) {
+        Throwable current = error;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static byte[] errorFrame(int status, Throwable error) {
+        String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+        byte[] body = ("{\"error\":\"" + escapeJson(message) + "\"}")
+                .getBytes(StandardCharsets.UTF_8);
+        ByteBuffer frame = ByteBuffer.allocate(RESPONSE_FRAME_HEADER_SIZE + body.length);
+        frame.put(RESPONSE_FRAME_MAGIC);
+        frame.putShort((short) status);
+        frame.putInt(0);
+        frame.putInt(body.length);
+        frame.put(body);
+        return frame.array();
     }
 
     private static int invokeHandler(

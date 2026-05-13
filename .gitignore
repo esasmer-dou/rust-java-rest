@@ -28,6 +28,7 @@ Thumbs.db
 !src/main/resources/native/**/*.so
 !src/main/resources/native/**/*.dll
 !src/main/resources/native/**/*.dylib
+!src/main/resources/rust_hyper.dll
 
 # Logs
 *.log
@@ -38,3 +39,9 @@ test-output/
 
 # Benchmark
 benchmark/
+!benchmark/
+benchmark/**
+!benchmark/dubbo_overhead/
+!benchmark/dubbo_overhead/*.ps1
+!benchmark/dubbo_overhead/*.js
+benchmark/**/results/**

@@ -6,6 +6,7 @@ import com.reactor.rust.logging.FrameworkLogger;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Route Scanner - No Spring
@@ -109,6 +110,7 @@ public final class RouteScanner {
             boolean directNeedsQueryParams = directV5 && (rawRequestData == null || rawRequestData.query());
             boolean directNeedsHeaders = directV5 && (rawRequestData == null || rawRequestData.headers());
             String directQueryIntName = directQueryIntAnnotation != null ? directQueryIntAnnotation.value() : "";
+            boolean asyncRoute = CompletionStage.class.isAssignableFrom(method.getReturnType());
 
             routes.add(new RouteDef(
                     routeInfo.httpMethod,
@@ -120,6 +122,7 @@ public final class RouteScanner {
                     legacyV4 || directNeedsPathParams || metadata.needsPathParams,
                     legacyV4 || directNeedsQueryParams || metadata.needsQueryParams,
                     legacyV4 || directNeedsHeaders || metadata.needsHeaders,
+                    asyncRoute,
                     routeInfo.maxRequestBodyBytes,
                     routeInfo.maxResponseBodyBytes,
                     directQueryIntName,

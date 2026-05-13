@@ -34,18 +34,22 @@ public final class RawResponse {
                 body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0],
                 new HashMap<>()
         );
-        response.header("Content-Type", contentType != null ? contentType : "text/plain; charset=utf-8");
+        response.header("Content-Type", normalizeTextualContentType(
+                contentType != null ? contentType : MediaType.TEXT_PLAIN_UTF8
+        ));
         return response;
     }
 
     public static RawResponse bytes(byte[] body, String contentType) {
         RawResponse response = new RawResponse(body, new HashMap<>());
-        response.header("Content-Type", contentType != null ? contentType : "application/octet-stream");
+        response.header("Content-Type", normalizeTextualContentType(
+                contentType != null ? contentType : MediaType.APPLICATION_OCTET_STREAM
+        ));
         return response;
     }
 
     public static RawResponse json(byte[] body) {
-        return bytes(body, "application/json");
+        return bytes(body, MediaType.APPLICATION_JSON_UTF8);
     }
 
     /**
@@ -56,17 +60,17 @@ public final class RawResponse {
         byte[] safeBody = body != null ? body : new byte[0];
         int nativeId = NativeBridge.registerStaticResponse(
                 safeBody,
-                "Content-Type: application/json\n",
+                "Content-Type: " + MediaType.APPLICATION_JSON_UTF8 + "\n",
                 200
         );
         RawResponse response = new RawResponse(safeBody, new HashMap<>(), nativeId);
-        response.header("Content-Type", "application/json");
+        response.header("Content-Type", MediaType.APPLICATION_JSON_UTF8);
         return response;
     }
 
     public static RawResponse nativeJson(int nativeId) {
         RawResponse response = new RawResponse(new byte[0], new HashMap<>(), nativeId);
-        response.header("Content-Type", "application/json");
+        response.header("Content-Type", MediaType.APPLICATION_JSON_UTF8);
         return response;
     }
 
@@ -84,8 +88,27 @@ public final class RawResponse {
 
     public RawResponse header(String name, String value) {
         if (name != null && value != null) {
-            headers.put(name, value);
+            headers.put(name, "Content-Type".equalsIgnoreCase(name)
+                    ? normalizeTextualContentType(value)
+                    : value);
         }
         return this;
+    }
+
+    private static String normalizeTextualContentType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return contentType;
+        }
+        String value = contentType.trim();
+        String lower = value.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("charset=")) {
+            return value;
+        }
+        if (lower.startsWith("text/")
+                || lower.startsWith("application/json")
+                || lower.contains("+json")) {
+            return value + "; charset=utf-8";
+        }
+        return value;
     }
 }

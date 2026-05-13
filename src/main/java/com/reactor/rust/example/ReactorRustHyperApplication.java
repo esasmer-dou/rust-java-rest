@@ -4,8 +4,10 @@ import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.example.handler.BenchmarkHandler;
+import com.reactor.rust.example.handler.DubboCatalogHandler;
 import com.reactor.rust.example.handler.FeatureHandler;
 import com.reactor.rust.example.handler.FileUploadHandler;
 import com.reactor.rust.example.handler.OrderHandler;
@@ -58,6 +60,7 @@ public class ReactorRustHyperApplication {
 
         // 1. Load properties
         PropertiesLoader.load();
+        RuntimeProfiles.apply();
 
         // 2. Initialize DI Container (ZERO runtime overhead)
         BeanContainer container = initDIContainer();
@@ -87,6 +90,8 @@ public class ReactorRustHyperApplication {
                 NativeBridge.stopHttpServer();
             } catch (UnsatisfiedLinkError ignored) {
                 // Native library may be unavailable during failed startup.
+            } finally {
+                container.shutdown();
             }
         }, "rust-hyper-shutdown"));
         NativeBridge.startHttpServer(port);
@@ -138,6 +143,7 @@ public class ReactorRustHyperApplication {
         UserHandler userHandler = container.getBean(UserHandler.class);
         FeatureHandler featureHandler = container.getBean(FeatureHandler.class);
         FileUploadHandler fileUploadHandler = container.getBean(FileUploadHandler.class);
+        DubboCatalogHandler dubboCatalogHandler = container.getBean(DubboCatalogHandler.class);
         MetricsHandler metricsHandler = new MetricsHandler();
 
         // Register with handler registry
@@ -146,6 +152,7 @@ public class ReactorRustHyperApplication {
         registry.registerBean(userHandler);
         registry.registerBean(featureHandler);
         registry.registerBean(fileUploadHandler);
+        registry.registerBean(dubboCatalogHandler);
         registry.registerBean(metricsHandler);
 
         FrameworkLogger.info("[JAVA] Handlers registered with DI support");

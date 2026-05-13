@@ -11,6 +11,7 @@ public class RouteDef {
     public final boolean needsPathParams;
     public final boolean needsQueryParams;
     public final boolean needsHeaders;
+    public final boolean asyncRoute;
     public final long maxRequestBodyBytes;
     public final long maxResponseBodyBytes;
     public final String directQueryIntName;
@@ -24,7 +25,7 @@ public class RouteDef {
                     String requestType,
                     String responseType) {
         this(httpMethod, path, handlerId, requestType, responseType,
-                isVoidRequestType(requestType), false, false, false, 0L, 0L);
+                isVoidRequestType(requestType), false, false, false, false, 0L, 0L);
     }
 
     public RouteDef(String httpMethod,
@@ -35,7 +36,7 @@ public class RouteDef {
                     long maxRequestBodyBytes,
                     long maxResponseBodyBytes) {
         this(httpMethod, path, handlerId, requestType, responseType,
-                isVoidRequestType(requestType), false, false, false,
+                isVoidRequestType(requestType), false, false, false, false,
                 maxRequestBodyBytes, maxResponseBodyBytes);
     }
 
@@ -51,7 +52,7 @@ public class RouteDef {
                     long maxRequestBodyBytes,
                     long maxResponseBodyBytes) {
         this(httpMethod, path, handlerId, requestType, responseType,
-                bodyless, needsPathParams, needsQueryParams, needsHeaders,
+                bodyless, needsPathParams, needsQueryParams, needsHeaders, false,
                 maxRequestBodyBytes, maxResponseBodyBytes,
                 "", 0, Integer.MIN_VALUE, Integer.MAX_VALUE);
     }
@@ -65,6 +66,25 @@ public class RouteDef {
                     boolean needsPathParams,
                     boolean needsQueryParams,
                     boolean needsHeaders,
+                    boolean asyncRoute,
+                    long maxRequestBodyBytes,
+                    long maxResponseBodyBytes) {
+        this(httpMethod, path, handlerId, requestType, responseType,
+                bodyless, needsPathParams, needsQueryParams, needsHeaders, asyncRoute,
+                maxRequestBodyBytes, maxResponseBodyBytes,
+                "", 0, Integer.MIN_VALUE, Integer.MAX_VALUE);
+    }
+
+    public RouteDef(String httpMethod,
+                    String path,
+                    int handlerId,
+                    String requestType,
+                    String responseType,
+                    boolean bodyless,
+                    boolean needsPathParams,
+                    boolean needsQueryParams,
+                    boolean needsHeaders,
+                    boolean asyncRoute,
                     long maxRequestBodyBytes,
                     long maxResponseBodyBytes,
                     String directQueryIntName,
@@ -80,6 +100,7 @@ public class RouteDef {
         this.needsPathParams = needsPathParams;
         this.needsQueryParams = needsQueryParams;
         this.needsHeaders = needsHeaders;
+        this.asyncRoute = asyncRoute;
         this.maxRequestBodyBytes = maxRequestBodyBytes;
         this.maxResponseBodyBytes = maxResponseBodyBytes;
         this.directQueryIntName = directQueryIntName == null ? "" : directQueryIntName;

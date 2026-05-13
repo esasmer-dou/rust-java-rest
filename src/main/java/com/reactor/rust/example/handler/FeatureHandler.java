@@ -4,6 +4,8 @@ import com.reactor.rust.annotations.*;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.http.*;
 
+import java.nio.charset.StandardCharsets;
+
 /**
  * Feature Handler - Demonstrates new HTTP features.
  *
@@ -77,7 +79,7 @@ public class FeatureHandler {
     @GetMapping("/etag")
     public ResponseEntity<EtagResponse> getWithEtag(@HeaderParam("If-None-Match") String ifNoneMatch) {
         String content = "This is some content that can be cached";
-        ETag etag = ETag.fromContent(content.getBytes());
+        ETag etag = ETag.fromContent(content.getBytes(StandardCharsets.UTF_8));
 
         // Check if client has current version
         if (etag.matchesIfNoneMatch(ifNoneMatch)) {
@@ -102,7 +104,7 @@ public class FeatureHandler {
             @RequestBody CompressRequest request,
             @HeaderParam("Accept-Encoding") String acceptEncoding
     ) throws Exception {
-        byte[] data = request.data().getBytes();
+        byte[] data = request.data().getBytes(StandardCharsets.UTF_8);
         byte[] compressed = null;
         String encoding = null;
 

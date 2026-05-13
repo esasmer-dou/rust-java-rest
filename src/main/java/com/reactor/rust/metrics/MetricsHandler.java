@@ -3,6 +3,7 @@ package com.reactor.rust.metrics;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
+import com.reactor.rust.dubbo.NativeDubboBridge;
 import com.reactor.rust.http.RawResponse;
 
 import java.lang.management.BufferPoolMXBean;
@@ -70,6 +71,10 @@ public class MetricsHandler {
         if (nativeMetrics == null) {
             nativeMetrics = "";
         }
+        String nativeDubboMetrics = NativeDubboBridge.metricsJson();
+        if (nativeDubboMetrics == null || nativeDubboMetrics.isBlank()) {
+            nativeDubboMetrics = "{}";
+        }
 
         StringBuilder json = new StringBuilder(8192);
         json.append('{');
@@ -98,6 +103,7 @@ public class MetricsHandler {
         }
         json.append("],");
         json.append("\"native\":").append(nativeDiagnostics).append(',');
+        json.append("\"native_dubbo\":").append(nativeDubboMetrics).append(',');
         json.append("\"native_metrics_prometheus\":").append(jsonString(nativeMetrics));
         json.append('}');
 
@@ -120,6 +126,7 @@ public class MetricsHandler {
     @GetMapping(value = "/metrics/reset", requestType = Void.class, responseType = String.class)
     public String resetMetrics() {
         NativeBridge.nativeResetMetrics();
+        NativeDubboBridge.resetMetrics();
         Metrics.getInstance().reset();
         return "{\"status\":\"reset\"}";
     }

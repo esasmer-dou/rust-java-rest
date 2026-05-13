@@ -501,7 +501,15 @@ public final class BeanContainer {
             Class<?> clazz = bean.getClass();
 
             while (clazz != null && clazz != Object.class) {
-                for (Field field : clazz.getDeclaredFields()) {
+                Field[] fields;
+                try {
+                    fields = clazz.getDeclaredFields();
+                } catch (NoClassDefFoundError e) {
+                    FrameworkLogger.warn("[BeanContainer] Skipping optional dependency fields for "
+                            + clazz.getName() + ": " + e.getMessage());
+                    break;
+                }
+                for (Field field : fields) {
                     if (field.isAnnotationPresent(Autowired.class)) {
                         injectField(bean, field);
                     }

@@ -1,5 +1,6 @@
 package com.reactor.rust.bridge;
 
+import com.reactor.rust.annotations.ContentType;
 import com.reactor.rust.annotations.RequestBody;
 import com.reactor.rust.annotations.HeaderParam;
 import com.reactor.rust.annotations.PathVariable;
@@ -121,6 +122,21 @@ class HandlerRegistryNativeFrameTest {
         }
     }
 
+    static class TurkishResponseHandler {
+        public ResponseEntity<String> jsonText() {
+            return ResponseEntity.ok("İstanbul şeker ölçü");
+        }
+
+        @ContentType("application/vnd.reactor+json")
+        public ResponseEntity<String> vendorJsonText() {
+            return ResponseEntity.ok("İstanbul şeker ölçü");
+        }
+
+        public RawResponse rawText() {
+            return RawResponse.text("İstanbul şeker ölçü\n", "text/plain");
+        }
+    }
+
     @Test
     void responseEntityWritesNativeFrameWithStatusHeadersAndBody() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
@@ -162,6 +178,89 @@ class HandlerRegistryNativeFrameTest {
 
         assertTrue(encodedHeaders.contains("X-Test: 1"));
         assertEquals("\"missing\"", encodedBody);
+    }
+
+    @Test
+    void responseEntityAddsUtf8JsonContentTypeAndPreservesTurkishCharacters() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        TurkishResponseHandler handler = new TurkishResponseHandler();
+        Method method = TurkishResponseHandler.class.getDeclaredMethod("jsonText");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        assertArrayEquals(FRAME_MAGIC, Arrays.copyOfRange(frameBytes, 0, 8));
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedHeaders = new String(frameBytes, 18, headersLen, StandardCharsets.UTF_8);
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertTrue(encodedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertEquals("\"İstanbul şeker ölçü\"", encodedBody);
+    }
+
+    @Test
+    void contentTypeAnnotationAddsUtf8CharsetForJsonLikeTypes() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        TurkishResponseHandler handler = new TurkishResponseHandler();
+        Method method = TurkishResponseHandler.class.getDeclaredMethod("vendorJsonText");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        String encodedHeaders = new String(frameBytes, 18, headersLen, StandardCharsets.UTF_8);
+
+        assertTrue(encodedHeaders.contains("Content-Type: application/vnd.reactor+json; charset=utf-8"));
+    }
+
+    @Test
+    void rawTextResponseUsesUtf8BytesAndUtf8ContentType() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        TurkishResponseHandler handler = new TurkishResponseHandler();
+        Method method = TurkishResponseHandler.class.getDeclaredMethod("rawText");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, RawResponse.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedHeaders = new String(frameBytes, 18, headersLen, StandardCharsets.UTF_8);
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertTrue(encodedHeaders.contains("Content-Type: text/plain; charset=utf-8"));
+        assertEquals("İstanbul şeker ölçü\n", encodedBody);
     }
 
     @Test
@@ -419,6 +518,7 @@ class HandlerRegistryNativeFrameTest {
 
         assertTrue(encodedHeaders.contains("X-Entity: 1"));
         assertTrue(encodedHeaders.contains("Content-Type: text/plain"));
+        assertTrue(!encodedHeaders.contains("Content-Type: application/json"));
         assertTrue(encodedHeaders.contains("Content-Disposition: attachment; filename=\"export.txt\""));
         assertEquals(file.toAbsolutePath().normalize().toString(), encodedPath);
     }
@@ -481,6 +581,7 @@ class HandlerRegistryNativeFrameTest {
 
         assertTrue(encodedHeaders.contains("X-Entity: 1"));
         assertTrue(encodedHeaders.contains("Content-Type: text/plain"));
+        assertTrue(!encodedHeaders.contains("Content-Type: application/json"));
         assertEquals("entity_metric 2\n", encodedBody);
     }
 }
