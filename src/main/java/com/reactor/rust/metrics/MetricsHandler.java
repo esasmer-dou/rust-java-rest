@@ -3,8 +3,9 @@ package com.reactor.rust.metrics;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
-import com.reactor.rust.dubbo.NativeDubboBridge;
 import com.reactor.rust.http.RawResponse;
+
+import java.lang.reflect.Method;
 
 import java.lang.management.BufferPoolMXBean;
 import java.lang.management.ManagementFactory;
@@ -71,7 +72,11 @@ public class MetricsHandler {
         if (nativeMetrics == null) {
             nativeMetrics = "";
         }
-        String nativeDubboMetrics = NativeDubboBridge.metricsJson();
+        String nativeDubboMetrics = invokeOptionalStaticString(
+                "com.reactor.rust.dubbo.NativeDubboBridge",
+                "metricsJson",
+                "{}"
+        );
         if (nativeDubboMetrics == null || nativeDubboMetrics.isBlank()) {
             nativeDubboMetrics = "{}";
         }
@@ -126,7 +131,7 @@ public class MetricsHandler {
     @GetMapping(value = "/metrics/reset", requestType = Void.class, responseType = String.class)
     public String resetMetrics() {
         NativeBridge.nativeResetMetrics();
-        NativeDubboBridge.resetMetrics();
+        invokeOptionalStaticVoid("com.reactor.rust.dubbo.NativeDubboBridge", "resetMetrics");
         Metrics.getInstance().reset();
         return "{\"status\":\"reset\"}";
     }
@@ -164,5 +169,26 @@ public class MetricsHandler {
         }
         escaped.append('"');
         return escaped.toString();
+    }
+
+    private static String invokeOptionalStaticString(String className, String methodName, String fallback) {
+        try {
+            Class<?> bridgeClass = Class.forName(className);
+            Method method = bridgeClass.getMethod(methodName);
+            Object result = method.invoke(null);
+            return result instanceof String value ? value : fallback;
+        } catch (ReflectiveOperationException | LinkageError e) {
+            return fallback;
+        }
+    }
+
+    private static void invokeOptionalStaticVoid(String className, String methodName) {
+        try {
+            Class<?> bridgeClass = Class.forName(className);
+            Method method = bridgeClass.getMethod(methodName);
+            method.invoke(null);
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            // Dubbo adapter is optional; core REST metrics must work without it.
+        }
     }
 }

@@ -44,7 +44,6 @@
         <jakarta.annotation-api-version>2.1.1</jakarta.annotation-api-version>
         <maven-source-plugin-version>3.3.0</maven-source-plugin-version>
         <maven-javadoc-plugin-version>3.6.3</maven-javadoc-plugin-version>
-        <java-rust-dubbo.version>0.1.0-rc1</java-rust-dubbo.version>
     </properties>
 
     <distributionManagement>
@@ -54,19 +53,6 @@
             <url>https://maven.pkg.github.com/esasmer-dou/rust-java-rest</url>
         </repository>
     </distributionManagement>
-
-    <repositories>
-        <repository>
-            <id>github-java-rust-dubbo</id>
-            <name>GitHub Packages - java-rust-dubbo</name>
-            <url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo</url>
-        </repository>
-        <repository>
-            <id>github-rust-java-rest</id>
-            <name>GitHub Packages - rust-java-rest</name>
-            <url>https://maven.pkg.github.com/esasmer-dou/rust-java-rest</url>
-        </repository>
-    </repositories>
 
     <dependencies>
 
@@ -82,13 +68,6 @@
             <groupId>jakarta.annotation</groupId>
             <artifactId>jakarta.annotation-api</artifactId>
             <version>${jakarta.annotation-api-version}</version>
-        </dependency>
-
-        <!-- Lite Dubbo consumer adapter: no Spring Boot, no Dubbo ReferenceConfig -->
-        <dependency>
-            <groupId>com.reactor</groupId>
-            <artifactId>java-rust-dubbo</artifactId>
-            <version>${java-rust-dubbo.version}</version>
         </dependency>
 
         <!-- JUnit 5 for testing -->

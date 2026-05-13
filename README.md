@@ -27,8 +27,7 @@ and packaged Windows/Linux native libraries.
 - File and raw response frames avoid duplicate default JSON content-type headers.
 - A few platform-default `String.getBytes()` usages were made explicit with `StandardCharsets.UTF_8`.
 - Windows `rust_hyper.dll` and Linux `librust_hyper.so` were rebuilt and repackaged.
-- Maven metadata now pins the independent `java-rust-dubbo` adapter version instead of coupling it to the framework version.
-- The packaged example no longer depends on a separate `dubbo-sample-api` artifact, so release builds do not require a local sample module.
+- The core REST package no longer has a compile-time dependency on the optional `java-rust-dubbo` adapter or local sample Dubbo modules.
 
 ### Verification
 
