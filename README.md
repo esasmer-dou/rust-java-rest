@@ -1,13 +1,13 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.1.0--rc3-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.1.0--rc4-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Profile](https://img.shields.io/badge/profile-low--rss-green.svg)]()
 [![Status](https://img.shields.io/badge/status-performance--preview-orange.svg)]()
 
 Ultra-fast REST API framework combining Rust Hyper HTTP server with Java handlers.
 
-## v3.1.0-rc3 - UTF-8 Request Annotation Patch
+## v3.1.0-rc4 - UTF-8 Request Annotation Patch
 
 This release candidate keeps the v3.1.0 Rust I/O plane direction and fixes the next pilot issue:
 Turkish and other non-ASCII values in request URL components are now decoded consistently before they
@@ -54,7 +54,7 @@ How to use it:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc3</version>
+    <version>3.1.0-rc4</version>
 </dependency>
 ```
 
@@ -88,7 +88,7 @@ For read-heavy payloads that repeat often, register once in Rust and return the 
 ```java
 private static final RawResponse CACHED_CONFIG =
         RawResponse.registeredJson("""
-        {"feature":"enabled","version":"3.1.0-rc3"}
+        {"feature":"enabled","version":"3.1.0-rc4"}
         """.getBytes(StandardCharsets.UTF_8));
 
 @GetMapping(value = "/config", requestType = Void.class, responseType = RawResponse.class)
@@ -258,7 +258,7 @@ Benchmark run id: `container_20260425_204114`. The RC release notes include the 
 | **Timeout/keep-alive/header/body limits** | Production safety knobs for slow clients and bounded resource usage |
 | **Low-RSS / throughput / micro-RSS profiles** | Runtime can be tuned by workload instead of one-size-fits-all config |
 
-Release notes: `docs/release-notes/v3.1.0-rc3.md`.
+Release notes: `docs/release-notes/v3.1.0-rc4.md`.
 
 ---
 
@@ -402,7 +402,7 @@ All v2.0.0 features are included:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc3</version>
+    <version>3.1.0-rc4</version>
 </dependency>
 ```
 
@@ -1022,7 +1022,7 @@ The framework provides ultra-minimal Docker images optimized for production.
 | Image | Size | Base | Runtime Memory | Description |
 |-------|------|------|----------------|-------------|
 | `rust-java-rest:ultra` | **149MB** | Debian slim | **28 MB** | Ultra-low memory (v3.0.0) |
-| `ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc3` | Debian slim | low-rss profile | RC / performance preview |
+| `ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc4` | Debian slim | low-rss profile | RC / performance preview |
 | `rust-java-rest:minimal` | **74MB** | Distroless | ~35 MB | Minimal (v2.0.0) |
 | `rust-java-rest:optimized` | **136MB** | Debian slim | ~35 MB | With curl |
 
@@ -1030,8 +1030,8 @@ The framework provides ultra-minimal Docker images optimized for production.
 
 ```bash
 # Ultra-low memory image (v3.0.0) - RECOMMENDED
-docker pull ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc3
-docker run -p 8080:8080 --memory=128m ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc3
+docker pull ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc4
+docker run -p 8080:8080 --memory=128m ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc4
 
 # Legacy minimal image (v2.0.0)
 docker pull ghcr.io/esasmer-dou/rust-java-rest:2.0.0
