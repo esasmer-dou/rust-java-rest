@@ -2,6 +2,7 @@ package com.reactor.rust.bridge;
 
 import com.reactor.rust.annotations.ContentType;
 import com.reactor.rust.annotations.RequestBody;
+import com.reactor.rust.annotations.CookieValue;
 import com.reactor.rust.annotations.HeaderParam;
 import com.reactor.rust.annotations.PathVariable;
 import com.reactor.rust.annotations.RequestParam;
@@ -63,6 +64,23 @@ class HandlerRegistryNativeFrameTest {
                 @HeaderParam("X-Trace") String trace
         ) {
             return ResponseEntity.ok(id + ":" + name + ":" + trace);
+        }
+    }
+
+    static class TurkishRequestParamHandler {
+        public ResponseEntity<String> combine(
+                @PathVariable("city") String city,
+                @PathVariable("slug") String slug,
+                @RequestParam("name") String name,
+                @RequestParam("note") String note
+        ) {
+            return ResponseEntity.ok(city + "|" + slug + "|" + name + "|" + note);
+        }
+    }
+
+    static class TurkishCookieHandler {
+        public ResponseEntity<String> cookie(@CookieValue("city") String city) {
+            return ResponseEntity.ok(city);
         }
     }
 
@@ -352,6 +370,80 @@ class HandlerRegistryNativeFrameTest {
         int bodyLen = frame.getInt();
         String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
         assertEquals("\"42:mustafa:abc-123\"", encodedBody);
+    }
+
+    @Test
+    void annotatedPathAndQueryParamsDecodeUtf8UrlComponents() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        TurkishRequestParamHandler handler = new TurkishRequestParamHandler();
+        Method method = TurkishRequestParamHandler.class.getDeclaredMethod(
+                "combine",
+                String.class,
+                String.class,
+                String.class,
+                String.class
+        );
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(
+                handlerId,
+                out,
+                0,
+                new byte[0],
+                "city=%C4%B0stanbul%20%C5%9Feker&slug=mustafa+korkmaz",
+                "name=Mustafa+Korkmaz&note=%C3%B6l%C3%A7%C3%BC%20%C5%9Feker",
+                ""
+        );
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertEquals("\"İstanbul şeker|mustafa+korkmaz|Mustafa Korkmaz|ölçü şeker\"", encodedBody);
+    }
+
+    @Test
+    void annotatedCookieValueDecodesUtf8UrlComponent() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        TurkishCookieHandler handler = new TurkishCookieHandler();
+        Method method = TurkishCookieHandler.class.getDeclaredMethod("cookie", String.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(
+                handlerId,
+                out,
+                0,
+                new byte[0],
+                "",
+                "",
+                "Cookie: city=%C4%B0stanbul%20%C5%9Feker; session=abc\n"
+        );
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertEquals("\"İstanbul şeker\"", encodedBody);
     }
 
     @Test

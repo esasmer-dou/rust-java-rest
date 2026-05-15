@@ -8,6 +8,7 @@ import com.reactor.rust.example.service.OrderService;
 import com.reactor.rust.example.service.NotificationService;
 import com.reactor.rust.http.MediaType;
 import com.reactor.rust.json.DslJsonService;
+import com.reactor.rust.util.UrlCodec;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -150,7 +151,7 @@ public class OrderHandler {
             String query,
             String headers
     ) {
-        Map<String, String> params = parseParams(pathParams);
+        Map<String, String> params = parseParams(pathParams, false);
 
         // DI Example: Get order from OrderService
         String orderId = params.get("id");
@@ -185,7 +186,7 @@ public class OrderHandler {
             String query,
             String headers
     ) {
-        Map<String, String> q = parseParams(query);
+        Map<String, String> q = parseParams(query, true);
 
         // DI Example: Search via OrderService
         String status = q.get("status");
@@ -204,7 +205,7 @@ public class OrderHandler {
      * Optimized param parsing with ThreadLocal HashMap reuse.
      * ~25% faster than allocating new HashMap each call.
      */
-    static Map<String, String> parseParams(String s) {
+    static Map<String, String> parseParams(String s, boolean plusAsSpace) {
         HashMap<String, String> m = PARAM_CACHE.get();
         m.clear();  // Reuse the map
 
@@ -224,8 +225,8 @@ public class OrderHandler {
             // Find equals sign
             int eq = s.indexOf('=', start);
             if (eq > start && eq < end) {
-                String key = s.substring(start, eq);
-                String value = s.substring(eq + 1, end);
+                String key = UrlCodec.decodeComponent(s.substring(start, eq), plusAsSpace);
+                String value = UrlCodec.decodeComponent(s.substring(eq + 1, end), plusAsSpace);
                 m.put(key, value);
             }
 
@@ -263,7 +264,7 @@ public class OrderHandler {
                 int keyEnd = colon;
                 while (keyStart < keyEnd && h.charAt(keyStart) == ' ') keyStart++;
                 while (keyEnd > keyStart && h.charAt(keyEnd - 1) == ' ') keyEnd--;
-                String key = h.substring(keyStart, keyEnd).toLowerCase();
+                String key = h.substring(keyStart, keyEnd).toLowerCase(java.util.Locale.ROOT);
 
                 // Trim value
                 int valStart = colon + 1;

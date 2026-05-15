@@ -183,7 +183,7 @@ public final class MultipartParser {
         for (String line : headers.split("\r\n")) {
             int colon = line.indexOf(':');
             if (colon > 0) {
-                String key = line.substring(0, colon).trim().toLowerCase();
+                String key = line.substring(0, colon).trim().toLowerCase(java.util.Locale.ROOT);
                 String value = line.substring(colon + 1).trim();
                 map.put(key, value);
             }

@@ -24,13 +24,19 @@ class WebSocketRegistryPathParamsTest {
         TestWebSocketHandler handler = new TestWebSocketHandler();
 
         registry.register(handler);
-        registry.onOpen(987654321L, "/test/ws/{roomId}", "roomId=alpha", "token=abc&limit=5");
+        registry.onOpen(
+                987654321L,
+                "/test/ws/{roomId}",
+                "roomId=%C4%B0stanbul+room",
+                "token=abc&limit=5&name=Mustafa+Korkmaz"
+        );
 
         assertEquals(987654321L, handler.openedSession.getId());
         assertEquals("/test/ws/{roomId}", handler.openedSession.getPath());
-        assertEquals("alpha", handler.openedSession.getPathParams().get("roomId"));
+        assertEquals("İstanbul+room", handler.openedSession.getPathParams().get("roomId"));
         assertEquals("abc", handler.openedSession.getQueryParams().get("token"));
         assertEquals("5", handler.openedSession.getQueryParams().get("limit"));
+        assertEquals("Mustafa Korkmaz", handler.openedSession.getQueryParams().get("name"));
 
         registry.onClose(987654321L);
     }

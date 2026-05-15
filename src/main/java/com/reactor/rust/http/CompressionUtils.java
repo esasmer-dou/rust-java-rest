@@ -47,7 +47,7 @@ public final class CompressionUtils {
             return false;
         }
 
-        String type = contentType.toLowerCase();
+        String type = contentType.toLowerCase(java.util.Locale.ROOT);
 
         // Text types
         if (type.startsWith("text/")) {
@@ -72,7 +72,7 @@ public final class CompressionUtils {
         if (acceptEncoding == null) {
             return false;
         }
-        String encoding = acceptEncoding.toLowerCase();
+        String encoding = acceptEncoding.toLowerCase(java.util.Locale.ROOT);
         return encoding.contains("gzip") || encoding.contains("*");
     }
 
@@ -83,7 +83,7 @@ public final class CompressionUtils {
         if (acceptEncoding == null) {
             return false;
         }
-        String encoding = acceptEncoding.toLowerCase();
+        String encoding = acceptEncoding.toLowerCase(java.util.Locale.ROOT);
         return encoding.contains("deflate") || encoding.contains("*");
     }
 
@@ -98,7 +98,7 @@ public final class CompressionUtils {
             return null;
         }
 
-        String encoding = acceptEncoding.toLowerCase();
+        String encoding = acceptEncoding.toLowerCase(java.util.Locale.ROOT);
 
         // Prefer gzip over deflate (better compression)
         if (encoding.contains("gzip")) {
@@ -173,7 +173,7 @@ public final class CompressionUtils {
             return data;
         }
 
-        return switch (encoding.toLowerCase()) {
+        return switch (encoding.toLowerCase(java.util.Locale.ROOT)) {
             case "gzip" -> gzip(data);
             case "deflate" -> deflate(data);
             default -> data;

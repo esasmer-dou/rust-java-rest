@@ -79,10 +79,10 @@ public final class ParameterResolver {
         try {
             // Parse into pooled FastMap instances
             pathParamMap.clear();
-            PooledMaps.parseParamsTo(pathParamMap, pathParams);
+            PooledMaps.parseParamsTo(pathParamMap, pathParams, false);
 
             queryParams.clear();
-            PooledMaps.parseParamsTo(queryParams, queryString);
+            PooledMaps.parseParamsTo(queryParams, queryString, true);
 
             headerMap.clear();
             PooledMaps.parseHeadersTo(headerMap, headers);
@@ -153,7 +153,7 @@ public final class ParameterResolver {
         HeaderParam headerParam = param.getAnnotation(HeaderParam.class);
         if (headerParam != null) {
             // Header names are already lowercase in FastMap
-            String name = headerParam.value().toLowerCase();
+            String name = headerParam.value().toLowerCase(java.util.Locale.ROOT);
             String value = headers.get(name);
 
             if (value == null && headerParam.required()) {
@@ -292,7 +292,7 @@ public final class ParameterResolver {
         for (String line : headers.split("\n")) {
             int idx = line.indexOf(':');
             if (idx > 0) {
-                String key = line.substring(0, idx).trim().toLowerCase();
+                String key = line.substring(0, idx).trim().toLowerCase(java.util.Locale.ROOT);
                 String value = line.substring(idx + 1).trim();
                 map.put(key, value);
             }

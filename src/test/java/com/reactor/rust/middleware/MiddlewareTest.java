@@ -60,13 +60,14 @@ class MiddlewareTest {
     @DisplayName("MiddlewareContext getQueryParam parses query string")
     void testMiddlewareContextGetQueryParam() {
         MiddlewareContext context = new MiddlewareContext(
-            "GET", "/search", "q=hello&page=2&sort=desc",
+            "GET", "/search", "q=hello&page=2&sort=desc&city=%C4%B0stanbul+%C5%9Feker",
             Map.of(), Map.of(), null
         );
 
         assertEquals("hello", context.getQueryParam("q"));
         assertEquals("2", context.getQueryParam("page"));
         assertEquals("desc", context.getQueryParam("sort"));
+        assertEquals("İstanbul şeker", context.getQueryParam("city"));
         assertNull(context.getQueryParam("missing"));
     }
 

@@ -105,7 +105,7 @@ public final class Metrics {
         increment("http_requests_total");
 
         // Requests by method
-        increment("http_requests_" + method.toLowerCase() + "_total");
+        increment("http_requests_" + method.toLowerCase(java.util.Locale.ROOT) + "_total");
 
         // Requests by status
         increment("http_responses_" + status / 100 + "xx_total");

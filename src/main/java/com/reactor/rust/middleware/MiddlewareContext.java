@@ -1,5 +1,7 @@
 package com.reactor.rust.middleware;
 
+import com.reactor.rust.util.UrlCodec;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -45,11 +47,11 @@ public final class MiddlewareContext {
 
     // Header helpers
     public String getHeader(String name) {
-        return headers.get(name.toLowerCase());
+        return headers.get(name.toLowerCase(java.util.Locale.ROOT));
     }
 
     public String getHeader(String name, String defaultValue) {
-        String value = headers.get(name.toLowerCase());
+        String value = headers.get(name.toLowerCase(java.util.Locale.ROOT));
         return value != null ? value : defaultValue;
     }
 
@@ -69,7 +71,9 @@ public final class MiddlewareContext {
         for (String pair : queryString.split("&")) {
             int idx = pair.indexOf('=');
             if (idx > 0 && pair.substring(0, idx).equals(name)) {
-                return idx < pair.length() - 1 ? pair.substring(idx + 1) : "";
+                return idx < pair.length() - 1
+                        ? UrlCodec.decodeComponent(pair.substring(idx + 1), true)
+                        : "";
             }
         }
         return null;

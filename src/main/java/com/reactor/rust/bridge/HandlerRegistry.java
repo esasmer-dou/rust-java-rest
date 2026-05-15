@@ -10,6 +10,7 @@ import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.util.FastMapV2;
+import com.reactor.rust.util.UrlCodec;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -453,10 +454,10 @@ public class HandlerRegistry {
 
             // Parse only what the method actually consumes.
             if (desc.metadata.needsPathParams) {
-                parseParamsFast(paramMap, pathParams);
+                parseParamsFast(paramMap, pathParams, false);
             }
             if (desc.metadata.needsQueryParams) {
-                parseParamsFast(paramMap, queryString);
+                parseParamsFast(paramMap, queryString, true);
             }
             if (desc.metadata.needsHeaders) {
                 parseHeadersFast(headerMap, headers);
@@ -520,10 +521,10 @@ public class HandlerRegistry {
             headerMap.clear();
 
             if (desc.metadata.needsPathParams) {
-                parseParamsFast(paramMap, pathParams);
+                parseParamsFast(paramMap, pathParams, false);
             }
             if (desc.metadata.needsQueryParams) {
-                parseParamsFast(paramMap, queryString);
+                parseParamsFast(paramMap, queryString, true);
             }
             if (desc.metadata.needsHeaders) {
                 parseHeadersFast(headerMap, headers);
@@ -569,7 +570,7 @@ public class HandlerRegistry {
     /**
      * Fast parameter parsing into FastMapV2.
      */
-    private void parseParamsFast(FastMapV2 map, String params) {
+    private void parseParamsFast(FastMapV2 map, String params, boolean plusAsSpace) {
         if (params == null || params.isEmpty()) return;
 
         int start = 0;
@@ -580,8 +581,8 @@ public class HandlerRegistry {
                 if (i > start) {
                     int eqIdx = params.indexOf('=', start);
                     if (eqIdx > start && eqIdx < i) {
-                        String key = params.substring(start, eqIdx);
-                        String value = params.substring(eqIdx + 1, i);
+                        String key = UrlCodec.decodeComponent(params.substring(start, eqIdx), plusAsSpace);
+                        String value = UrlCodec.decodeComponent(params.substring(eqIdx + 1, i), plusAsSpace);
                         map.put(key, value);
                     }
                 }
@@ -766,6 +767,13 @@ public class HandlerRegistry {
                 }
                 yield convertType(headerValue, info.type);
             }
+            case COOKIE_VALUE -> {
+                String cookieValue = findCookieValue(headers.get("cookie"), info.name);
+                if (cookieValue == null && info.defaultValue != null) {
+                    cookieValue = info.defaultValue;
+                }
+                yield convertType(cookieValue, info.type);
+            }
             case REQUEST_BODY -> {
                 if (body != null && body.length > 0) {
                     if (info.type == byte[].class) {
@@ -805,6 +813,13 @@ public class HandlerRegistry {
                     headerValue = info.defaultValue;
                 }
                 yield convertType(headerValue, info.type);
+            }
+            case COOKIE_VALUE -> {
+                String cookieValue = findCookieValue(headers.get("cookie"), info.name);
+                if (cookieValue == null && info.defaultValue != null) {
+                    cookieValue = info.defaultValue;
+                }
+                yield convertType(cookieValue, info.type);
             }
             case REQUEST_BODY -> {
                 if (body != null && bodyLen > 0) {
@@ -869,6 +884,37 @@ public class HandlerRegistry {
         if (targetType == boolean.class || targetType == Boolean.class) return Boolean.parseBoolean(value);
 
         return value;
+    }
+
+    private String findCookieValue(String cookieHeader, String name) {
+        if (cookieHeader == null || cookieHeader.isEmpty() || name == null || name.isEmpty()) {
+            return null;
+        }
+
+        int start = 0;
+        int len = cookieHeader.length();
+        while (start < len) {
+            while (start < len && (cookieHeader.charAt(start) == ' ' || cookieHeader.charAt(start) == '\t'
+                    || cookieHeader.charAt(start) == ';')) {
+                start++;
+            }
+            if (start >= len) {
+                break;
+            }
+            int end = cookieHeader.indexOf(';', start);
+            if (end < 0) {
+                end = len;
+            }
+            int eqIdx = cookieHeader.indexOf('=', start);
+            if (eqIdx > start && eqIdx < end) {
+                String cookieName = UrlCodec.decodeComponent(cookieHeader.substring(start, eqIdx).trim(), false);
+                if (name.equals(cookieName)) {
+                    return UrlCodec.decodeComponent(cookieHeader.substring(eqIdx + 1, end).trim(), false);
+                }
+            }
+            start = end + 1;
+        }
+        return null;
     }
 
     /**
@@ -1230,8 +1276,8 @@ public class HandlerRegistry {
             FastMapV2 headerMap = HEADER_MAP_POOL.get();
             paramMap.clear();
             headerMap.clear();
-            parseParamsFast(paramMap, pathParams);
-            parseParamsFast(paramMap, queryString);
+            parseParamsFast(paramMap, pathParams, false);
+            parseParamsFast(paramMap, queryString, true);
             parseHeadersFast(headerMap, headers);
             return invokeAnnotatedHandle(desc, inBytes, paramMap, headerMap);
         }

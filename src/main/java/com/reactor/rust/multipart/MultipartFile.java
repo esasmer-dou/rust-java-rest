@@ -98,7 +98,7 @@ public final class MultipartFile {
         if (dotIndex < 0 || dotIndex == originalFilename.length() - 1) {
             return "";
         }
-        return originalFilename.substring(dotIndex + 1).toLowerCase();
+        return originalFilename.substring(dotIndex + 1).toLowerCase(java.util.Locale.ROOT);
     }
 
     /**

@@ -173,7 +173,7 @@ public final class FastMapV2 {
     public String getIgnoreCase(String key) {
         if (key == null || size == 0) return null;
 
-        String lowerKey = key.toLowerCase();
+        String lowerKey = key.toLowerCase(java.util.Locale.ROOT);
         int hash = hash(lowerKey);
         int pos = hash & mask;
         int dist = 0;

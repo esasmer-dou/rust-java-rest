@@ -3,6 +3,7 @@ package com.reactor.rust.websocket;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.util.UrlCodec;
 import com.reactor.rust.websocket.annotation.*;
 
 import java.lang.reflect.Method;
@@ -86,8 +87,8 @@ public final class WebSocketRegistry {
         WebSocketSession session = new WebSocketSession(
                 sessionId,
                 path,
-                parseParams(pathParams),
-                parseParams(queryParams)
+                parseParams(pathParams, false),
+                parseParams(queryParams, true)
         );
         sessions.put(sessionId, session);
 
@@ -208,7 +209,7 @@ public final class WebSocketRegistry {
     /**
      * Parse key=value params.
      */
-    private Map<String, String> parseParams(String params) {
+    private Map<String, String> parseParams(String params, boolean plusAsSpace) {
         Map<String, String> map = new ConcurrentHashMap<>();
         if (params == null || params.isEmpty()) {
             return map;
@@ -216,7 +217,10 @@ public final class WebSocketRegistry {
         for (String pair : params.split("&")) {
             int idx = pair.indexOf('=');
             if (idx > 0) {
-                map.put(pair.substring(0, idx), pair.substring(idx + 1));
+                map.put(
+                        UrlCodec.decodeComponent(pair.substring(0, idx), plusAsSpace),
+                        UrlCodec.decodeComponent(pair.substring(idx + 1), plusAsSpace)
+                );
             }
         }
         return map;

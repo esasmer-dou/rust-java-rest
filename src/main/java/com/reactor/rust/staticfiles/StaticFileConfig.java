@@ -67,7 +67,7 @@ public class StaticFileConfig {
         int dotIndex = filename.lastIndexOf('.');
         if (dotIndex < 0) return "application/octet-stream";
 
-        String ext = filename.substring(dotIndex + 1).toLowerCase();
+        String ext = filename.substring(dotIndex + 1).toLowerCase(java.util.Locale.ROOT);
         return switch (ext) {
             // Text
             case "html", "htm" -> "text/html";

@@ -210,7 +210,7 @@ public class StaticFileRegistry {
     private String getMimeType(String path) {
         int dotIdx = path.lastIndexOf('.');
         if (dotIdx > 0 && dotIdx < path.length() - 1) {
-            String ext = path.substring(dotIdx + 1).toLowerCase();
+            String ext = path.substring(dotIdx + 1).toLowerCase(java.util.Locale.ROOT);
             String mimeType = MIME_TYPES.get(ext);
             if (mimeType != null) {
                 return mimeType;

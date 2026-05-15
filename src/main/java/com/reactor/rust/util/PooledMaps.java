@@ -71,6 +71,10 @@ public final class PooledMaps {
      * @param input Input string to parse
      */
     public static void parseParamsTo(FastMap map, String input) {
+        parseParamsTo(map, input, true);
+    }
+
+    public static void parseParamsTo(FastMap map, String input, boolean plusAsSpace) {
         if (input == null || input.isEmpty()) {
             return;
         }
@@ -80,13 +84,13 @@ public final class PooledMaps {
 
         for (int i = 0; i < len; i++) {
             if (input.charAt(i) == '&') {
-                parsePair(map, input, start, i);
+                parsePair(map, input, start, i, plusAsSpace);
                 start = i + 1;
             }
         }
         // Don't forget the last pair
         if (start < len) {
-            parsePair(map, input, start, len);
+            parsePair(map, input, start, len, plusAsSpace);
         }
     }
 
@@ -144,7 +148,7 @@ public final class PooledMaps {
         }
     }
 
-    private static void parsePair(FastMap map, String input, int start, int end) {
+    private static void parsePair(FastMap map, String input, int start, int end, boolean plusAsSpace) {
         if (start >= end) return;
 
         // Find equals sign
@@ -157,8 +161,8 @@ public final class PooledMaps {
         }
 
         if (eqIdx > start) {
-            String key = input.substring(start, eqIdx);
-            String value = input.substring(eqIdx + 1, end);
+            String key = UrlCodec.decodeComponent(input.substring(start, eqIdx), plusAsSpace);
+            String value = UrlCodec.decodeComponent(input.substring(eqIdx + 1, end), plusAsSpace);
             map.put(key, value);
         }
     }
@@ -182,8 +186,8 @@ public final class PooledMaps {
         }
 
         if (eqIdx > start) {
-            String key = input.substring(start, eqIdx);
-            String value = input.substring(eqIdx + 1, end);
+            String key = UrlCodec.decodeComponent(input.substring(start, eqIdx), false);
+            String value = UrlCodec.decodeComponent(input.substring(eqIdx + 1, end), false);
             map.put(key, value);
         }
     }
@@ -207,7 +211,7 @@ public final class PooledMaps {
         }
 
         if (colonIdx > start) {
-            String key = input.substring(start, colonIdx).toLowerCase();
+            String key = input.substring(start, colonIdx).toLowerCase(java.util.Locale.ROOT);
             // Skip leading whitespace in value
             int valueStart = colonIdx + 1;
             while (valueStart < end && (input.charAt(valueStart) == ' ' || input.charAt(valueStart) == '\t')) {
