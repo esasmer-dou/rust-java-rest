@@ -19,8 +19,24 @@ $WorkspaceRoot = Resolve-Path (Join-Path $FrameworkRoot "..")
 $ProviderRoot = Join-Path $WorkspaceRoot "dubbo-sample-provider"
 $ResultsDir = Join-Path $ScriptDir ("results\native_pool_{0}" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
 $LoadRunner = Join-Path $ScriptDir "load_runner.js"
-$AppJar = Join-Path $FrameworkRoot "target\rust-java-rest-3.1.0-rc1.jar"
-$ProviderJar = Join-Path $ProviderRoot "target\dubbo-sample-provider-3.1.0-rc1.jar"
+
+function Get-MavenProjectVersion {
+    param([string] $PomPath)
+    [xml] $pom = Get-Content -Raw -Path $PomPath
+    $version = [string] $pom.project.version
+    if ([string]::IsNullOrWhiteSpace($version) -and $pom.project.parent) {
+        $version = [string] $pom.project.parent.version
+    }
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        throw "Cannot resolve Maven project version from $PomPath"
+    }
+    return $version.Trim()
+}
+
+$FrameworkVersion = Get-MavenProjectVersion (Join-Path $FrameworkRoot "pom.xml")
+$ProviderVersion = Get-MavenProjectVersion (Join-Path $ProviderRoot "pom.xml")
+$AppJar = Join-Path $FrameworkRoot "target\rust-java-rest-$FrameworkVersion.jar"
+$ProviderJar = Join-Path $ProviderRoot "target\dubbo-sample-provider-$ProviderVersion.jar"
 
 New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
 
