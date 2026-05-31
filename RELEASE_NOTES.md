@@ -1,14 +1,14 @@
 # Rust-Java REST Framework v3.1.0-rc5
 
-This release candidate focuses on production-readiness for the low-RSS direction. The normal Java
+This release candidate makes the low-RSS path easier to use and easier to measure. The normal Java
 programming model is unchanged: handlers, services, components, and DTO contracts stay in Java. Rust
-continues to own the HTTP I/O plane, native response paths, file streaming, overload control, and
-selected serialization-heavy fast paths.
+continues to handle HTTP I/O, native response paths, file streaming, overload control, and selected
+serialization-heavy fast paths.
 
-This is an RC/performance preview. It is appropriate for pilot usage and measured production trials,
-but it should not be described as "30-50 MiB RSS for every workload" or "5x faster than Spring Boot
-for every endpoint shape." The strongest paths are small JSON, raw/precomputed JSON, direct/Rust JSON
-writers, native cache, and file responses. Dynamic Java DTO graphs still carry Java allocation cost.
+Use this release for pilots and measured production trials. The best results are on small JSON,
+raw/precomputed JSON, direct/Rust JSON writers, native cache, and file responses. Endpoints that build
+large Java DTO graphs still work normally, but they should be tuned route by route when RSS or p99 is
+important.
 
 ## What's New for Users
 
@@ -20,6 +20,38 @@ writers, native cache, and file responses. Dynamic Java DTO graphs still carry J
 - Benchmark scripts can append JVM property overrides with `-FrameworkJavaOptsAppend` for repeatable profile experiments.
 - Native ABI is `19`; use the Windows DLL and Linux SO shipped with this package.
 - The UTF-8 fixes from `v3.1.0-rc4` remain in place for response bodies, path variables, request params, cookies, middleware query helpers, and WebSocket params.
+
+## Which API Should I Use?
+
+| Use case | Use this first | Tune these properties |
+|----------|----------------|-----------------------|
+| Normal business JSON | Java record DTOs | body/response limits, `reactor.runtime.profile` |
+| Read-heavy JSON/config | `RawResponse`, then `@NativeStaticRoute` if immutable | `reactor.rust.native-cache.*` |
+| Large file/export | `FileResponse` | `file-stream.chunk-bytes`, `static-file.max-concurrent-streams` |
+| Hot generated JSON | `JsonBufferWriter` or `DirectJsonWriterRegistry` | `json.direct-writer-enabled`, writer retain limits |
+| WebSocket push | `WebSocketSession` API | `websocket.outbound-queue-capacity`, `websocket.max-frame-bytes` |
+
+## Profile Guide
+
+| Profile | Pick it when | Trade-off |
+|---------|--------------|-----------|
+| `low-rss` | Memory is the priority and controlled `503` is acceptable under overload | Lowest practical memory, stricter queues |
+| `balanced` | External RPC/database calls or heavier Java handlers need smoother p99 | More headroom, more RSS |
+| `throughput` | Dedicated high-throughput service with a larger memory budget | More retained buffers/workers |
+| `micro-rss` / `ultra-low-rss` | Very small services or experiments | Too strict for high fanout downloads |
+
+Suggested low-RSS starting point:
+
+```properties
+reactor.runtime.profile=low-rss
+reactor.rust.http.max-request-body-bytes=1048576
+reactor.rust.http.max-response-body-bytes=8388608
+reactor.rust.http.max-inflight-response-bytes=16777216
+reactor.rust.http.max-connections=1024
+reactor.rust.file-stream.chunk-bytes=65536
+reactor.rust.static-file.inline-max-bytes=524288
+reactor.rust.static-file.max-concurrent-streams=64
+```
 
 ## Maven Dependency
 

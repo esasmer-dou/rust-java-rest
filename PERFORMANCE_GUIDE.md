@@ -1,29 +1,44 @@
 # Performance Guide
 
-This framework is optimized for Java business logic with a Rust HTTP I/O plane. The production goal is
-low allocation, bounded native memory, predictable overload behavior, and low RSS. Do not treat every
-endpoint shape as equivalent.
+This guide helps you pick the right API shape and runtime profile before tuning numbers. The framework
+is optimized for Java business logic with a Rust HTTP I/O plane. The goal is low allocation, bounded
+native memory, predictable overload behavior, and low RSS.
+
+Not every endpoint should use the same response path. A normal CRUD endpoint should be simple Java
+records. A large file should be `FileResponse`. A hot read-heavy JSON endpoint may deserve
+`RawResponse`, `@NativeStaticRoute`, or a direct writer.
+
+## Quick Choice
+
+| If your route is... | Start with | Upgrade to | Main properties |
+|---------------------|------------|------------|-----------------|
+| Normal JSON API | Java record DTOs | Direct primitive query/path bindings | body/response limits, profile |
+| Dynamic business JSON | Java records + DSL-JSON | Direct writer for only the hot response | `json.direct-writer-enabled`, writer retain limits |
+| Repeated read-heavy JSON | `RawResponse.json(...)` | `RawResponse.registeredJson(...)` + `@NativeStaticRoute` | `native-cache.max-*` |
+| Large download/export | `FileResponse` | `@NativeStaticFileRoute` for immutable files | `file-stream.chunk-bytes`, `static-file.max-concurrent-streams` |
+| WebSocket push | Java WebSocket API | Tune bounded outbound queue | `websocket.*` |
+| Very memory-sensitive service | `low-rss` profile | Lower per-route limits and stream fanout | max connections, in-flight bytes, response pool caps |
 
 ## Endpoint Classes
 
-| Class | Use When | Preferred API | Risk |
-|-------|----------|---------------|------|
+| Class | Use when | Preferred API | Watch point |
+|-------|----------|---------------|-------------|
 | `small-json` | Common small JSON request/response | Java record DTOs, primitive direct bindings for hot params | Usually safe default |
-| `dynamic-dto-json` | Business logic naturally creates DTO graphs | Java records + DSL-JSON | Java heap/object graph cost dominates under concurrency |
-| `direct-json-writer` | Hot endpoint can write JSON without DTO graph | `JsonBufferWriter` or `DirectJsonWriterRegistry` | Manual/generated writer must stay correct |
-| `raw-json` | JSON is already serialized or precomputed | `RawResponse.json(...)`, `RawResponse.registeredJson(...)`, optional `@NativeStaticRoute` | Stale data if app misuses static semantics |
-| `file-static` | Static file/export path | `FileResponse` or stream path | Low-RSS profile is not throughput tuned for large file fanout |
+| `dynamic-dto-json` | Business logic naturally creates DTO graphs | Java records + DSL-JSON | Object graph cost can dominate under concurrency |
+| `direct-json-writer` | Hot endpoint can write predictable JSON without DTO graph | `JsonBufferWriter` or `DirectJsonWriterRegistry` | Writer must stay exact and tested |
+| `raw-json` | JSON is already serialized or precomputed | `RawResponse.json(...)`, `RawResponse.registeredJson(...)`, optional `@NativeStaticRoute` | Static response must really be static |
+| `file-static` / `file-stream` | File/export path | `FileResponse`, optional `@NativeStaticFileRoute` | Large fanout needs stream bulkhead tuning |
 
 ## Route Design Rules
 
-- BEST: keep normal business handlers in Java and use record DTOs for ordinary endpoints.
-- BEST: use direct primitive query/path bindings for hot scalar parameters: `int`, `long`, `boolean`, `double`, `short`.
-- BEST: use `RawResponse` only when the payload is already bytes/text/JSON and should not be serialized again.
-- BEST: add `@NativeStaticRoute` only when a registered `RawResponse` is immutable and can be served by Rust without entering Java.
-- BEST: use direct writers for endpoints where object graph allocation or serializer temporary buffers are measurable.
-- ACCEPTABLE: dynamic DTO response for normal business endpoints where p99 and RSS are still inside SLO.
-- ANTI-PATTERN: large JSON export as a huge Java `String` or `byte[]` per request.
-- ANTI-PATTERN: increasing per-request body limits without lowering max connections, queue capacity, or total in-flight bytes.
+- Keep normal business handlers in Java and use record DTOs for ordinary endpoints.
+- Use direct primitive query/path bindings for hot scalar parameters: `int`, `long`, `boolean`, `double`, `short`.
+- Use `RawResponse` when the payload is already bytes/text/JSON and should not be serialized again.
+- Add `@NativeStaticRoute` only when a registered `RawResponse` is immutable and can be served by Rust without entering Java.
+- Use direct writers only where object graph allocation or serializer temporary buffers are measurable.
+- Keep dynamic DTO responses for normal business endpoints when p99 and RSS are inside SLO.
+- Avoid large JSON export as a huge Java `String` or `byte[]` per request.
+- Avoid increasing one per-request limit without also checking max connections, queue capacity, and total in-flight bytes.
 
 ## FileResponse Stream Tuning
 
@@ -34,9 +49,9 @@ a bounded read chunk controlled by:
 reactor.rust.file-stream.chunk-bytes=65536
 ```
 
-BEST: keep low-RSS services around `32 KiB` to `64 KiB` and raise only after measuring p99 and RSS.
-ACCEPTABLE: use `128 KiB` to `256 KiB` in throughput profiles for large downloads.
-ANTI-PATTERN: globally setting `1 MiB` chunks for high-concurrency downloads without a memory proof run.
+Recommended: keep low-RSS services around `32 KiB` to `64 KiB` and raise only after measuring p99
+and RSS. `128 KiB` to `256 KiB` can make sense in throughput profiles for large downloads. Avoid
+globally setting `1 MiB` chunks for high-concurrency downloads without a memory proof run.
 
 The active value is visible as `reactor_native_file_stream_chunk_bytes` and under
 `runtime.file_stream_chunk_bytes` in native memory diagnostics.
@@ -53,9 +68,9 @@ For small immutable files, set:
 reactor.rust.static-file.inline-max-bytes=524288
 ```
 
-BEST: inline only assets/exports small enough to fit your RSS budget. Low-RSS defaults to `512 KiB`.
-ANTI-PATTERN: setting this to tens or hundreds of MiB to chase throughput; that pins file bodies in
-native memory and violates the low-RSS goal. Larger files should stay streamed.
+Recommended: inline only assets/exports small enough to fit your RSS budget. Low-RSS defaults to
+`512 KiB`. Avoid setting this to tens or hundreds of MiB to chase throughput; that pins file bodies in
+native memory and works against the low-RSS goal. Larger files should stay streamed.
 
 Disk-backed static file streams are protected by:
 
@@ -63,24 +78,96 @@ Disk-backed static file streams are protected by:
 reactor.rust.static-file.max-concurrent-streams=128
 ```
 
-BEST: size this bulkhead from file size, disk/network capacity, and pod memory budget. Low-RSS keeps
-it bounded so overload returns `503` instead of creating unbounded file descriptor and I/O-worker
+Recommended: size this bulkhead from file size, disk/network capacity, and pod memory budget. Low-RSS
+keeps it bounded so overload returns `503` instead of creating unbounded file descriptor and I/O-worker
 pressure. Throughput profiles can raise it when the service is dedicated to downloads.
 
 ## Runtime Profiles
 
-| Profile | Goal | Typical Use |
-|---------|------|-------------|
-| `low-rss` | Lowest practical memory with bounded queues | RSS regression gate, memory-sensitive services |
-| `balanced` | More stable high-concurrency tail latency without throughput-sized RSS | Services with external RPC or heavier handlers |
-| `throughput` | Maximum RPS with higher memory budget | Batch/API gateway style workloads |
+| Profile | Pick this when | Good default for | Trade-off |
+|---------|----------------|------------------|-----------|
+| `micro-rss` | You are proving minimum memory on tiny services | Health/config style services | Very strict limits, not for fanout |
+| `ultra-low-rss` | You need more room than micro but still prioritize memory | Small APIs with predictable traffic | Can fail fast under concurrency |
+| `low-rss` | Memory is the main production constraint | Most first pilots, CRUD/small JSON, bounded file routes | Controlled `503` under overload is expected |
+| `balanced` | Java handler blocks on DB/RPC or p99 needs more headroom | Mixed APIs, RPC consumers, heavier handlers | More workers/queues, higher RSS |
+| `throughput` | Service is dedicated to high RPS and has a larger pod budget | Gateway/read-heavy services, benchmark runs | More retained memory and worker activity |
 
-The profile is not cosmetic. `low-rss` intentionally allows fail-fast behavior and higher p99 at overload
-instead of retaining more queues, buffers, and worker threads.
+The profile is not cosmetic. `low-rss` intentionally prefers fail-fast behavior over hiding overload
+inside larger queues. That is useful for memory-sensitive pods because it keeps p99 and RSS bounded.
 
 Low-RSS admission limits still need headroom above expected concurrency. A max connection limit equal
 to benchmark concurrency causes false 503s from keep-alive and health-check jitter; current low-RSS
 presets use `reactor.rust.http.max-connections=1024` for 512-concurrency gates.
+
+## Tuning by Use Case
+
+### Normal JSON API
+
+Start with:
+
+```properties
+reactor.runtime.profile=low-rss
+reactor.rust.http.max-request-body-bytes=1048576
+reactor.rust.http.max-response-body-bytes=8388608
+reactor.rust.http.max-inflight-response-bytes=16777216
+reactor.rust.jni.queue-capacity=512
+```
+
+Move to `balanced` when the Java handler spends time in DB/RPC calls and the JNI queue starts showing
+tail latency. Do not raise queue capacity first; it can hide overload and increase memory.
+
+### Read-Heavy JSON
+
+Use `RawResponse` when the response is already serialized. Use `@NativeStaticRoute` only when the
+response is immutable until restart.
+
+```properties
+reactor.rust.native-cache.max-entries=256
+reactor.rust.native-cache.max-bytes=4194304
+reactor.rust.native-cache.ttl-ms=300000
+```
+
+Raise cache size only when the hit ratio is high and idle RSS proves the cache is inside budget.
+
+### Large File or Export
+
+Use `FileResponse`, not Java `byte[]`. For immutable file identity, add `@NativeStaticFileRoute`.
+
+```properties
+reactor.rust.file-stream.chunk-bytes=65536
+reactor.rust.static-file.inline-max-bytes=524288
+reactor.rust.static-file.max-concurrent-streams=64
+```
+
+For low-RSS pods, start with `32` or `64` concurrent streams. Raise only after measuring p99, RSS,
+file descriptors, and `503` rate. If clients require eventual success, put retry/queue behavior at the
+caller or gateway layer instead of making the framework queue unbounded file work.
+
+### Hot JSON Without DTO Graph
+
+Use direct writer only for routes where DTO allocation is visible in benchmark data.
+
+```properties
+reactor.rust.json.direct-writer-enabled=true
+reactor.rust.json.writer-initial-bytes=4096
+reactor.rust.json.writer-retain-max-bytes=65536
+```
+
+If writer retain size is too high, RSS may stay elevated after load. If it is too low, the route may
+retry/grow buffers more often. Tune with the actual response size.
+
+### WebSocket Push
+
+Use bounded queues by default:
+
+```properties
+reactor.rust.websocket.max-frame-bytes=1048576
+reactor.rust.websocket.outbound-queue-capacity=1024
+reactor.rust.websocket.send-timeout-ms=5000
+```
+
+For slow consumers, smaller queues plus close/fail behavior is usually safer than large queues that
+retain memory.
 
 ## Native Static Response Gate
 
@@ -170,7 +257,7 @@ low-RSS profile, CPU limit `2`, Rust-Java memory `96m`, concurrency `256/512/100
 | 128 | 512 | 1,749 | 3.16s | 97.07% | 42 MiB | 84 MiB |
 | 256 | 512 | 1,318 | 6.94s | 96.74% | 58 MiB | 94 MiB |
 
-BEST: use `32` or `64` as the low-RSS starting point for large immutable file routes. Higher stream
+Recommended: use `32` or `64` as the low-RSS starting point for large immutable file routes. Higher stream
 limits accept more file work but worsen p99 and RSS. `503` under overload is a deliberate backpressure
 signal and should be surfaced to clients with retries or queueing at the caller/gateway layer.
 

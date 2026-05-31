@@ -5,19 +5,18 @@
 [![Profile](https://img.shields.io/badge/profile-low--rss-green.svg)]()
 [![Status](https://img.shields.io/badge/status-performance--preview-orange.svg)]()
 
-Ultra-fast REST API framework combining Rust Hyper HTTP server with Java handlers.
+Low-latency REST framework where Rust handles HTTP I/O and Java keeps the application code.
 
 ## v3.1.0-rc5 - Low-RSS File Streaming and Benchmark Visibility
 
-This release candidate keeps the Java programming model unchanged and strengthens the production
-direction of the framework: Java owns handlers, services, components, and business logic; Rust owns
-the HTTP I/O plane, native response paths, file streaming, bounded overload behavior, and selected
+The programming model stays familiar: handlers, services, components, and business logic are Java.
+Rust runs the HTTP I/O plane, native response paths, file streaming, overload protection, and selected
 serialization-heavy fast paths.
 
-This is still an RC/performance preview, not a stable "30-50 MiB for every workload" claim. The latest
-container benchmarks show strong gains against Spring Boot and clear wins on small JSON, raw/precomputed
-JSON, direct writer, native cache, and file response paths. Dynamic Java DTO graphs still carry normal
-Java heap/object cost and should be optimized route by route when RSS or p99 is critical.
+Treat `v3.1.0-rc5` as a measured performance preview. It is ready for pilots and controlled production
+trials, especially for small JSON, raw/precomputed JSON, direct writer, native cache, and file response
+paths. Endpoints that build large Java DTO graphs still need route-level tuning when RSS or p99 is
+critical.
 
 ### What's New in rc5
 
@@ -47,11 +46,49 @@ Latest benchmark evidence:
 - General low-RSS benchmark: `benchmark/results/current_full_20260531_090441/summary.md`
 - Large file stream matrix: `benchmark/results/stream_matrix_{32,64,128,256}_20260531_085157/summary.md`
 
-### What's New for Users
+### Start Here
 
-The normal application model is unchanged: your controllers/handlers, services, components, and
-business logic still live in Java. The new features are opt-in tools for lower latency, lower RSS, and
-safer production behavior.
+Use the framework like a lightweight Java REST runtime first. Add the dependency, write handlers and
+services in Java, and return record DTOs for normal JSON APIs. Move to the faster response paths only
+when the route shape benefits from them.
+
+Quick decision map:
+
+| Your endpoint | Start with | Move to this when needed | Main tuning knobs |
+|---------------|------------|--------------------------|-------------------|
+| Normal JSON API | Java record request/response DTOs | Direct primitive bindings for hot params | `reactor.runtime.profile`, body/response limits |
+| Small read-heavy JSON | `RawResponse.json(...)` | `RawResponse.registeredJson(...)` + `@NativeStaticRoute` | `reactor.rust.native-cache.*` |
+| Large file/export | `FileResponse` | `@NativeStaticFileRoute` for immutable files | `file-stream.chunk-bytes`, `static-file.max-concurrent-streams` |
+| Hot generated JSON | record DTO | `JsonBufferWriter` or `DirectJsonWriterRegistry` | `json.direct-writer-enabled`, writer buffer caps |
+| WebSocket push | `WebSocketSession.sendText(...)` | Tune bounded outbound queues | `websocket.outbound-queue-capacity`, `websocket.max-frame-bytes` |
+| Very low RSS service | `low-rss` profile | Lower stream/queue/pool limits route by route | max connections, in-flight bytes, response pool caps |
+
+Profile quick choice:
+
+| Profile | Use when | What to expect |
+|---------|----------|----------------|
+| `low-rss` | Memory is the priority and overload can return controlled `503` | Lowest practical RSS, stricter queues, fail-fast under pressure |
+| `balanced` | External RPC, heavier handlers, or higher concurrency need smoother p99 | More worker/queue headroom, higher RSS than `low-rss` |
+| `throughput` | Dedicated high-throughput service or benchmark profile | More retained buffers/workers, higher memory budget |
+| `micro-rss` / `ultra-low-rss` | Experiments or very small services | Aggressive memory limits; not ideal for high fanout downloads |
+
+Recommended first production-like settings:
+
+```properties
+reactor.runtime.profile=low-rss
+reactor.rust.http.max-request-body-bytes=1048576
+reactor.rust.http.max-response-body-bytes=8388608
+reactor.rust.http.max-inflight-response-bytes=16777216
+reactor.rust.http.max-connections=1024
+reactor.rust.file-stream.chunk-bytes=65536
+reactor.rust.static-file.inline-max-bytes=524288
+reactor.rust.static-file.max-concurrent-streams=64
+reactor.rust.log.level=error
+reactor.rust.java.log.level=warn
+```
+
+If one route needs larger bodies or more file concurrency, tune that scenario deliberately. Avoid making
+global limits large just because one endpoint needs extra room.
 
 ### DTO, Runtime Class, and Response Model Decision Guide
 
@@ -79,14 +116,14 @@ Why this matters:
 
 #### Decision Table
 
-| Use case | BEST | ACCEPTABLE | ANTI-PATTERN |
-|----------|------|------------|--------------|
+| Use case | Recommended | Also OK | Avoid |
+|----------|-------------|---------|-------|
 | HTTP JSON request body | `record OrderCreateRequest(...)` | `byte[]` plus direct custom parser for a hot route | Mutable POJO with setters |
 | HTTP JSON response body | `record OrderResponse(...)` | `RawResponse` if JSON is already serialized | Returning entity/service classes as JSON |
 | Read-heavy cached JSON | `RawResponse.registeredJson(...)` | `RawResponse.json(byte[])` | Rebuilding the same DTO graph on every request |
-| Large file/export | `FileResponse` | Chunked/native stream path | `byte[]` or huge `String` in Java heap |
+| Large file/export | `FileResponse` | `@NativeStaticFileRoute` for immutable files | `byte[]` or huge `String` in Java heap |
 | Hot predictable JSON | `JsonBufferWriter` or generated direct writer | Record DTO for normal traffic | Reflection-heavy generic object graph |
-| Handler/controller | `class OrderHandler` | `final class` with constructor/DI fields | Record handler with mutable side effects hidden elsewhere |
+| Handler/controller | `class OrderHandler` | `final class` with constructor/DI fields | Record handler with hidden runtime state |
 | Service/business component | `class OrderService` | Interface + class implementation | DTO record with methods and runtime state |
 | Repository/client/pool | `class OrderRepository`, `class RpcClientAdapter` | Final class with explicit close lifecycle | Record holding connections/resources |
 | Config value object | `record ServerLimits(...)` | Properties-backed class for loader behavior | Static mutable global config everywhere |
@@ -516,7 +553,7 @@ public final class AppBootstrap {
 ```
 
 Build-time generators can expose writers through `DirectJsonWriterProvider` and `META-INF/services`.
-Keep providers exact-class based; broad reflection-based writers are an anti-pattern because they bring
+Keep providers exact-class based. Broad reflection-based writers should be avoided because they bring
 back the allocation and branch cost this path is meant to remove.
 
 Property:
@@ -604,6 +641,98 @@ Important low-RSS properties:
 | `reactor.rust.static-file.max-concurrent-streams` | Large file stream bulkhead | `32` or `64` is safer for low-RSS services |
 | `reactor.rust.response-pool.*-capacity` | Native response buffer retention | Smaller caps reduce RSS retention |
 | `reactor.rust.native-cache.max-bytes` | Native response cache memory cap | Use only for explicit read-heavy payloads |
+
+### Use Case Tuning Recipes
+
+Use these as starting points, not fixed production values. Run your own benchmark with expected payload
+size, concurrency, CPU limit, and pod memory limit.
+
+#### Normal CRUD / Business JSON
+
+Recommended shape:
+
+- Use record request/response DTOs.
+- Keep handlers and services as classes.
+- Use `low-rss` for memory-sensitive services, `balanced` if the handler does blocking RPC or database work.
+
+```properties
+reactor.runtime.profile=low-rss
+reactor.rust.http.max-request-body-bytes=1048576
+reactor.rust.http.max-response-body-bytes=8388608
+reactor.rust.http.max-inflight-response-bytes=16777216
+reactor.rust.jni.queue-capacity=512
+```
+
+When to change it: if p99 rises because the Java handler blocks on external systems, move to `balanced`
+or add route-level bulkhead/backpressure before increasing global queues.
+
+#### Read-Heavy Config / Lookup JSON
+
+Recommended shape:
+
+- If JSON is already bytes, return `RawResponse.json(...)`.
+- If the response is immutable until restart, use `RawResponse.registeredJson(...)` and `@NativeStaticRoute`.
+- Keep native cache bounded; do not cache every dynamic response by default.
+
+```properties
+reactor.rust.native-cache.max-entries=256
+reactor.rust.native-cache.max-bytes=4194304
+reactor.rust.native-cache.ttl-ms=300000
+```
+
+When to change it: raise cache bytes only when hit ratio is high and RSS after idle stays inside the pod
+budget.
+
+#### Large Export / File Download
+
+Recommended shape:
+
+- Use `FileResponse`; do not return a large `byte[]` or `String`.
+- Use `@NativeStaticFileRoute` only when the route always serves the same file identity and headers.
+- Keep large file fanout bounded. A `503` under overload is healthier than unbounded RSS/p99 growth.
+
+```properties
+reactor.rust.file-stream.chunk-bytes=65536
+reactor.rust.static-file.inline-max-bytes=524288
+reactor.rust.static-file.max-concurrent-streams=64
+```
+
+When to change it: lower `max-concurrent-streams` for very large files or small pods. Raise it only for
+download-focused services after measuring p99, `503` rate, file descriptors, and RSS.
+
+#### Hot JSON Without DTO Graph
+
+Recommended shape:
+
+- Start with record DTOs.
+- Move only hot routes to `JsonBufferWriter`, `DirectJsonWriterRegistry`, or Rust writer.
+- Keep the response contract as a record even when the hot path writes directly into the buffer.
+
+```properties
+reactor.rust.json.direct-writer-enabled=true
+reactor.rust.json.writer-initial-bytes=4096
+reactor.rust.json.writer-retain-max-bytes=65536
+```
+
+When to change it: if dynamic DTO allocation dominates p99/RSS, direct writer is usually the next step
+before increasing heap.
+
+#### WebSocket Push
+
+Recommended shape:
+
+- Use the existing Java `WebSocketSession` API.
+- Let Rust enforce bounded outbound queues.
+- Size the queue from expected fanout and max frame size.
+
+```properties
+reactor.rust.websocket.max-frame-bytes=1048576
+reactor.rust.websocket.outbound-queue-capacity=1024
+reactor.rust.websocket.send-timeout-ms=5000
+```
+
+When to change it: for slow consumers, prefer smaller queues and predictable close behavior over large
+queues that hide memory growth.
 
 ### Container Benchmark Snapshot
 

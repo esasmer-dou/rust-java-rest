@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Changed
+
+- Clarified user-facing documentation with use-case driven API choices, runtime profile guidance,
+  low-RSS tuning recipes, and softer release notes language.
 
 ---
 
