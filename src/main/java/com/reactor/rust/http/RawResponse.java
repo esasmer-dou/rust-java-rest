@@ -15,17 +15,23 @@ import java.util.Map;
  */
 public final class RawResponse {
 
+    private static final byte[] EMPTY_BYTES = new byte[0];
+
     private final byte[] body;
-    private final Map<String, String> headers;
+    private final HeaderMap headers;
     private final int nativeId;
+    private volatile byte[] encodedHeaders;
 
     private RawResponse(byte[] body, Map<String, String> headers) {
         this(body, headers, 0);
     }
 
     private RawResponse(byte[] body, Map<String, String> headers, int nativeId) {
-        this.body = body != null ? body : new byte[0];
-        this.headers = headers != null ? headers : new HashMap<>();
+        this.body = body != null ? body : EMPTY_BYTES;
+        this.headers = new HeaderMap(this);
+        if (headers != null && !headers.isEmpty()) {
+            this.headers.putAll(headers);
+        }
         this.nativeId = nativeId;
     }
 
@@ -57,15 +63,33 @@ public final class RawResponse {
      * Use for cached/read-heavy payloads, not per-request dynamic responses.
      */
     public static RawResponse registeredJson(byte[] body) {
-        byte[] safeBody = body != null ? body : new byte[0];
+        return registeredBytes(body, MediaType.APPLICATION_JSON_UTF8);
+    }
+
+    /**
+     * Registers immutable bytes in Rust once and returns only a native id per request.
+     *
+     * <p>Use this for small/medium static files, precomputed exports and read-heavy
+     * payloads. Large files should use {@link FileResponse} to avoid pinning the body
+     * in native memory.</p>
+     */
+    public static RawResponse registeredBytes(byte[] body, String contentType) {
+        Map<String, String> headers = new HashMap<>();
+        if (contentType != null && !contentType.isBlank()) {
+            headers.put("Content-Type", contentType);
+        }
+        return registered(body, headers, 200);
+    }
+
+    public static RawResponse registered(byte[] body, Map<String, String> headers, int statusCode) {
+        byte[] safeBody = body != null ? body : EMPTY_BYTES;
+        Map<String, String> normalizedHeaders = normalizeHeaders(headers);
         int nativeId = NativeBridge.registerStaticResponse(
                 safeBody,
-                "Content-Type: " + MediaType.APPLICATION_JSON_UTF8 + "\n",
-                200
+                encodeHeadersString(normalizedHeaders),
+                statusCode
         );
-        RawResponse response = new RawResponse(safeBody, new HashMap<>(), nativeId);
-        response.header("Content-Type", MediaType.APPLICATION_JSON_UTF8);
-        return response;
+        return new RawResponse(EMPTY_BYTES, normalizedHeaders, nativeId);
     }
 
     public static RawResponse nativeJson(int nativeId) {
@@ -82,17 +106,78 @@ public final class RawResponse {
         return headers;
     }
 
+    /**
+     * Returns cached UTF-8 native header bytes.
+     *
+     * <p>RawResponse is commonly used for cached/pre-serialized payloads. Encoding
+     * headers once avoids StringBuilder and UTF-8 allocation on every request.</p>
+     */
+    public byte[] getEncodedHeaders() {
+        byte[] cached = encodedHeaders;
+        if (cached != null) {
+            return cached;
+        }
+        byte[] encoded = encodeHeaders(headers);
+        encodedHeaders = encoded;
+        return encoded;
+    }
+
     public int getNativeId() {
         return nativeId;
     }
 
     public RawResponse header(String name, String value) {
         if (name != null && value != null) {
-            headers.put(name, "Content-Type".equalsIgnoreCase(name)
-                    ? normalizeTextualContentType(value)
-                    : value);
+            headers.put(name, value);
         }
         return this;
+    }
+
+    private void invalidateEncodedHeaders() {
+        encodedHeaders = null;
+    }
+
+    private static byte[] encodeHeaders(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return EMPTY_BYTES;
+        }
+        StringBuilder sb = new StringBuilder(headers.size() * 32);
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            sb.append(entry.getKey()).append(": ").append(entry.getValue()).append('\n');
+        }
+        if (sb.length() == 0) {
+            return EMPTY_BYTES;
+        }
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String encodeHeadersString(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(headers.size() * 32);
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                sb.append(entry.getKey()).append(": ").append(entry.getValue()).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private static Map<String, String> normalizeHeaders(Map<String, String> headers) {
+        Map<String, String> normalized = new HashMap<>();
+        if (headers == null || headers.isEmpty()) {
+            return normalized;
+        }
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                normalized.put(entry.getKey(), normalizeHeaderValue(entry.getKey(), entry.getValue()));
+            }
+        }
+        return normalized;
     }
 
     private static String normalizeTextualContentType(String contentType) {
@@ -110,5 +195,59 @@ public final class RawResponse {
             return value + "; charset=utf-8";
         }
         return value;
+    }
+
+    private static String normalizeHeaderValue(String key, String value) {
+        if (key == null || value == null) {
+            return value;
+        }
+        return "Content-Type".equalsIgnoreCase(key)
+                ? normalizeTextualContentType(value)
+                : value;
+    }
+
+    private static final class HeaderMap extends HashMap<String, String> {
+        private final RawResponse owner;
+
+        private HeaderMap(RawResponse owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public String put(String key, String value) {
+            owner.invalidateEncodedHeaders();
+            return super.put(key, normalizeHeaderValue(key, value));
+        }
+
+        @Override
+        public void putAll(Map<? extends String, ? extends String> map) {
+            owner.invalidateEncodedHeaders();
+            for (Map.Entry<? extends String, ? extends String> entry : map.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    super.put(entry.getKey(), normalizeHeaderValue(entry.getKey(), entry.getValue()));
+                }
+            }
+        }
+
+        @Override
+        public String remove(Object key) {
+            owner.invalidateEncodedHeaders();
+            return super.remove(key);
+        }
+
+        @Override
+        public void clear() {
+            owner.invalidateEncodedHeaders();
+            super.clear();
+        }
+
+        private static String normalizeHeaderValue(String key, String value) {
+            if (key == null || value == null) {
+                return value;
+            }
+            return "Content-Type".equalsIgnoreCase(key)
+                    ? RawResponse.normalizeTextualContentType(value)
+                    : value;
+        }
     }
 }

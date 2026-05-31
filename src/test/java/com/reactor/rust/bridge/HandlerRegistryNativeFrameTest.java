@@ -1,14 +1,26 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.annotations.ContentType;
+import com.reactor.rust.annotations.DirectPathBoolean;
+import com.reactor.rust.annotations.DirectPathDouble;
+import com.reactor.rust.annotations.DirectPathInt;
+import com.reactor.rust.annotations.DirectPathLong;
+import com.reactor.rust.annotations.DirectPathShort;
+import com.reactor.rust.annotations.DirectQueryBoolean;
+import com.reactor.rust.annotations.DirectQueryDouble;
+import com.reactor.rust.annotations.DirectQueryLong;
+import com.reactor.rust.annotations.DirectQueryShort;
 import com.reactor.rust.annotations.RequestBody;
 import com.reactor.rust.annotations.CookieValue;
 import com.reactor.rust.annotations.HeaderParam;
 import com.reactor.rust.annotations.PathVariable;
 import com.reactor.rust.annotations.RequestParam;
+import com.reactor.rust.http.DirectJsonResponse;
 import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
+import com.reactor.rust.json.DirectJsonWriter;
+import com.reactor.rust.json.JsonBufferWriter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -19,6 +31,7 @@ import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,6 +44,18 @@ class HandlerRegistryNativeFrameTest {
             new byte[] {'R', 'J', 'R', 'S', 'P', 'V', '1', '!'};
     private static final byte[] FILE_FRAME_MAGIC =
             new byte[] {'R', 'J', 'F', 'I', 'L', 'E', '1', '!'};
+
+    private static String frameBody(ByteBuffer out, int written) {
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        frame.getShort();
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        return new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+    }
 
     static class LegacyHandler {
         public ResponseEntity<String> notFound(
@@ -49,11 +74,66 @@ class HandlerRegistryNativeFrameTest {
         public ResponseEntity<String> created() {
             return ResponseEntity.created("created");
         }
+
+        public CompletableFuture<ResponseEntity<String>> asyncCreated() {
+            return CompletableFuture.completedFuture(ResponseEntity.created("async-created"));
+        }
+
+        public CompletableFuture<ResponseEntity<String>> asyncName(@RequestParam("name") String name) {
+            return CompletableFuture.completedFuture(ResponseEntity.ok("async:" + name));
+        }
     }
 
     static class DirectBodyHandler {
         public ResponseEntity<Integer> bodySize(@RequestBody byte[] body) {
             return ResponseEntity.ok(body.length);
+        }
+    }
+
+    static class DirectPrimitiveHandler {
+        @DirectPathInt("id")
+        public ResponseEntity<String> byPathInt(ByteBuffer out, int offset, int id) {
+            return ResponseEntity.ok("path-int:" + id);
+        }
+
+        @DirectPathLong("id")
+        public ResponseEntity<String> byPathLong(ByteBuffer out, int offset, long id) {
+            return ResponseEntity.ok("path-long:" + id);
+        }
+
+        @DirectPathBoolean("active")
+        public ResponseEntity<String> byPathBoolean(ByteBuffer out, int offset, boolean active) {
+            return ResponseEntity.ok("path-bool:" + active);
+        }
+
+        @DirectPathDouble("amount")
+        public ResponseEntity<String> byPathDouble(ByteBuffer out, int offset, double amount) {
+            return ResponseEntity.ok("path-double:" + amount);
+        }
+
+        @DirectPathShort("code")
+        public ResponseEntity<String> byPathShort(ByteBuffer out, int offset, short code) {
+            return ResponseEntity.ok("path-short:" + code);
+        }
+
+        @DirectQueryLong("id")
+        public ResponseEntity<String> byLong(ByteBuffer out, int offset, long id) {
+            return ResponseEntity.ok("long:" + id);
+        }
+
+        @DirectQueryBoolean("active")
+        public ResponseEntity<String> byBoolean(ByteBuffer out, int offset, boolean active) {
+            return ResponseEntity.ok("bool:" + active);
+        }
+
+        @DirectQueryDouble("amount")
+        public ResponseEntity<String> byDouble(ByteBuffer out, int offset, double amount) {
+            return ResponseEntity.ok("double:" + amount);
+        }
+
+        @DirectQueryShort("code")
+        public ResponseEntity<String> byShort(ByteBuffer out, int offset, short code) {
+            return ResponseEntity.ok("short:" + code);
         }
     }
 
@@ -64,6 +144,24 @@ class HandlerRegistryNativeFrameTest {
                 @HeaderParam("X-Trace") String trace
         ) {
             return ResponseEntity.ok(id + ":" + name + ":" + trace);
+        }
+    }
+
+    static class SingleAnnotatedHandler {
+        public ResponseEntity<String> byPath(@PathVariable("id") String id) {
+            return ResponseEntity.ok("path:" + id);
+        }
+
+        public ResponseEntity<String> byQuery(@RequestParam("name") String name) {
+            return ResponseEntity.ok("query:" + name);
+        }
+
+        public ResponseEntity<String> byHeader(@HeaderParam("X-Trace") String trace) {
+            return ResponseEntity.ok("header:" + trace);
+        }
+
+        public ResponseEntity<String> byCookie(@CookieValue("city") String city) {
+            return ResponseEntity.ok("cookie:" + city);
         }
     }
 
@@ -106,6 +204,17 @@ class HandlerRegistryNativeFrameTest {
         }
     }
 
+    enum StatusFilter {
+        ACTIVE,
+        PASSIVE
+    }
+
+    static class EnumQueryHandler {
+        public ResponseEntity<String> filter(@RequestParam("status") StatusFilter status) {
+            return ResponseEntity.ok(status.name());
+        }
+    }
+
     static class LargeResponseHandler {
         public ResponseEntity<String> large() {
             return ResponseEntity.ok("0123456789".repeat(12)).header("X-Large", "1");
@@ -136,6 +245,40 @@ class HandlerRegistryNativeFrameTest {
 
         public ResponseEntity<RawResponse> entityMetricsText() {
             return ResponseEntity.ok(RawResponse.text("entity_metric 2\n", "text/plain"))
+                    .header("X-Entity", "1");
+        }
+    }
+
+    record DirectCity(String city, int plate) {}
+
+    enum DirectCityJsonWriter implements DirectJsonWriter<DirectCity> {
+        INSTANCE;
+
+        @Override
+        public int write(DirectCity value, ByteBuffer out, int offset) {
+            JsonBufferWriter json = JsonBufferWriter.reusable(out, offset);
+            if (value == null) {
+                return json.nullValue().result();
+            }
+            return json.beginObject()
+                    .fieldString("city", value.city())
+                    .comma()
+                    .fieldInt("plate", value.plate())
+                    .endObject()
+                    .result();
+        }
+    }
+
+    static class DirectJsonResponseHandler {
+        public DirectJsonResponse<DirectCity> city() {
+            return DirectJsonResponse.ok(new DirectCity("İstanbul", 34), DirectCityJsonWriter.INSTANCE)
+                    .header("X-Direct", "1");
+        }
+
+        public ResponseEntity<DirectJsonResponse<DirectCity>> entityCity() {
+            return ResponseEntity
+                    .accepted(DirectJsonResponse.ok(new DirectCity("Ankara", 6), DirectCityJsonWriter.INSTANCE)
+                            .header("X-Direct", "1"))
                     .header("X-Entity", "1");
         }
     }
@@ -304,6 +447,56 @@ class HandlerRegistryNativeFrameTest {
     }
 
     @Test
+    void asyncResponseFrameUsesDirectBufferForSuccessPath() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        ModernHandler handler = new ModernHandler();
+        Method method = ModernHandler.class.getDeclaredMethod("asyncCreated");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+
+        HandlerRegistry.AsyncResponseFrame responseFrame = registry
+                .invokeAsyncFrame(handlerId, new byte[0], "", "", "")
+                .join();
+
+        assertTrue(responseFrame.buffer().isDirect());
+        byte[] frameBytes = responseFrame.toByteArray();
+
+        assertArrayEquals(FRAME_MAGIC, Arrays.copyOfRange(frameBytes, 0, 8));
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(201, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"async-created\"", encodedBody);
+    }
+
+    @Test
+    void asyncAnnotatedParamsUseCompiledInvokerAndClearThreadLocalMaps() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        ModernHandler handler = new ModernHandler();
+        Method method = ModernHandler.class.getDeclaredMethod("asyncName", String.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+
+        HandlerRegistry.AsyncResponseFrame responseFrame = registry
+                .invokeAsyncFrame(handlerId, new byte[0], "", "name=Mustafa+Korkmaz", "")
+                .join();
+
+        byte[] frameBytes = responseFrame.toByteArray();
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"async:Mustafa Korkmaz\"", encodedBody);
+    }
+
+    @Test
     void directBodyRequestAvoidsJniByteArrayEntryPoint() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
         DirectBodyHandler handler = new DirectBodyHandler();
@@ -330,6 +523,157 @@ class HandlerRegistryNativeFrameTest {
         int bodyLen = frame.getInt();
         String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
         assertEquals("3", encodedBody);
+    }
+
+    @Test
+    void directQueryLongInvokesPrimitiveFastPath() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectPrimitiveHandler handler = new DirectPrimitiveHandler();
+        Method method = DirectPrimitiveHandler.class.getDeclaredMethod("byLong", ByteBuffer.class, int.class, long.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBufferedQueryLong(handlerId, out, 0, 42L);
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"long:42\"", encodedBody);
+    }
+
+    @Test
+    void directQueryBooleanInvokesPrimitiveFastPath() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectPrimitiveHandler handler = new DirectPrimitiveHandler();
+        Method method = DirectPrimitiveHandler.class.getDeclaredMethod("byBoolean", ByteBuffer.class, int.class, boolean.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBufferedQueryBoolean(handlerId, out, 0, true);
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"bool:true\"", encodedBody);
+    }
+
+    @Test
+    void directQueryDoubleAndShortInvokePrimitiveFastPath() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectPrimitiveHandler handler = new DirectPrimitiveHandler();
+        Method doubleMethod = DirectPrimitiveHandler.class.getDeclaredMethod("byDouble", ByteBuffer.class, int.class, double.class);
+        Method shortMethod = DirectPrimitiveHandler.class.getDeclaredMethod("byShort", ByteBuffer.class, int.class, short.class);
+
+        int doubleHandlerId = registry.registerHandler(handler, doubleMethod, Void.class, ResponseEntity.class);
+        int shortHandlerId = registry.registerHandler(handler, shortMethod, Void.class, ResponseEntity.class);
+        ByteBuffer doubleOut = ByteBuffer.allocate(1024);
+        ByteBuffer shortOut = ByteBuffer.allocate(1024);
+
+        int doubleWritten = registry.invokeBufferedQueryDouble(doubleHandlerId, doubleOut, 0, 42.5d);
+        int shortWritten = registry.invokeBufferedQueryShort(shortHandlerId, shortOut, 0, (short) 7);
+
+        assertEquals("\"double:42.5\"", frameBody(doubleOut, doubleWritten));
+        assertEquals("\"short:7\"", frameBody(shortOut, shortWritten));
+    }
+
+    @Test
+    void directPathIntUsesSamePrimitiveFastPathWithoutAnnotatedParams() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectPrimitiveHandler handler = new DirectPrimitiveHandler();
+        Method method = DirectPrimitiveHandler.class.getDeclaredMethod("byPathInt", ByteBuffer.class, int.class, int.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBufferedQueryInt(handlerId, out, 0, 77);
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"path-int:77\"", encodedBody);
+    }
+
+    @Test
+    void directPathLongAndBooleanUsePrimitiveFastPath() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectPrimitiveHandler handler = new DirectPrimitiveHandler();
+        Method longMethod = DirectPrimitiveHandler.class.getDeclaredMethod("byPathLong", ByteBuffer.class, int.class, long.class);
+        Method booleanMethod = DirectPrimitiveHandler.class.getDeclaredMethod("byPathBoolean", ByteBuffer.class, int.class, boolean.class);
+
+        int longHandlerId = registry.registerHandler(handler, longMethod, Void.class, ResponseEntity.class);
+        int booleanHandlerId = registry.registerHandler(handler, booleanMethod, Void.class, ResponseEntity.class);
+        ByteBuffer longOut = ByteBuffer.allocate(1024);
+        ByteBuffer booleanOut = ByteBuffer.allocate(1024);
+
+        int longWritten = registry.invokeBufferedQueryLong(longHandlerId, longOut, 0, 9001L);
+        int booleanWritten = registry.invokeBufferedQueryBoolean(booleanHandlerId, booleanOut, 0, true);
+
+        byte[] longFrameBytes = new byte[longWritten];
+        longOut.position(0);
+        longOut.get(longFrameBytes);
+        ByteBuffer longFrame = ByteBuffer.wrap(longFrameBytes);
+        longFrame.position(8);
+        assertEquals(200, longFrame.getShort() & 0xFFFF);
+        int longHeadersLen = longFrame.getInt();
+        int longBodyLen = longFrame.getInt();
+        String longBody = new String(longFrameBytes, 18 + longHeadersLen, longBodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"path-long:9001\"", longBody);
+
+        byte[] booleanFrameBytes = new byte[booleanWritten];
+        booleanOut.position(0);
+        booleanOut.get(booleanFrameBytes);
+        ByteBuffer booleanFrame = ByteBuffer.wrap(booleanFrameBytes);
+        booleanFrame.position(8);
+        assertEquals(200, booleanFrame.getShort() & 0xFFFF);
+        int booleanHeadersLen = booleanFrame.getInt();
+        int booleanBodyLen = booleanFrame.getInt();
+        String booleanBody = new String(booleanFrameBytes, 18 + booleanHeadersLen, booleanBodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"path-bool:true\"", booleanBody);
+    }
+
+    @Test
+    void directPathDoubleAndShortUsePrimitiveFastPath() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectPrimitiveHandler handler = new DirectPrimitiveHandler();
+        Method doubleMethod = DirectPrimitiveHandler.class.getDeclaredMethod("byPathDouble", ByteBuffer.class, int.class, double.class);
+        Method shortMethod = DirectPrimitiveHandler.class.getDeclaredMethod("byPathShort", ByteBuffer.class, int.class, short.class);
+
+        int doubleHandlerId = registry.registerHandler(handler, doubleMethod, Void.class, ResponseEntity.class);
+        int shortHandlerId = registry.registerHandler(handler, shortMethod, Void.class, ResponseEntity.class);
+        ByteBuffer doubleOut = ByteBuffer.allocate(1024);
+        ByteBuffer shortOut = ByteBuffer.allocate(1024);
+
+        int doubleWritten = registry.invokeBufferedQueryDouble(doubleHandlerId, doubleOut, 0, 11.25d);
+        int shortWritten = registry.invokeBufferedQueryShort(shortHandlerId, shortOut, 0, (short) 9);
+
+        assertEquals("\"path-double:11.25\"", frameBody(doubleOut, doubleWritten));
+        assertEquals("\"path-short:9\"", frameBody(shortOut, shortWritten));
     }
 
     @Test
@@ -370,6 +714,83 @@ class HandlerRegistryNativeFrameTest {
         int bodyLen = frame.getInt();
         String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
         assertEquals("\"42:mustafa:abc-123\"", encodedBody);
+    }
+
+    @Test
+    void singleAnnotatedPathQueryHeaderAndCookieUseRawValueFastPathSemantics() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        SingleAnnotatedHandler handler = new SingleAnnotatedHandler();
+        int pathHandlerId = registry.registerHandler(
+                handler,
+                SingleAnnotatedHandler.class.getDeclaredMethod("byPath", String.class),
+                Void.class,
+                ResponseEntity.class
+        );
+        int queryHandlerId = registry.registerHandler(
+                handler,
+                SingleAnnotatedHandler.class.getDeclaredMethod("byQuery", String.class),
+                Void.class,
+                ResponseEntity.class
+        );
+        int headerHandlerId = registry.registerHandler(
+                handler,
+                SingleAnnotatedHandler.class.getDeclaredMethod("byHeader", String.class),
+                Void.class,
+                ResponseEntity.class
+        );
+        int cookieHandlerId = registry.registerHandler(
+                handler,
+                SingleAnnotatedHandler.class.getDeclaredMethod("byCookie", String.class),
+                Void.class,
+                ResponseEntity.class
+        );
+
+        ByteBuffer pathOut = ByteBuffer.allocate(1024);
+        ByteBuffer queryOut = ByteBuffer.allocate(1024);
+        ByteBuffer headerOut = ByteBuffer.allocate(1024);
+        ByteBuffer cookieOut = ByteBuffer.allocate(1024);
+
+        int pathWritten = registry.invokeBuffered(
+                pathHandlerId,
+                pathOut,
+                0,
+                new byte[0],
+                "unused=noise&id=42",
+                "ignored=query",
+                "Ignored: header\n"
+        );
+        int queryWritten = registry.invokeBuffered(
+                queryHandlerId,
+                queryOut,
+                0,
+                new byte[0],
+                "ignored=path",
+                "unused=noise&name=old&name=Mustafa+Korkmaz",
+                "Ignored: header\n"
+        );
+        int headerWritten = registry.invokeBuffered(
+                headerHandlerId,
+                headerOut,
+                0,
+                new byte[0],
+                "",
+                "ignored=query",
+                "Ignored: header\nx-trace: first\nX-Trace: abc-123\n"
+        );
+        int cookieWritten = registry.invokeBuffered(
+                cookieHandlerId,
+                cookieOut,
+                0,
+                new byte[0],
+                "",
+                "ignored=query",
+                "Ignored: header\nCookie: city=old\nCookie: city=%C4%B0stanbul%20%C5%9Feker; session=abc\n"
+        );
+
+        assertEquals("\"path:42\"", frameBody(pathOut, pathWritten));
+        assertEquals("\"query:Mustafa Korkmaz\"", frameBody(queryOut, queryWritten));
+        assertEquals("\"header:abc-123\"", frameBody(headerOut, headerWritten));
+        assertEquals("\"cookie:İstanbul şeker\"", frameBody(cookieOut, cookieWritten));
     }
 
     @Test
@@ -510,6 +931,39 @@ class HandlerRegistryNativeFrameTest {
     }
 
     @Test
+    void compiledAnnotatedInvokerSupportsEnumQueryParameters() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        EnumQueryHandler handler = new EnumQueryHandler();
+        Method method = EnumQueryHandler.class.getDeclaredMethod("filter", StatusFilter.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(
+                handlerId,
+                out,
+                0,
+                new byte[0],
+                "",
+                "status=active",
+                ""
+        );
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+        assertEquals("\"ACTIVE\"", encodedBody);
+    }
+
+    @Test
     void responseEntityOverflowReturnsRequiredFrameSizeForNativeRetry() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
         LargeResponseHandler handler = new LargeResponseHandler();
@@ -643,6 +1097,141 @@ class HandlerRegistryNativeFrameTest {
 
         assertTrue(encodedHeaders.contains("Content-Type: text/plain"));
         assertEquals("metric 1\n", encodedBody);
+    }
+
+    @Test
+    void rawResponseCachesEncodedHeadersUntilHeadersChange() {
+        RawResponse response = RawResponse.text("metric 1\n", "text/plain");
+
+        byte[] first = response.getEncodedHeaders();
+        byte[] second = response.getEncodedHeaders();
+        assertTrue(first == second);
+
+        response.header("X-Test", "1");
+        byte[] third = response.getEncodedHeaders();
+        assertTrue(first != third);
+
+        String encodedHeaders = new String(third, StandardCharsets.UTF_8);
+        assertTrue(encodedHeaders.contains("Content-Type: text/plain; charset=utf-8"));
+        assertTrue(encodedHeaders.contains("X-Test: 1"));
+    }
+
+    @Test
+    void directJsonResponseWritesFrameWithoutDslJsonSerialization() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectJsonResponseHandler handler = new DirectJsonResponseHandler();
+        Method method = DirectJsonResponseHandler.class.getDeclaredMethod("city");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, DirectJsonResponse.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        assertArrayEquals(FRAME_MAGIC, Arrays.copyOfRange(frameBytes, 0, 8));
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedHeaders = new String(frameBytes, 18, headersLen, StandardCharsets.UTF_8);
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertTrue(encodedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertTrue(encodedHeaders.contains("X-Direct: 1"));
+        assertEquals("{\"city\":\"İstanbul\",\"plate\":34}", encodedBody);
+    }
+
+    @Test
+    void directJsonResponseOverflowReturnsRequiredFrameSizeForNativeRetry() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectJsonResponseHandler handler = new DirectJsonResponseHandler();
+        Method method = DirectJsonResponseHandler.class.getDeclaredMethod("city");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, DirectJsonResponse.class);
+        ByteBuffer small = ByteBuffer.allocate(32);
+
+        int required = registry.invokeBuffered(handlerId, small, 0, new byte[0], "", "", "");
+
+        assertTrue(required < 0);
+        required = -required;
+        assertTrue(required > small.capacity());
+
+        ByteBuffer retry = ByteBuffer.allocate(required);
+        int written = registry.invokeBuffered(handlerId, retry, 0, new byte[0], "", "", "");
+
+        assertEquals(required, written);
+
+        byte[] frameBytes = new byte[written];
+        retry.position(0);
+        retry.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertEquals("{\"city\":\"İstanbul\",\"plate\":34}", encodedBody);
+    }
+
+    @Test
+    void directJsonResponseCachesEncodedHeadersUntilHeadersChange() {
+        DirectJsonResponse<DirectCity> response =
+                DirectJsonResponse.ok(new DirectCity("İstanbul", 34), DirectCityJsonWriter.INSTANCE)
+                        .header("X-Direct", "1");
+
+        byte[] first = response.getEncodedHeadersWithDefaultJson();
+        byte[] second = response.getEncodedHeadersWithDefaultJson();
+        assertTrue(first == second);
+
+        String encodedHeaders = new String(first, StandardCharsets.UTF_8);
+        assertTrue(encodedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertTrue(encodedHeaders.contains("X-Direct: 1"));
+
+        response.header("X-Trace", "abc");
+        byte[] third = response.getEncodedHeadersWithDefaultJson();
+        assertTrue(first != third);
+
+        String changedHeaders = new String(third, StandardCharsets.UTF_8);
+        assertTrue(changedHeaders.contains("X-Trace: abc"));
+    }
+
+    @Test
+    void responseEntityCanWrapDirectJsonResponseAndMergeHeaders() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectJsonResponseHandler handler = new DirectJsonResponseHandler();
+        Method method = DirectJsonResponseHandler.class.getDeclaredMethod("entityCity");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(202, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedHeaders = new String(frameBytes, 18, headersLen, StandardCharsets.UTF_8);
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertTrue(encodedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertTrue(encodedHeaders.contains("X-Entity: 1"));
+        assertTrue(encodedHeaders.contains("X-Direct: 1"));
+        assertEquals("{\"city\":\"Ankara\",\"plate\":6}", encodedBody);
     }
 
     @Test

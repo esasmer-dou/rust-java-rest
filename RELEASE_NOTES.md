@@ -1,3 +1,91 @@
+# Rust-Java REST Framework v3.1.0-rc5
+
+This release candidate focuses on production-readiness for the low-RSS direction. The normal Java
+programming model is unchanged: handlers, services, components, and DTO contracts stay in Java. Rust
+continues to own the HTTP I/O plane, native response paths, file streaming, overload control, and
+selected serialization-heavy fast paths.
+
+This is an RC/performance preview. It is appropriate for pilot usage and measured production trials,
+but it should not be described as "30-50 MiB RSS for every workload" or "5x faster than Spring Boot
+for every endpoint shape." The strongest paths are small JSON, raw/precomputed JSON, direct/Rust JSON
+writers, native cache, and file responses. Dynamic Java DTO graphs still carry Java allocation cost.
+
+## What's New for Users
+
+- Immutable `FileResponse` routes can use `@NativeStaticFileRoute`; Rust serves runtime requests without calling the Java handler.
+- Small immutable files can be inlined in native memory with `reactor.rust.static-file.inline-max-bytes`.
+- Larger immutable files remain disk-backed and are protected by `reactor.rust.static-file.max-concurrent-streams`.
+- File stream chunk size is configurable with `reactor.rust.file-stream.chunk-bytes`.
+- Benchmark reporting now separates echo raw/parse, small JSON legacy/direct, dynamic DTO, direct writer, Rust writer, raw JSON, native cache, static file, and large stream paths.
+- Benchmark scripts can append JVM property overrides with `-FrameworkJavaOptsAppend` for repeatable profile experiments.
+- Native ABI is `19`; use the Windows DLL and Linux SO shipped with this package.
+- The UTF-8 fixes from `v3.1.0-rc4` remain in place for response bodies, path variables, request params, cookies, middleware query helpers, and WebSocket params.
+
+## Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>3.1.0-rc5</version>
+</dependency>
+```
+
+The JAR embeds the runtime native binaries at:
+
+- `native/windows-x64/rust_hyper.dll`
+- `native/linux-x64/librust_hyper.so`
+- legacy Windows resource path `rust_hyper.dll`
+
+GitHub Release assets expose platform-explicit names:
+
+- `rust_hyper-windows-x64.dll`
+- `librust_hyper-linux-x64.so`
+
+## Validation
+
+- `mvn -q test`
+- `mvn -q -DskipTests package`
+- `cargo test`
+- Windows native DLL rebuild
+- Linux native SO rebuild
+- General benchmark: `current_full_20260531_090441`, profile `low-rss`, CPU `2`, Rust-Java memory `96m`, Spring Boot memory `512m`, concurrency `64/256/512/1000`, repeat `1`.
+- Large file stream matrix: `stream_matrix_{32,64,128,256}_20260531_085157`, 8 MiB file, inline disabled, concurrency `256/512/1000`.
+
+### Current Low-RSS Benchmark Snapshot
+
+Latest c512/c1000 comparable endpoints:
+
+| Endpoint | C | Rust-Java RPS | Spring Boot RPS | Ratio | Rust P99 | Spring P99 | Rust Max Mem | Spring Max Mem |
+|----------|--:|--------------:|----------------:|------:|---------:|-----------:|-------------:|---------------:|
+| candidates | 512 | 12,347 | 2,533 | 4.87x | 126ms | 694ms | 80 MiB | 392 MiB |
+| candidates | 1000 | 13,897 | 1,204 | 11.54x | 289ms | 1.94s | 94 MiB | 310 MiB |
+| echo parse | 512 | 16,896 | 3,844 | 4.39x | 98ms | 338ms | 90 MiB | 426 MiB |
+| echo parse | 1000 | 10,970 | 3,904 | 2.81x | 768ms | 614ms | 92 MiB | 423 MiB |
+| heavy100 raw | 512 | 11,517 | 5,761 | 2.00x | 142ms | 289ms | 91 MiB | 422 MiB |
+| heavy100 raw | 1000 | 15,247 | 5,050 | 3.02x | 254ms | 517ms | 93 MiB | 444 MiB |
+| heavy100 dynamic DTO | 512 | 2,812 | 2,193 | 1.28x | 309ms | 515ms | 92 MiB | 420 MiB |
+| heavy100 dynamic DTO | 1000 | 8,750 | 2,488 | 3.52x | 526ms | 633ms | 76 MiB | 422 MiB |
+
+### Large File Stream Gate
+
+8 MiB file, inline disabled:
+
+| Max Streams | C | RPS | P99 | 503 Rate | RSS After | Max Mem |
+|------------:|--:|----:|----:|---------:|----------:|--------:|
+| 32 | 512 | 2,922 | 860ms | 98.66% | 20 MiB | 82 MiB |
+| 64 | 512 | 2,176 | 1.98s | 98.28% | 27 MiB | 94 MiB |
+| 128 | 512 | 1,749 | 3.16s | 97.07% | 42 MiB | 84 MiB |
+| 256 | 512 | 1,318 | 6.94s | 96.74% | 58 MiB | 94 MiB |
+
+Interpretation: for memory-sensitive services, start with `32` or `64` max concurrent streams. Higher
+values accept more file work but increase p99 and RSS. Returning `503` under overload is intentional
+backpressure, not a failed benchmark.
+
+See `PERFORMANCE_GUIDE.md` for profile trade-offs and route-level tuning guidance.
+
+---
+
 # Rust-Java REST Framework v3.0.1
 
 > **Note:** v3.0.1 fixes native library updates. See v3.0.0 below for full feature list.

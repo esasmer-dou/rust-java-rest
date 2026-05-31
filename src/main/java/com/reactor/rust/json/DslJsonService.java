@@ -74,6 +74,10 @@ public final class DslJsonService {
             WRITER_INITIAL_BYTES,
             PropertiesLoader.getInt("reactor.rust.json.writer-retain-max-bytes", 256 * 1024)
     );
+    private static final boolean DIRECT_WRITER_ENABLED = PropertiesLoader.getBoolean(
+            "reactor.rust.json.direct-writer-enabled",
+            true
+    );
 
     // Thread-local writer pool - eliminates allocation per serialize call
     private static final ThreadLocal<JsonWriter> WRITER_CACHE =
@@ -115,6 +119,15 @@ public final class DslJsonService {
             out.position(offset);
             out.put(NULL_BYTES);
             return NULL_BYTES.length;
+        }
+
+        if (DIRECT_WRITER_ENABLED) {
+            @SuppressWarnings("unchecked")
+            DirectJsonWriter<Object> directWriter =
+                    (DirectJsonWriter<Object>) DirectJsonWriterRegistry.findWriter(obj.getClass());
+            if (directWriter != null) {
+                return directWriter.write(obj, out, offset);
+            }
         }
 
         try {

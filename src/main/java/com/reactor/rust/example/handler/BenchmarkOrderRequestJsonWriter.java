@@ -20,9 +20,42 @@ final class BenchmarkOrderRequestJsonWriter implements DirectJsonWriter<Benchmar
 
     private BenchmarkOrderRequestJsonWriter() {}
 
+    public int writeSampleOrder(ByteBuffer out, int offset) {
+        JsonBufferWriter json = JsonBufferWriter.reusable(out, offset);
+        json.beginObject()
+                .fieldString("orderId", "ORD-1001").comma()
+                .fieldFixed2Cents("amount", 35075).comma()
+                .fieldBoolean("paid", true).comma()
+                .fieldName("address")
+                .beginObject()
+                .fieldString("city", "Ankara").comma()
+                .fieldString("street", "Ataturk Cd.")
+                .endObject().comma()
+                .fieldName("customer")
+                .beginObject()
+                .fieldString("name", "mustafa customer a.ş").comma()
+                .fieldString("email", "mustafa@gmai.com")
+                .endObject().comma()
+                .fieldName("items")
+                .beginArray();
+
+        for (int i = 0; i < 19; i++) {
+            if (i > 0) {
+                json.comma();
+            }
+            json.beginObject()
+                    .fieldString("name", "test" + i).comma()
+                    .fieldFixed2Cents("price", Math.round((12.89d + i) * 100.0d))
+                    .endObject();
+        }
+
+        json.endArray().endObject();
+        return json.result();
+    }
+
     @Override
     public int write(BenchmarkOrderRequest value, ByteBuffer out, int offset) {
-        JsonBufferWriter json = JsonBufferWriter.wrap(out, offset);
+        JsonBufferWriter json = JsonBufferWriter.reusable(out, offset);
         if (value == null) {
             return json.nullValue().result();
         }

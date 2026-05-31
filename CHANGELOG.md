@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+No unreleased changes yet.
+
+---
+
+## [3.1.0-rc5] - 2026-05-31
+
+### Added
+
+- Added `@NativeStaticRoute` for immutable `RawResponse.registered*` routes. Rust can now serve
+  explicitly static/native responses without invoking the Java handler or JNI queue per request.
+- Added `reactor.rust.file-stream.chunk-bytes` for bounded `FileResponse` stream tuning. The
+  native runtime reports the active value through Prometheus metrics and memory diagnostics.
+- Added `@NativeStaticFileRoute` for immutable `FileResponse` routes. The handler is invoked once
+  during startup; runtime requests are streamed directly by Rust without entering the Java handler.
+- Added native static file observability through `reactor_native_static_file_response_bytes` and
+  `static_responses.file_bytes` in diagnostics.
+- Added `reactor.rust.static-file.inline-max-bytes`. Immutable `@NativeStaticFileRoute` files at
+  or below this threshold are loaded into native memory once and served without disk I/O.
+- Added `reactor.rust.static-file.max-concurrent-streams` bulkhead for disk-backed native static
+  file streams. Overload returns `503` and increments native stream rejection metrics instead of
+  allowing unbounded disk/file-descriptor fanout.
+- Added `file-stream-large` benchmark class and `/api/v1/export/file-large` sample endpoint for
+  8 MiB file-stream bulkhead measurement.
+- Added `-FrameworkJavaOptsAppend` to the container benchmark script so profile overrides can be
+  measured without editing the benchmark harness.
+
+### Changed
+
+- Native ABI bumped to `19`; Windows DLL and Linux SO must match this Java build.
+- Maven package version bumped to `3.1.0-rc5`.
+- Increased low-RSS HTTP connection headroom from `512` to `1024` so c512 benchmark gates do not
+  fail from admission-limit jitter.
+- Increased benchmark-only ultra-low-rss HTTP connection headroom from `512` to `640`.
+- Changed the default native `FileResponse` stream chunk from the small response buffer size to
+  `64 KiB`; throughput profile can raise it while micro/low-RSS profiles keep it bounded.
+- `@NativeStaticFileRoute` now caches file length and parsed response headers at startup, removing
+  per-request file `metadata()` and encoded-header parsing from the static file hot path.
+
+### Validation
+
+- `mvn -q test`
+- `cargo test`
+- `cargo build --release` on Windows
+- `cargo build --release` on Linux via WSL
+- Container benchmark `container_20260531_051255`: low-RSS profile, CPU `2`, Rust-Java memory `96m`,
+  Spring Boot memory `512m`, endpoint classes `raw-json,file-static`, concurrency `64/256/512`,
+  repeat `3`, randomized order.
+- Memory proof `memory_proof_low-rss_20260531_052414`: `heavy/raw` and `export/static` with
+  post-load idle snapshots and native trim checks.
+- Admission headroom check `container_20260531_053510`: `export_static_registered` at c512 with
+  `max-connections=1024`, `0` connection rejections, `0` response backpressure, and `0` 5xx.
+- Native static file route check `container_20260531_060646`: `export_file_stream` at c512 produced
+  `1553 RPS`, `1.08s` p99, `0` connection rejections, `0` response backpressure, `0` 5xx, and only
+  startup/diagnostic JNI activity (`reactor_native_jni_requests_total=1` for the endpoint metrics snapshot).
+- Native static file inline check `container_20260531_063622`: low-RSS c512 with
+  `reactor.rust.static-file.inline-max-bytes=524288` produced `1926 RPS`, `944.03ms` p99, `0`
+  connection rejections, `0` response backpressure, `0` 5xx, and
+  `reactor_native_static_file_inline_bytes=302608`.
+- Static file stream bulkhead smoke: inline disabled, `reactor.rust.static-file.max-concurrent-streams=1`,
+  `/api/v1/export/file` returned `200`, `reactor_native_static_file_stream_limit=1`,
+  `reactor_native_static_file_stream_started_total=1`, and diagnostics exposed `stream_limit`.
+- Current full benchmark `current_full_20260531_090441`: low-RSS profile, CPU `2`, Rust-Java memory
+  `96m`, Spring Boot memory `512m`, concurrency `64/256/512/1000`, repeat `1`, randomized order.
+- Large file stream matrix `stream_matrix_{32,64,128,256}_20260531_085157`: 8 MiB file, inline
+  disabled, stream limits `32/64/128/256`, concurrency `256/512/1000`.
+
+### Benchmark Notes
+
+- At c512, `candidates` reached `4.87x` Spring Boot RPS with `125.69ms` p99 and `80.46 MiB` max
+  sampled container memory.
+- At c512, `echo_parse_business` reached `4.39x` Spring Boot RPS with `98.38ms` p99 and `90.04 MiB`
+  max sampled container memory.
+- At c512, `heavy100_raw` reached `2.00x` Spring Boot RPS with `142.44ms` p99 and `91.22 MiB` max
+  sampled container memory.
+- At c512, `heavy100_native_cache` reached `14970 RPS` with `102.03ms` p99 on the Rust-Java path.
+- Large file stream results favor `32` or `64` max concurrent streams for low-RSS services; higher
+  limits increase p99/RSS and should be reserved for dedicated download profiles.
+
+---
+
+## [3.1.0-rc4] - 2026-05-30
+
+### Added
+
+- Split container benchmark endpoint classes into `dynamic-dto-json`, `direct-json-writer`, `rust-json-writer`, `raw-json`, `native-cache-json`, and `file-static` so optimized paths are not mixed into one heavy JSON number.
+- Added `-EndpointClasses` benchmark filter for targeted repeated runs.
+- Added `balanced` container benchmark runtime profile between `low-rss` and `throughput`.
+- Added direct primitive route bindings for query/path `double` and `short`, matching the existing `int`, `long`, and `boolean` fast paths.
+- Added `DirectJsonWriterRegistry` and `DirectJsonWriterProvider` so generated/manual DTO writers can bypass DSL-JSON and write directly into the response `ByteBuffer`.
+- Added `reactor.rust.json.direct-writer-enabled` property.
+
+### Changed
+
+- Native ABI bumped to `13`; Windows DLL and Linux SO must match this Java release.
+- `JsonBufferWriter` now supports double values.
+- Route diagnostics now expose the new direct primitive strategy types.
+
+### Validation
+
+- `mvn -q test`
+- `cargo test`
+- `cargo build --release` on Windows
+- `cargo build --release` on Linux via WSL
+- Container benchmark `container_20260530_154237`: low-RSS profile, CPU `2`, Rust-Java memory `128m`, Spring Boot memory `512m`, concurrency `64/256/512/1000`, repeat `3`, randomized order.
+- Profile comparison gates: `container_20260530_165249` for `balanced` c=1000 and `container_20260530_172402` for `throughput` c=1000.
+
+### Benchmark Notes
+
+- At concurrency `1000`, average Rust-Java RPS ratios were `3.07x` for `candidates`, `3.76x` for `echo`, `4.01x` for `heavy100 raw`, and `1.51x` for `heavy100 dynamic DTO`.
+- Rust-Java max sampled container memory stayed around `95-98 MiB` for the comparable c=1000 endpoints, while Spring Boot was around `295-313 MiB`.
+- `file-static` is not yet a high-concurrency throughput winner in the low-RSS profile; it needs separate stream/sendfile tuning before being used as a throughput claim.
+
+---
+
 ## [3.0.0] - 2026-03-17
 
 ### Performance Improvements

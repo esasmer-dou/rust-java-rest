@@ -12,24 +12,44 @@ public final class JsonBufferWriter {
 
     private static final ThreadLocal<byte[]> NUMBER_BUFFER =
             ThreadLocal.withInitial(() -> new byte[32]);
+    private static final ThreadLocal<JsonBufferWriter> REUSABLE_WRITER =
+            ThreadLocal.withInitial(JsonBufferWriter::new);
     private static final char[] HEX = "0123456789abcdef".toCharArray();
 
-    private final ByteBuffer out;
-    private final int start;
-    private final int limit;
+    private ByteBuffer out;
+    private int start;
+    private int limit;
     private int cursor;
     private int required;
 
+    private JsonBufferWriter() {
+        reset(null, 0);
+    }
+
     private JsonBufferWriter(ByteBuffer out, int offset) {
+        reset(out, offset);
+    }
+
+    public static JsonBufferWriter wrap(ByteBuffer out, int offset) {
+        return new JsonBufferWriter(out, offset);
+    }
+
+    /**
+     * Reuses one writer per Java thread to avoid one object allocation per direct JSON response.
+     *
+     * <p>The returned writer must be used synchronously and not stored beyond the current write call.</p>
+     */
+    public static JsonBufferWriter reusable(ByteBuffer out, int offset) {
+        return REUSABLE_WRITER.get().reset(out, offset);
+    }
+
+    private JsonBufferWriter reset(ByteBuffer out, int offset) {
         this.out = out;
         this.start = Math.max(0, offset);
         this.cursor = this.start;
         this.required = this.start;
         this.limit = out != null ? out.capacity() : 0;
-    }
-
-    public static JsonBufferWriter wrap(ByteBuffer out, int offset) {
-        return new JsonBufferWriter(out, offset);
+        return this;
     }
 
     public int result() {
@@ -82,6 +102,12 @@ public final class JsonBufferWriter {
     }
 
     public JsonBufferWriter fieldInt(String name, int value) {
+        fieldName(name);
+        number(value);
+        return this;
+    }
+
+    public JsonBufferWriter fieldDouble(String name, double value) {
         fieldName(name);
         number(value);
         return this;
@@ -150,6 +176,11 @@ public final class JsonBufferWriter {
         return this;
     }
 
+    public JsonBufferWriter stringAsciiFragment(byte[] value) {
+        rawAscii(value);
+        return this;
+    }
+
     public JsonBufferWriter stringIntFragment(int value) {
         writeLong(value);
         return this;
@@ -162,6 +193,15 @@ public final class JsonBufferWriter {
 
     public JsonBufferWriter number(long value) {
         writeLong(value);
+        return this;
+    }
+
+    public JsonBufferWriter number(double value) {
+        if (!Double.isFinite(value)) {
+            nullValue();
+            return this;
+        }
+        rawAscii(Double.toString(value));
         return this;
     }
 
@@ -192,6 +232,11 @@ public final class JsonBufferWriter {
         for (int i = 0; i < value.length(); i++) {
             writeByte(value.charAt(i));
         }
+        return this;
+    }
+
+    public JsonBufferWriter rawAscii(byte[] value) {
+        writeBytes(value);
         return this;
     }
 
@@ -246,5 +291,15 @@ public final class JsonBufferWriter {
         }
         cursor++;
         required++;
+    }
+
+    private void writeBytes(byte[] value) {
+        int len = value.length;
+        int writable = Math.min(len, Math.max(0, limit - cursor));
+        if (writable > 0) {
+            out.put(cursor, value, 0, writable);
+        }
+        cursor += len;
+        required += len;
     }
 }

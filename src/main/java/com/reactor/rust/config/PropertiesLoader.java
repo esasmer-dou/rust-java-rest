@@ -90,10 +90,21 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.runtime.worker-threads", "0");
         properties.setProperty("reactor.rust.runtime.max-blocking-threads", "0");
         properties.setProperty("reactor.rust.runtime.thread-stack-bytes", "0");
+        properties.setProperty("reactor.rust.file-stream.chunk-bytes", "65536");
+        properties.setProperty("reactor.rust.static-file.inline-max-bytes", "524288");
+        properties.setProperty("reactor.rust.static-file.max-concurrent-streams", "128");
         properties.setProperty("reactor.rust.json.writer-initial-bytes", "4096");
         properties.setProperty("reactor.rust.json.writer-retain-max-bytes", "262144");
         properties.setProperty("reactor.rust.async.max-inflight", "1024");
         properties.setProperty("reactor.rust.async.response-timeout-ms", "2000");
+        properties.setProperty("reactor.optimizer.mode", "observe");
+        properties.setProperty("reactor.optimizer.report.enabled", "true");
+        properties.setProperty("reactor.optimizer.report.verbose", "true");
+        properties.setProperty("reactor.optimizer.runtime-metrics-enabled", "false");
+        properties.setProperty("reactor.optimizer.fail-on-fallback", "false");
+        properties.setProperty("reactor.optimizer.fail-on-legacy", "false");
+        properties.setProperty("reactor.optimizer.fail-on-implicit-raw-request-data", "false");
+        properties.setProperty("reactor.optimizer.required-fast-routes", "");
     }
 
     public static boolean hasExternalOverride(String key) {

@@ -3,6 +3,7 @@ package com.reactor.rust.metrics;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
+import com.reactor.rust.bridge.RoutePlanRegistry;
 import com.reactor.rust.http.RawResponse;
 
 import java.lang.reflect.Method;
@@ -123,6 +124,14 @@ public class MetricsHandler {
             nativeDiagnostics = "{}";
         }
         return RawResponse.text(nativeDiagnostics, "application/json; charset=utf-8");
+    }
+
+    /**
+     * Shows which routes are running through optimized/direct paths versus legacy paths.
+     */
+    @GetMapping(value = "/diagnostics/routes", requestType = Void.class, responseType = RawResponse.class)
+    public RawResponse getRoutePlans() {
+        return RawResponse.text(RoutePlanRegistry.getInstance().toJson(), "application/json; charset=utf-8");
     }
 
     /**

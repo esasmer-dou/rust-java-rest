@@ -2,6 +2,7 @@ package com.reactor.rust.bridge;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,6 +29,9 @@ public final class MethodMetadata {
     public final boolean needsHeaders;
     public final boolean needsBody;
     public final boolean needsCookies;
+    public final String[] pathParamNames;
+    public final String[] queryParamNames;
+    public final String[] headerNames;
 
     // Pre-computed parameter info for annotation-based resolution
     public final ParamInfo[] paramInfos;
@@ -112,6 +116,9 @@ public final class MethodMetadata {
         this.needsHeaders = headers;
         this.needsBody = body;
         this.needsCookies = cookies;
+        this.pathParamNames = collectNames(this.paramInfos, ParamType.PATH_VARIABLE);
+        this.queryParamNames = collectNames(this.paramInfos, ParamType.REQUEST_PARAM);
+        this.headerNames = collectHeaderNames(this.paramInfos);
 
         // Check return type once
         this.returnsResponseEntity = com.reactor.rust.http.ResponseEntity.class
@@ -180,6 +187,37 @@ public final class MethodMetadata {
         }
 
         return new ParamInfo(index, type, ParamType.UNKNOWN, null, false, null);
+    }
+
+    private static String[] collectNames(ParamInfo[] infos, ParamType type) {
+        ArrayList<String> names = new ArrayList<>(infos.length);
+        for (ParamInfo info : infos) {
+            if (info.paramType == type && info.name != null && !info.name.isEmpty()) {
+                addUnique(names, info.name);
+            }
+        }
+        return names.toArray(String[]::new);
+    }
+
+    private static String[] collectHeaderNames(ParamInfo[] infos) {
+        ArrayList<String> names = new ArrayList<>(infos.length);
+        for (ParamInfo info : infos) {
+            if (info.paramType == ParamType.HEADER_PARAM && info.name != null && !info.name.isEmpty()) {
+                addUnique(names, info.name.toLowerCase(Locale.ROOT));
+            } else if (info.paramType == ParamType.COOKIE_VALUE) {
+                addUnique(names, "cookie");
+            }
+        }
+        return names.toArray(String[]::new);
+    }
+
+    private static void addUnique(ArrayList<String> names, String name) {
+        for (String existing : names) {
+            if (existing.equals(name)) {
+                return;
+            }
+        }
+        names.add(name);
     }
 
     /**

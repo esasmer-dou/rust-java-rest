@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class NativeBridge {
 
-    private static final int EXPECTED_NATIVE_ABI_VERSION = 10;
+    private static final int EXPECTED_NATIVE_ABI_VERSION = 19;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;
     private static final long DEFAULT_MAX_IN_FLIGHT_BODY_BYTES = 64L * 1024L * 1024L;
@@ -47,6 +47,9 @@ public class NativeBridge {
     private static final int DEFAULT_RUNTIME_MAX_BLOCKING_THREADS = 0;
     private static final long DEFAULT_RUNTIME_THREAD_STACK_BYTES = 0L;
     private static final boolean DEFAULT_HTTP1_ONLY_ENABLED = false;
+    private static final int DEFAULT_FILE_STREAM_CHUNK_BYTES = 64 * 1024;
+    private static final long DEFAULT_STATIC_FILE_INLINE_MAX_BYTES = 512L * 1024L;
+    private static final int DEFAULT_STATIC_FILE_MAX_CONCURRENT_STREAMS = 128;
     private static final int DEFAULT_NATIVE_CACHE_MAX_ENTRIES = 1024;
     private static final long DEFAULT_NATIVE_CACHE_MAX_BYTES = 16L * 1024L * 1024L;
     private static final long DEFAULT_NATIVE_CACHE_TTL_MS = 300_000L;
@@ -82,9 +85,22 @@ public class NativeBridge {
 
     public static native void completeAsyncResponse(long requestId, byte[] responseFrame);
 
+    public static native void completeAsyncResponseBuffer(long requestId, ByteBuffer responseFrame, int length);
+
     public static native int registerStaticResponse(byte[] body, String encodedHeaders, int statusCode);
 
+    public static native int registerStaticFileResponse(
+            String path,
+            String encodedHeaders,
+            int statusCode,
+            long inlineMaxBytes
+    );
+
     public static native void configureNativeResponseCache(int maxEntries, long maxBytes, long defaultTtlMs);
+
+    public static native void configureFileStreaming(int chunkBytes);
+
+    public static native void configureStaticFileStreaming(int maxConcurrentStreams);
 
     public static native int lookupDynamicResponse(String key);
 
@@ -159,6 +175,13 @@ public class NativeBridge {
     public static native boolean stopHttpServer();
 
     public static native void registerRoutes(List<RouteDef> routes);
+
+    public static long staticFileInlineMaxBytes() {
+        return Math.max(0L, PropertiesLoader.getLong(
+                "reactor.rust.static-file.inline-max-bytes",
+                DEFAULT_STATIC_FILE_INLINE_MAX_BYTES
+        ));
+    }
 
     public static void configureRuntimeFromProperties() {
         long maxRequestBodyBytes = PropertiesLoader.getLong(
@@ -257,6 +280,14 @@ public class NativeBridge {
                 "reactor.rust.http.keep-alive-enabled",
                 DEFAULT_KEEP_ALIVE_ENABLED
         );
+        int fileStreamChunkBytes = PropertiesLoader.getInt(
+                "reactor.rust.file-stream.chunk-bytes",
+                DEFAULT_FILE_STREAM_CHUNK_BYTES
+        );
+        int staticFileMaxConcurrentStreams = PropertiesLoader.getInt(
+                "reactor.rust.static-file.max-concurrent-streams",
+                DEFAULT_STATIC_FILE_MAX_CONCURRENT_STREAMS
+        );
         int nativeCacheMaxEntries = PropertiesLoader.getInt(
                 "reactor.rust.native-cache.max-entries",
                 DEFAULT_NATIVE_CACHE_MAX_ENTRIES
@@ -316,6 +347,8 @@ public class NativeBridge {
                     nativeLogLevel,
                     asyncResponseTimeoutMs
             );
+            configureFileStreaming(fileStreamChunkBytes);
+            configureStaticFileStreaming(staticFileMaxConcurrentStreams);
             configureNativeResponseCache(nativeCacheMaxEntries, nativeCacheMaxBytes, nativeCacheTtlMs);
         } catch (UnsatisfiedLinkError e) {
             throw new IllegalStateException(
@@ -349,6 +382,7 @@ public class NativeBridge {
                 + ", runtimeThreadStackBytes=" + runtimeThreadStackBytes
                 + ", http1OnlyEnabled=" + http1OnlyEnabled
                 + ", keepAliveEnabled=" + keepAliveEnabled
+                + ", fileStreamChunkBytes=" + fileStreamChunkBytes
                 + ", nativeCacheMaxEntries=" + nativeCacheMaxEntries
                 + ", nativeCacheMaxBytes=" + nativeCacheMaxBytes
                 + ", nativeCacheTtlMs=" + nativeCacheTtlMs
@@ -447,6 +481,25 @@ public class NativeBridge {
         return invokeHandler(handlerId, outBuffer, offset, capacity, EMPTY_REQUEST_BODY, pathParams, queryString, headers);
     }
 
+    public static int handleRustBodylessOutputRequestIntoBuffer(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity
+    ) {
+        if (NATIVE_TRIM_INTERVAL > 0) {
+            long c = counter.incrementAndGet();
+            if (c % NATIVE_TRIM_INTERVAL != 0) {
+                return invokeBodylessOutputHandler(handlerId, outBuffer, offset, capacity);
+            }
+            try {
+                releaseNativeMemory();
+            } catch (Exception ignored) {}
+        }
+
+        return invokeBodylessOutputHandler(handlerId, outBuffer, offset, capacity);
+    }
+
     public static int handleRustQueryIntRequestIntoBuffer(
             int handlerId,
             ByteBuffer outBuffer,
@@ -465,6 +518,86 @@ public class NativeBridge {
         }
 
         return invokeQueryIntHandler(handlerId, outBuffer, offset, capacity, queryInt);
+    }
+
+    public static int handleRustQueryLongRequestIntoBuffer(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            long queryLong
+    ) {
+        if (NATIVE_TRIM_INTERVAL > 0) {
+            long c = counter.incrementAndGet();
+            if (c % NATIVE_TRIM_INTERVAL != 0) {
+                return invokeQueryLongHandler(handlerId, outBuffer, offset, capacity, queryLong);
+            }
+            try {
+                releaseNativeMemory();
+            } catch (Exception ignored) {}
+        }
+
+        return invokeQueryLongHandler(handlerId, outBuffer, offset, capacity, queryLong);
+    }
+
+    public static int handleRustQueryBooleanRequestIntoBuffer(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            boolean queryBoolean
+    ) {
+        if (NATIVE_TRIM_INTERVAL > 0) {
+            long c = counter.incrementAndGet();
+            if (c % NATIVE_TRIM_INTERVAL != 0) {
+                return invokeQueryBooleanHandler(handlerId, outBuffer, offset, capacity, queryBoolean);
+            }
+            try {
+                releaseNativeMemory();
+            } catch (Exception ignored) {}
+        }
+
+        return invokeQueryBooleanHandler(handlerId, outBuffer, offset, capacity, queryBoolean);
+    }
+
+    public static int handleRustQueryDoubleRequestIntoBuffer(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            double queryDouble
+    ) {
+        if (NATIVE_TRIM_INTERVAL > 0) {
+            long c = counter.incrementAndGet();
+            if (c % NATIVE_TRIM_INTERVAL != 0) {
+                return invokeQueryDoubleHandler(handlerId, outBuffer, offset, capacity, queryDouble);
+            }
+            try {
+                releaseNativeMemory();
+            } catch (Exception ignored) {}
+        }
+
+        return invokeQueryDoubleHandler(handlerId, outBuffer, offset, capacity, queryDouble);
+    }
+
+    public static int handleRustQueryShortRequestIntoBuffer(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            short queryShort
+    ) {
+        if (NATIVE_TRIM_INTERVAL > 0) {
+            long c = counter.incrementAndGet();
+            if (c % NATIVE_TRIM_INTERVAL != 0) {
+                return invokeQueryShortHandler(handlerId, outBuffer, offset, capacity, queryShort);
+            }
+            try {
+                releaseNativeMemory();
+            } catch (Exception ignored) {}
+        }
+
+        return invokeQueryShortHandler(handlerId, outBuffer, offset, capacity, queryShort);
     }
 
     public static boolean handleRustAsyncBodylessRequest(
@@ -498,13 +631,35 @@ public class NativeBridge {
     ) {
         try {
             HandlerRegistry.getInstance()
-                    .invokeAsync(handlerId, inBytes, pathParams, queryString, headers)
+                    .invokeAsyncFrame(handlerId, inBytes, pathParams, queryString, headers)
                     .orTimeout(asyncResponseTimeoutMs, TimeUnit.MILLISECONDS)
                     .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
             return true;
         } catch (Throwable e) {
-            completeAsyncHandler(requestId, null, e);
+            completeAsyncHandler(requestId, (HandlerRegistry.AsyncResponseFrame) null, e);
             return true;
+        }
+    }
+
+    private static void completeAsyncHandler(long requestId, HandlerRegistry.AsyncResponseFrame frame, Throwable error) {
+        if (error != null) {
+            Throwable root = unwrapCompletion(error);
+            int status = root instanceof TimeoutException ? 504 : 500;
+            completeAsyncHandler(requestId, errorFrame(status, root), null);
+            return;
+        } else if (frame == null) {
+            completeAsyncHandler(requestId, errorFrame(500, new IllegalStateException("async handler completed with null frame")), null);
+            return;
+        }
+        try {
+            ByteBuffer responseFrame = frame.buffer();
+            if (responseFrame.isDirect()) {
+                completeAsyncResponseBuffer(requestId, responseFrame, frame.length());
+            } else {
+                completeAsyncResponse(requestId, frame.toByteArray());
+            }
+        } catch (Throwable ignored) {
+            // Request may have timed out on the Rust side; late completion is intentionally dropped.
         }
     }
 
@@ -644,6 +799,42 @@ public class NativeBridge {
         }
     }
 
+    private static int invokeBodylessOutputHandler(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity
+    ) {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+
+        try {
+            int written = registry.invokeBufferedBodylessOutput(handlerId, outBuffer, offset);
+
+            if (written < 0) {
+                return written;
+            }
+            if (written > capacity) {
+                return -written;
+            }
+            return written;
+
+        } catch (Throwable e) {
+            byte[] err = ("{\"error\":\"" + e.getMessage() + "\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            int totalSize = RESPONSE_FRAME_HEADER_SIZE + err.length;
+            if (totalSize > capacity) {
+                return -totalSize;
+            }
+            outBuffer.position(offset);
+            outBuffer.put(RESPONSE_FRAME_MAGIC);
+            outBuffer.putShort((short) 500);
+            outBuffer.putInt(0);
+            outBuffer.putInt(err.length);
+            outBuffer.put(err);
+            return totalSize;
+        }
+    }
+
     private static int invokeQueryIntHandler(
             int handlerId,
             ByteBuffer outBuffer,
@@ -679,6 +870,122 @@ public class NativeBridge {
             outBuffer.put(err);
             return totalSize;
         }
+    }
+
+    private static int invokeQueryLongHandler(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            long queryLong
+    ) {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+
+        try {
+            int written = registry.invokeBufferedQueryLong(handlerId, outBuffer, offset, queryLong);
+
+            if (written < 0) {
+                return written;
+            }
+            if (written > capacity) {
+                return -written;
+            }
+            return written;
+
+        } catch (Throwable e) {
+            return writeBridgeError(outBuffer, offset, capacity, e);
+        }
+    }
+
+    private static int invokeQueryBooleanHandler(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            boolean queryBoolean
+    ) {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+
+        try {
+            int written = registry.invokeBufferedQueryBoolean(handlerId, outBuffer, offset, queryBoolean);
+
+            if (written < 0) {
+                return written;
+            }
+            if (written > capacity) {
+                return -written;
+            }
+            return written;
+
+        } catch (Throwable e) {
+            return writeBridgeError(outBuffer, offset, capacity, e);
+        }
+    }
+
+    private static int invokeQueryDoubleHandler(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            double queryDouble
+    ) {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+
+        try {
+            int written = registry.invokeBufferedQueryDouble(handlerId, outBuffer, offset, queryDouble);
+
+            if (written < 0) {
+                return written;
+            }
+            if (written > capacity) {
+                return -written;
+            }
+            return written;
+
+        } catch (Throwable e) {
+            return writeBridgeError(outBuffer, offset, capacity, e);
+        }
+    }
+
+    private static int invokeQueryShortHandler(
+            int handlerId,
+            ByteBuffer outBuffer,
+            int offset,
+            int capacity,
+            short queryShort
+    ) {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+
+        try {
+            int written = registry.invokeBufferedQueryShort(handlerId, outBuffer, offset, queryShort);
+
+            if (written < 0) {
+                return written;
+            }
+            if (written > capacity) {
+                return -written;
+            }
+            return written;
+
+        } catch (Throwable e) {
+            return writeBridgeError(outBuffer, offset, capacity, e);
+        }
+    }
+
+    private static int writeBridgeError(ByteBuffer outBuffer, int offset, int capacity, Throwable error) {
+        byte[] err = ("{\"error\":\"" + escapeJson(error.getMessage()) + "\"}")
+                .getBytes(StandardCharsets.UTF_8);
+        int totalSize = RESPONSE_FRAME_HEADER_SIZE + err.length;
+        if (totalSize > capacity) {
+            return -totalSize;
+        }
+        outBuffer.position(offset);
+        outBuffer.put(RESPONSE_FRAME_MAGIC);
+        outBuffer.putShort((short) 500);
+        outBuffer.putInt(0);
+        outBuffer.putInt(err.length);
+        outBuffer.put(err);
+        return totalSize;
     }
 
     // ======================

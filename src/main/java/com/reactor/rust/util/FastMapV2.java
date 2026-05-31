@@ -25,7 +25,9 @@ public final class FastMapV2 {
     private String[] keys;
     private String[] values;
     private int[] distances;   // Distance from ideal position (for Robin-Hood)
+    private int[] usedSlots;   // Occupied indexes, so clear() is O(size) instead of O(capacity)
     private int size;
+    private int usedCount;
     private int mask;          // Capacity - 1 (for fast modulo)
 
     /**
@@ -54,8 +56,10 @@ public final class FastMapV2 {
         this.keys = new String[cap];
         this.values = new String[cap];
         this.distances = new int[cap];
+        this.usedSlots = new int[cap];
         this.mask = cap - 1;
         this.size = 0;
+        this.usedCount = 0;
 
         // Initialize distances to -1 (empty)
         for (int i = 0; i < cap; i++) {
@@ -110,6 +114,7 @@ public final class FastMapV2 {
                 keys[i] = k;
                 values[i] = v;
                 distances[i] = dist;
+                usedSlots[usedCount++] = i;
                 size++;
                 return;
             }
@@ -218,13 +223,16 @@ public final class FastMapV2 {
     public void clear() {
         if (size == 0) return;
 
-        // Reset distances to -1 (empty marker)
-        for (int i = 0; i <= mask; i++) {
+        // Reset only occupied slots. If a previous request forced a resize, this avoids
+        // paying O(capacity) clear cost forever on that Java thread.
+        for (int n = 0; n < usedCount; n++) {
+            int i = usedSlots[n];
             distances[i] = -1;
             keys[i] = null;
             values[i] = null;
         }
         size = 0;
+        usedCount = 0;
     }
 
     /**
@@ -235,12 +243,14 @@ public final class FastMapV2 {
         String[] oldKeys = keys;
         String[] oldValues = values;
         int[] oldDistances = distances;
-        int oldMask = mask;
+        int[] oldUsedSlots = usedSlots;
+        int oldUsedCount = usedCount;
 
         hashes = new int[newCapacity];
         keys = new String[newCapacity];
         values = new String[newCapacity];
         distances = new int[newCapacity];
+        usedSlots = new int[newCapacity];
         mask = newCapacity - 1;
 
         for (int i = 0; i < newCapacity; i++) {
@@ -249,9 +259,11 @@ public final class FastMapV2 {
 
         int oldSize = size;
         size = 0;
+        usedCount = 0;
 
         // Re-insert all elements
-        for (int i = 0; i <= oldMask && size < oldSize; i++) {
+        for (int n = 0; n < oldUsedCount && size < oldSize; n++) {
+            int i = oldUsedSlots[n];
             if (oldDistances[i] != -1) {
                 putInternal(oldHashes[i], oldKeys[i], oldValues[i]);
             }
@@ -274,6 +286,7 @@ public final class FastMapV2 {
                 keys[i] = k;
                 values[i] = v;
                 distances[i] = dist;
+                usedSlots[usedCount++] = i;
                 size++;
                 return;
             }

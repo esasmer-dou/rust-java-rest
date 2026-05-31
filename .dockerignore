@@ -1,3 +1,5 @@
 .git
 target/*
 !target/*.jar
+!target/dependency/
+!target/dependency/*.jar

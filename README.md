@@ -1,46 +1,296 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.1.0--rc4-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.1.0--rc5-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Profile](https://img.shields.io/badge/profile-low--rss-green.svg)]()
 [![Status](https://img.shields.io/badge/status-performance--preview-orange.svg)]()
 
 Ultra-fast REST API framework combining Rust Hyper HTTP server with Java handlers.
 
-## v3.1.0-rc4 - UTF-8 Request Annotation Patch
+## v3.1.0-rc5 - Low-RSS File Streaming and Benchmark Visibility
 
-This release candidate keeps the v3.1.0 Rust I/O plane direction and fixes the next pilot issue:
-Turkish and other non-ASCII values in request URL components are now decoded consistently before they
-reach Java handler parameters.
+This release candidate keeps the Java programming model unchanged and strengthens the production
+direction of the framework: Java owns handlers, services, components, and business logic; Rust owns
+the HTTP I/O plane, native response paths, file streaming, bounded overload behavior, and selected
+serialization-heavy fast paths.
 
-The Java programming model is unchanged. Handlers, services, components, and business logic still stay
-in Java. Rust continues to own the HTTP I/O plane and native response handling.
+This is still an RC/performance preview, not a stable "30-50 MiB for every workload" claim. The latest
+container benchmarks show strong gains against Spring Boot and clear wins on small JSON, raw/precomputed
+JSON, direct writer, native cache, and file response paths. Dynamic Java DTO graphs still carry normal
+Java heap/object cost and should be optimized route by route when RSS or p99 is critical.
 
-### Changelog
+### What's New in rc5
 
-- `@PathVariable` now decodes UTF-8 percent-encoded values.
-- `@RequestParam` now decodes UTF-8 percent-encoded values.
-- Query parameters now treat `+` as a space; path variables keep `+` as a literal plus.
-- `@CookieValue` now works on the hot annotated invocation path and decodes UTF-8 values.
-- Middleware query helpers and WebSocket path/query parameter maps use the same UTF-8 decode rules.
-- Header lookup is safer under Turkish JVM locale because internal normalization uses `Locale.ROOT`.
-- The response UTF-8 behavior from `v3.1.0-rc2` remains in place.
+- `@NativeStaticFileRoute` can register immutable file routes once and let Rust serve runtime requests.
+- Small immutable files can be inlined in native memory with `reactor.rust.static-file.inline-max-bytes`.
+- Large immutable files stay disk-backed and are protected by `reactor.rust.static-file.max-concurrent-streams`.
+- File stream chunking is explicit with `reactor.rust.file-stream.chunk-bytes`.
+- Benchmark reports now separate echo raw/parse, small JSON legacy/direct, dynamic DTO, direct writer,
+  Rust writer, raw JSON, native cache, static file, and large stream paths.
+- Benchmark harness can append JVM property overrides with `-FrameworkJavaOptsAppend`.
+- Native ABI is `19`; use the DLL/SO shipped with this package.
+- The UTF-8 fixes from `v3.1.0-rc4` remain in place for response bodies, path variables, request params,
+  cookies, middleware query helpers, and WebSocket path/query maps.
 
 ### Verification
 
 Validated locally with:
 
 ```bash
-mvn -q "-Dtest=HandlerRegistryNativeFrameTest,UrlCodecTest,WebSocketRegistryPathParamsTest,MiddlewareTest" test
 mvn -q test
 mvn -q -DskipTests package
+cargo test
 ```
+
+Latest benchmark evidence:
+
+- General low-RSS benchmark: `benchmark/results/current_full_20260531_090441/summary.md`
+- Large file stream matrix: `benchmark/results/stream_matrix_{32,64,128,256}_20260531_085157/summary.md`
 
 ### What's New for Users
 
 The normal application model is unchanged: your controllers/handlers, services, components, and
 business logic still live in Java. The new features are opt-in tools for lower latency, lower RSS, and
 safer production behavior.
+
+### DTO, Runtime Class, and Response Model Decision Guide
+
+This framework has a strict design rule for application data contracts:
+
+```text
+JSON request DTO and JSON response DTO = Java record
+Runtime behavior object = Java class is allowed
+Pre-serialized or native response = RawResponse/FileResponse/direct writer, not DTO
+```
+
+The rule is easy to misunderstand. "Record-only" does not mean every Java type in your application
+must be a record. It means objects that represent HTTP JSON input/output should be immutable,
+constructor-based records. Classes are still the right tool for handlers, services, repositories,
+configuration, adapters, pools, clients, lifecycle owners, and other objects that hold behavior or
+resources.
+
+Why this matters:
+
+- Records give a stable JSON contract: fields are explicit in the canonical constructor.
+- Records avoid JavaBean setter/proxy style programming.
+- Records fit DSL-JSON compile-time serialization better than mutable POJOs.
+- Records make request/response objects immutable, easier to validate, and easier to reason about.
+- Runtime classes are still needed for DI, stateful resources, connection pools, clients, and lifecycle.
+
+#### Decision Table
+
+| Use case | BEST | ACCEPTABLE | ANTI-PATTERN |
+|----------|------|------------|--------------|
+| HTTP JSON request body | `record OrderCreateRequest(...)` | `byte[]` plus direct custom parser for a hot route | Mutable POJO with setters |
+| HTTP JSON response body | `record OrderResponse(...)` | `RawResponse` if JSON is already serialized | Returning entity/service classes as JSON |
+| Read-heavy cached JSON | `RawResponse.registeredJson(...)` | `RawResponse.json(byte[])` | Rebuilding the same DTO graph on every request |
+| Large file/export | `FileResponse` | Chunked/native stream path | `byte[]` or huge `String` in Java heap |
+| Hot predictable JSON | `JsonBufferWriter` or generated direct writer | Record DTO for normal traffic | Reflection-heavy generic object graph |
+| Handler/controller | `class OrderHandler` | `final class` with constructor/DI fields | Record handler with mutable side effects hidden elsewhere |
+| Service/business component | `class OrderService` | Interface + class implementation | DTO record with methods and runtime state |
+| Repository/client/pool | `class OrderRepository`, `class RpcClientAdapter` | Final class with explicit close lifecycle | Record holding connections/resources |
+| Config value object | `record ServerLimits(...)` | Properties-backed class for loader behavior | Static mutable global config everywhere |
+
+#### Use Case 1: Normal Business REST Endpoint
+
+Use records for request and response DTOs. Use classes for the handler and service.
+
+```java
+@Request
+@CompiledJson
+public record CreateOrderRequest(
+        String customerId,
+        BigDecimal amount
+) {}
+
+@Response
+@CompiledJson
+public record CreateOrderResponse(
+        String orderId,
+        String status
+) {}
+
+@Service
+public final class OrderService {
+    public CreateOrderResponse create(CreateOrderRequest request) {
+        return new CreateOrderResponse("ORD-1001", "ACCEPTED");
+    }
+}
+
+@Component
+@RequestMapping("/orders")
+public final class OrderHandler {
+
+    @Autowired
+    private OrderService orderService;
+
+    @PostMapping(
+            value = "/create",
+            requestType = CreateOrderRequest.class,
+            responseType = CreateOrderResponse.class
+    )
+    public ResponseEntity<CreateOrderResponse> create(@RequestBody CreateOrderRequest request) {
+        return ResponseEntity.ok(orderService.create(request));
+    }
+}
+```
+
+Here the records are the HTTP contract. `OrderHandler` and `OrderService` are classes because they
+represent behavior and dependencies.
+
+#### Use Case 2: Database Read Model
+
+The data returned by the repository can be a record. The repository itself should be a class because it
+owns database access and lifecycle.
+
+```java
+public record CustomerRow(
+        long id,
+        String customerNo,
+        String fullName
+) {}
+
+@Repository
+public final class CustomerRepository implements AutoCloseable {
+    public List<CustomerRow> findCustomers() {
+        // Query DB and map rows to immutable records.
+        return List.of(new CustomerRow(1, "CUST-1001", "Mustafa Korkmaz"));
+    }
+
+    @Override
+    public void close() {
+        // Close pool/session resources here.
+    }
+}
+```
+
+Do not make `CustomerRepository` a record. It is not a JSON contract; it is a runtime component.
+
+#### Use Case 3: Already Serialized JSON
+
+If another system, cache, RPC provider, or native code already returns JSON bytes, do not deserialize
+those bytes into a DTO just to serialize them again.
+
+```java
+@GetMapping(value = "/catalog", requestType = Void.class, responseType = RawResponse.class)
+public RawResponse catalog() {
+    byte[] json = catalogRpcClient.fetchCatalogJson();
+    return RawResponse.json(json);
+}
+```
+
+This path intentionally bypasses DTO serialization. It is correct for pre-serialized JSON.
+
+#### Use Case 4: Cached or Mostly Static JSON
+
+When the same response is returned many times, register it once and return the native response id.
+This avoids copying the body from Java to Rust on every request.
+
+```java
+private static final RawResponse PRODUCT_CONFIG =
+        RawResponse.registeredJson("""
+        {"currency":"TRY","taxIncluded":true}
+        """.getBytes(StandardCharsets.UTF_8));
+
+@GetMapping(value = "/product-config", requestType = Void.class, responseType = RawResponse.class)
+public RawResponse productConfig() {
+    return RawResponse.nativeJson(PRODUCT_CONFIG.getNativeId());
+}
+```
+
+For a truly immutable route, add `@NativeStaticRoute`. The handler is called once during startup;
+runtime requests are served directly by Rust without entering the Java handler or JNI queue.
+
+```java
+private static final RawResponse PRODUCT_CONFIG =
+        RawResponse.registeredJson("""
+        {"currency":"TRY","taxIncluded":true}
+        """.getBytes(StandardCharsets.UTF_8));
+
+@GetMapping(value = "/product-config", requestType = Void.class, responseType = RawResponse.class)
+@NativeStaticRoute
+public RawResponse productConfig() {
+    return PRODUCT_CONFIG;
+}
+```
+
+Use `@NativeStaticRoute` only for immutable/precomputed responses. Do not use it for user-specific,
+time-dependent, authorization-dependent, or database-backed responses unless the full response is
+intentionally static.
+
+#### Use Case 5: Large File or Export
+
+Large files should not be carried through Java heap as a DTO, `String`, or `byte[]`.
+
+```java
+@GetMapping(value = "/exports/customers", requestType = Void.class, responseType = FileResponse.class)
+public FileResponse exportCustomers() {
+    return FileResponse.download(
+            Path.of("/data/exports/customers.csv"),
+            "customers.csv",
+            "text/csv; charset=utf-8");
+}
+```
+
+Rust streams the file body. Java only decides which file to return.
+
+#### Use Case 6: Hot JSON Endpoint Without DTO Graph
+
+For a very hot endpoint with predictable JSON, use a direct writer. This is an explicit performance
+path, not the default style for all endpoints.
+
+```java
+@RustRoute(
+        method = "GET",
+        path = "/api/v1/stats",
+        requestType = Void.class,
+        responseType = StatsResponse.class
+)
+public int stats(ByteBuffer out, int offset) {
+    JsonBufferWriter json = JsonBufferWriter.wrap(out, offset);
+    json.beginObject()
+            .fieldString("status", "ok")
+            .comma()
+            .fieldLong("activeUsers", 1250)
+            .endObject();
+    return json.result();
+}
+
+public record StatsResponse(String status, long activeUsers) {}
+```
+
+The `responseType` records the route contract. The actual hot path writes directly into the native
+buffer.
+
+#### What Not To Do
+
+Avoid mutable DTO classes:
+
+```java
+public class BadOrderResponse {
+    public String orderId;
+    public String status;
+}
+```
+
+Avoid returning business/runtime objects as JSON:
+
+```java
+@GetMapping(value = "/orders/{id}", responseType = OrderService.class)
+public OrderService bad() {
+    return orderService;
+}
+```
+
+Avoid turning everything into records:
+
+```java
+// Wrong role: this object owns behavior and resources, so class is correct.
+public record BadRepository(DataSource dataSource) {}
+```
+
+Production rule: if the type is part of the HTTP JSON contract, make it a record. If it owns behavior,
+resource lifecycle, DI state, client pools, or runtime wiring, make it a class.
 
 #### 1. Install once, native runtime included
 
@@ -54,7 +304,7 @@ How to use it:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc4</version>
+    <version>3.1.0-rc5</version>
 </dependency>
 ```
 
@@ -88,7 +338,7 @@ For read-heavy payloads that repeat often, register once in Rust and return the 
 ```java
 private static final RawResponse CACHED_CONFIG =
         RawResponse.registeredJson("""
-        {"feature":"enabled","version":"3.1.0-rc4"}
+        {"feature":"enabled","version":"3.1.0-rc5"}
         """.getBytes(StandardCharsets.UTF_8));
 
 @GetMapping(value = "/config", requestType = Void.class, responseType = RawResponse.class)
@@ -104,6 +354,45 @@ does not move through Java heap or a JNI response frame.
 
 Use it for large downloads, generated exports, reports, static files, and any response where loading the
 whole file into a Java `byte[]` would hurt memory.
+
+For high-concurrency downloads, tune the native stream chunk explicitly:
+
+```properties
+reactor.rust.file-stream.chunk-bytes=65536
+```
+
+Smaller chunks protect RSS; larger chunks can reduce read/frame overhead. Do not raise this blindly for
+all services. Measure p99 and RSS with your expected download size and concurrency.
+
+If the same file is always served by the route, add `@NativeStaticFileRoute`. The handler is called once
+at startup; runtime requests do not enter the Java handler or JNI response frame.
+Rust also caches the file length and parsed response headers at registration time, so this path avoids
+per-request file metadata lookup and header re-parsing. Treat the file as immutable until restart.
+Files at or below `reactor.rust.static-file.inline-max-bytes` are also loaded into native memory once,
+which removes disk I/O from the request path. Low-RSS defaults to `524288` bytes; larger files stay
+streamed from disk.
+Disk-backed streams are protected by `reactor.rust.static-file.max-concurrent-streams`. If this
+bulkhead is full the framework returns `503`, which is intentional overload protection for file
+descriptors, native I/O workers, RSS, and p99.
+
+```java
+@RustRoute(
+        method = "GET",
+        path = "/reports/static-daily",
+        requestType = Void.class,
+        responseType = FileResponse.class
+)
+@NativeStaticFileRoute
+public FileResponse staticDailyReport() {
+    return FileResponse.download(
+            Path.of("/data/reports/daily.csv"),
+            "daily.csv",
+            "text/csv; charset=utf-8");
+}
+```
+
+Do not use `@NativeStaticFileRoute` when authorization, tenant, query parameters, or database state decide
+which file should be returned. Keep those routes on normal `FileResponse`.
 
 Example:
 
@@ -166,7 +455,75 @@ public int heavy(ByteBuffer out, int offset, int items) {
 ```
 
 `@DirectQueryInt` means Rust parses `?items=100` and passes a primitive `int` to Java. That avoids
-allocating and parsing query strings on this hot route.
+allocating and parsing query strings on this hot route. The same direct primitive path is available
+for query/path `int`, `long`, `boolean`, `double`, and `short` values:
+
+```java
+@DirectQueryDouble(value = "amount", defaultValue = 0.0, min = 0.0, max = 1_000_000.0)
+public int quote(ByteBuffer out, int offset, double amount) {
+    return JsonBufferWriter.reusable(out, offset)
+            .beginObject()
+            .fieldDouble("amount", amount)
+            .endObject()
+            .result();
+}
+
+@GetMapping(value = "/stores/{code}", requestType = Void.class, responseType = StoreResponse.class)
+@DirectPathShort(value = "code", min = 1, max = 999)
+public int store(ByteBuffer out, int offset, short code) {
+    return JsonBufferWriter.reusable(out, offset)
+            .beginObject()
+            .fieldInt("code", code)
+            .endObject()
+            .result();
+}
+```
+
+Use direct primitive annotations only for hot, simple routes. If a route has many parameters or complex
+validation rules, prefer a request record or a normal annotated handler.
+
+#### 5.1 Use generated/direct JSON writers for selected DTOs
+
+What it does: if a `DirectJsonWriter` is registered for an exact DTO class, the framework writes that
+DTO directly into the response `ByteBuffer` before trying DSL-JSON. This removes the serializer-owned
+temporary `byte[]` on DTOs where you deliberately provide a generated/manual writer.
+
+Manual registration example:
+
+```java
+public record CityResponse(String city, int plate) {}
+
+public enum CityResponseWriter implements DirectJsonWriter<CityResponse> {
+    INSTANCE;
+
+    @Override
+    public int write(CityResponse value, ByteBuffer out, int offset) {
+        return JsonBufferWriter.reusable(out, offset)
+                .beginObject()
+                .fieldString("city", value.city())
+                .comma()
+                .fieldInt("plate", value.plate())
+                .endObject()
+                .result();
+    }
+}
+
+public final class AppBootstrap {
+    static {
+        DirectJsonWriterRegistry.register(CityResponse.class, CityResponseWriter.INSTANCE);
+    }
+}
+```
+
+Build-time generators can expose writers through `DirectJsonWriterProvider` and `META-INF/services`.
+Keep providers exact-class based; broad reflection-based writers are an anti-pattern because they bring
+back the allocation and branch cost this path is meant to remove.
+
+Property:
+
+```properties
+reactor.rust.json.direct-writer-enabled=true
+```
 
 #### 6. WebSocket sends are now bounded and production-safe
 
@@ -224,6 +581,9 @@ reactor.rust.http.max-response-body-bytes=8388608
 reactor.rust.http.max-inflight-response-bytes=67108864
 reactor.rust.http.max-connections=1024
 reactor.rust.jni.queue-capacity=1024
+reactor.rust.file-stream.chunk-bytes=65536
+reactor.rust.static-file.inline-max-bytes=524288
+reactor.rust.static-file.max-concurrent-streams=64
 reactor.rust.log.level=error
 reactor.rust.java.log.level=warn
 ```
@@ -231,19 +591,66 @@ reactor.rust.java.log.level=warn
 If you increase per-request limits, also cap total in-flight bytes. Raising only
 `max-response-body-bytes` can improve one endpoint but damage RSS under concurrency.
 
+Important low-RSS properties:
+
+| Property | What it controls | Low-RSS guidance |
+|----------|------------------|------------------|
+| `reactor.rust.http.max-request-body-bytes` | Per-request body cap | Keep small by default; override per route for uploads |
+| `reactor.rust.http.max-response-body-bytes` | Per-response body cap for framed responses | Do not use this for files; use `FileResponse` |
+| `reactor.rust.http.max-inflight-response-bytes` | Total response bytes allowed in flight | Must be lowered when pod memory is tight |
+| `reactor.rust.http.max-connections` | Admission limit for HTTP connections | Keep headroom above expected concurrency |
+| `reactor.rust.file-stream.chunk-bytes` | Disk file stream read chunk | `32768`-`65536` for low RSS, higher only after measurement |
+| `reactor.rust.static-file.inline-max-bytes` | Max immutable file size pinned in native memory | Keep small; large files should stream |
+| `reactor.rust.static-file.max-concurrent-streams` | Large file stream bulkhead | `32` or `64` is safer for low-RSS services |
+| `reactor.rust.response-pool.*-capacity` | Native response buffer retention | Smaller caps reduce RSS retention |
+| `reactor.rust.native-cache.max-bytes` | Native response cache memory cap | Use only for explicit read-heavy payloads |
+
 ### Container Benchmark Snapshot
 
-Profile: `low-rss`, CPU limit `2`, Rust-Java memory limit `128m`, Spring Boot memory limit `512m`,
-OpenJ9/Semeru 21, concurrency `1000`, duration `20s`.
+Profile: `low-rss`, CPU limit `2`, Rust-Java memory limit `96m`, Spring Boot memory limit `512m`,
+OpenJ9/Semeru 21, concurrency `512/1000`, duration `10s`, warmup `2s`, repeat `1`, randomized order.
+This is the latest rc5 working-tree benchmark. Use repeat `3` plus idle/soak before promoting a stable
+release.
 
 | Endpoint | Rust-Java RPS | Spring Boot RPS | Ratio | Rust P99 | Spring P99 | Rust Max Mem | Spring Max Mem |
 |----------|--------------:|----------------:|------:|---------:|-----------:|-------------:|---------------:|
-| candidates | 10,510 | 4,665 | 2.25x | 303ms | 639ms | 113 MiB | 281 MiB |
-| echo | 11,171 | 4,128 | 2.71x | 289ms | 640ms | 117 MiB | 299 MiB |
-| heavy100 raw | 10,106 | 4,281 | 2.36x | 290ms | 513ms | 98 MiB | 254 MiB |
-| heavy100 dynamic | 2,469 | 1,791 | 1.38x | 552ms | 2.43s | 105 MiB | 280 MiB |
+| candidates c512 | 12,347 | 2,533 | 4.87x | 126ms | 694ms | 80 MiB | 392 MiB |
+| candidates c1000 | 13,897 | 1,204 | 11.54x | 289ms | 1.94s | 94 MiB | 310 MiB |
+| echo parse c512 | 16,896 | 3,844 | 4.39x | 98ms | 338ms | 90 MiB | 426 MiB |
+| echo parse c1000 | 10,970 | 3,904 | 2.81x | 768ms | 614ms | 92 MiB | 423 MiB |
+| heavy100 raw c512 | 11,517 | 5,761 | 2.00x | 142ms | 289ms | 91 MiB | 422 MiB |
+| heavy100 raw c1000 | 15,247 | 5,050 | 3.02x | 254ms | 517ms | 93 MiB | 444 MiB |
+| heavy100 dynamic DTO c512 | 2,812 | 2,193 | 1.28x | 309ms | 515ms | 92 MiB | 420 MiB |
+| heavy100 dynamic DTO c1000 | 8,750 | 2,488 | 3.52x | 526ms | 633ms | 76 MiB | 422 MiB |
 
-Benchmark run id: `container_20260425_204114`. The RC release notes include the c=1000 summary table.
+Rust-Java-only optimized paths in the same run:
+
+| Endpoint | Class | Rust-Java RPS | Rust P99 | Rust Max Mem |
+|----------|-------|--------------:|---------:|-------------:|
+| candidates direct c512 | small-json-direct | 14,174 | 129ms | 88 MiB |
+| echo raw c512 | echo-raw | 13,369 | 118ms | 83 MiB |
+| heavy100 direct writer c512 | direct-json-writer | 5,071 | 217ms | 78 MiB |
+| heavy100 Rust writer c512 | rust-json-writer | 8,128 | 177ms | 80 MiB |
+| heavy100 native cache c512 | native-cache-json | 14,970 | 102ms | 79 MiB |
+| export file stream c512 | file-stream | 1,987 | 1.09s | 95 MiB |
+
+Benchmark run id: `current_full_20260531_090441`. Treat this as a low-RSS regression signal, not a
+universal marketing claim. At c1000, some low-RSS routes intentionally return `503` when admission or
+stream pressure is above the configured budget. Raise profile limits only after measuring RSS and p99.
+
+Large file stream matrix, 8 MiB file, inline disabled:
+
+| Max Streams | C | RPS | P99 | 503 Rate | RSS After | Max Mem |
+|------------:|--:|----:|----:|---------:|----------:|--------:|
+| 32 | 256 | 1,272 | 1.36s | 97.14% | 14 MiB | 92 MiB |
+| 32 | 512 | 2,922 | 860ms | 98.66% | 20 MiB | 82 MiB |
+| 64 | 512 | 2,176 | 1.98s | 98.28% | 27 MiB | 94 MiB |
+| 128 | 512 | 1,749 | 3.16s | 97.07% | 42 MiB | 84 MiB |
+| 256 | 512 | 1,318 | 6.94s | 96.74% | 58 MiB | 94 MiB |
+
+Interpretation: for low-RSS services, `32` or `64` max concurrent streams is the safer starting point.
+Higher stream limits accept more file work but worsen p99 and RSS. Returning `503` under overload is
+intentional protection, not a correctness failure.
 
 ### New Optimizations
 
@@ -255,10 +662,12 @@ Benchmark run id: `container_20260425_204114`. The RC release notes include the 
 | **Generated-style JSON parser/writer prototype** | Echo path avoids generic reflection/map-style parsing |
 | **Response pool and native memory diagnostics** | Lower RSS retention risk and measurable native memory behavior |
 | **Raw/File/native response paths** | Large/static/read-heavy responses avoid carrying Java body bytes per request |
+| **Native static file inline and stream bulkhead** | Small immutable files can be native-inlined; large streams are bounded and fail fast with 503 |
+| **Benchmark endpoint class separation** | Dynamic DTO, direct writer, raw JSON, file stream, and cache paths are measured separately |
 | **Timeout/keep-alive/header/body limits** | Production safety knobs for slow clients and bounded resource usage |
 | **Low-RSS / throughput / micro-RSS profiles** | Runtime can be tuned by workload instead of one-size-fits-all config |
 
-Release notes: `docs/release-notes/v3.1.0-rc4.md`.
+Release notes: `RELEASE_NOTES.md`. Performance guide: `PERFORMANCE_GUIDE.md`.
 
 ---
 
@@ -402,7 +811,7 @@ All v2.0.0 features are included:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc4</version>
+    <version>3.1.0-rc5</version>
 </dependency>
 ```
 
@@ -1022,7 +1431,7 @@ The framework provides ultra-minimal Docker images optimized for production.
 | Image | Size | Base | Runtime Memory | Description |
 |-------|------|------|----------------|-------------|
 | `rust-java-rest:ultra` | **149MB** | Debian slim | **28 MB** | Ultra-low memory (v3.0.0) |
-| `ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc4` | Debian slim | low-rss profile | RC / performance preview |
+| `ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc5` | Debian slim | low-rss profile | RC / performance preview |
 | `rust-java-rest:minimal` | **74MB** | Distroless | ~35 MB | Minimal (v2.0.0) |
 | `rust-java-rest:optimized` | **136MB** | Debian slim | ~35 MB | With curl |
 
@@ -1030,8 +1439,8 @@ The framework provides ultra-minimal Docker images optimized for production.
 
 ```bash
 # Ultra-low memory image (v3.0.0) - RECOMMENDED
-docker pull ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc4
-docker run -p 8080:8080 --memory=128m ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc4
+docker pull ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc5
+docker run -p 8080:8080 --memory=128m ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc5
 
 # Legacy minimal image (v2.0.0)
 docker pull ghcr.io/esasmer-dou/rust-java-rest:2.0.0
