@@ -90,6 +90,169 @@ reactor.rust.java.log.level=warn
 If one route needs larger bodies or more file concurrency, tune that scenario deliberately. Avoid making
 global limits large just because one endpoint needs extra room.
 
+### Response Path Playbook
+
+Pick the simplest path that fits the route. Do not move every endpoint to the fastest-looking API.
+The fast paths remove specific costs, and they also make the route more explicit.
+
+| Route situation | Use this | Annotation/API | Runtime flow | Main effect |
+|-----------------|----------|----------------|--------------|-------------|
+| Small JSON | Java record DTO | `@GetMapping` / `@PostMapping` or `@RustRoute` with `responseType = MyRecord.class` | Rust receives HTTP, Java handler returns a record, DSL-JSON serializes, Rust writes bytes | Best default for normal REST APIs |
+| Raw/precomputed JSON | `RawResponse.json(...)` or `RawResponse.text(...)` | route `responseType = RawResponse.class` | Java returns already serialized bytes, framework skips DTO serialization | Avoids building/serializing a DTO when JSON already exists |
+| Native cache JSON | `RawResponse.registeredJson(...)`, `RawResponse.nativeJson(id)`, `NativeBridge.registerDynamicResponse(...)` | optional `@NativeStaticRoute` for immutable routes | Body is stored in Rust native memory and later requests return a small native id | Removes repeated Java-to-Rust body transfer on cache hits |
+| Direct JSON writer | `JsonBufferWriter` or generated direct writer | `@RustRoute`, optional `@DirectQuery*` / `@DirectPath*` for hot scalar params | Java writes JSON directly into the response buffer | Reduces DTO graph allocation and serializer temporary buffers |
+| Dynamic DTO | Java records plus DSL-JSON | `responseType = MyRecord.class` | Java business code creates a record/list graph, DSL-JSON serializes it | Easiest business model, but object graph cost stays in Java |
+
+#### 1. Small JSON: normal REST default
+
+Use this for CRUD, simple query endpoints, command responses, health-style JSON, and most business
+APIs. Your request/response contracts should be Java records. Handlers and services remain classes.
+
+```java
+public record ProductResponse(long id, String name, boolean active) {}
+
+@GetMapping(value = "/products/{id}", requestType = Void.class, responseType = ProductResponse.class)
+public ProductResponse product(@PathVariable("id") String id) {
+    return productService.find(Long.parseLong(id));
+}
+```
+
+What you get: simple code, stable JSON contracts, and good latency for ordinary payloads. What it does
+not remove: Java still creates the record object and DSL-JSON still serializes it. If this route becomes
+hot and scalar query/path parsing shows up in measurements, add direct primitive binding only for that
+hot parameter. Query params use `@DirectQueryInt`, `@DirectQueryLong`, `@DirectQueryBoolean`,
+`@DirectQueryDouble`, or `@DirectQueryShort`. Path params use the matching `@DirectPath*` annotation.
+
+```java
+@RustRoute(method = "GET", path = "/products", requestType = Void.class, responseType = ProductResponse.class)
+@DirectQueryLong(value = "id", min = 1)
+public int product(ByteBuffer out, int offset, long id) {
+    ProductResponse response = productService.find(id);
+    return DslJsonService.writeToBuffer(response, out, offset);
+}
+```
+
+#### 2. Raw/precomputed JSON: JSON already exists
+
+Use this when another layer already gives you JSON bytes: Redis value, external RPC response, generated
+read model, metrics output, configuration payload, or a precomputed report summary. Do not parse that
+JSON into a DTO just to serialize it again.
+
+```java
+@GetMapping(value = "/catalog/raw", requestType = Void.class, responseType = RawResponse.class)
+public RawResponse catalogRaw() {
+    byte[] json = catalogReadModel.getJsonBytes();
+    return RawResponse.json(json);
+}
+```
+
+Effect: removes DTO allocation and DSL-JSON serialization for this route. It does not automatically
+cache every response; Java still returns the bytes for the current request. Use it when the payload is
+already trustworthy JSON and your service owns the content type.
+
+#### 3. Native cache JSON: repeated read-heavy response
+
+Use this only when the same JSON response is expected to be reused many times with a clear key and a
+clear invalidation or TTL rule. Good examples: feature flags, product configuration, public catalog
+snapshots, tenant-independent lookup data, and expensive read models refreshed every few minutes.
+
+For immutable responses, register once and let Rust serve the route directly:
+
+```java
+private static final RawResponse PRODUCT_CONFIG =
+        RawResponse.registeredJson("""
+        {"currency":"TRY","taxIncluded":true}
+        """.getBytes(StandardCharsets.UTF_8));
+
+@GetMapping(value = "/product-config", requestType = Void.class, responseType = RawResponse.class)
+@NativeStaticRoute
+public RawResponse productConfig() {
+    return PRODUCT_CONFIG;
+}
+```
+
+For dynamic-but-repeatable responses, use an explicit bounded native cache key:
+
+```java
+@GetMapping(value = "/catalog/cache", requestType = Void.class, responseType = RawResponse.class)
+public RawResponse catalogCached() {
+    String key = "catalog:v1";
+    int nativeId = NativeBridge.lookupDynamicResponse(key);
+    if (nativeId > 0) {
+        return RawResponse.nativeJson(nativeId);
+    }
+
+    byte[] payload = catalogReadModel.renderJson();
+    int registeredId = NativeBridge.registerDynamicResponse(
+            key,
+            payload,
+            "Content-Type: application/json\n",
+            200,
+            300_000L
+    );
+    return registeredId > 0 ? RawResponse.nativeJson(registeredId) : RawResponse.json(payload);
+}
+```
+
+Effect: cache hits avoid rebuilding the payload and avoid moving the full body from Java to Rust again.
+Cost: cached bodies live in native memory, so keep `reactor.rust.native-cache.*` bounded. Do not use this
+for user-specific, highly unique, authorization-sensitive, or constantly changing responses.
+
+#### 4. Direct JSON writer: hot fixed-shape JSON
+
+Use this when a benchmark shows DTO graph allocation, temporary serializer buffers, or p99 latency on a
+hot route. The response shape should be stable and easy to test. The Java handler still owns business
+logic, but it writes the JSON directly into the native response buffer.
+
+```java
+@RustRoute(method = "GET", path = "/stats", requestType = Void.class, responseType = StatsResponse.class)
+@DirectQueryInt(value = "limit", defaultValue = 10, min = 1, max = 100)
+public int stats(ByteBuffer out, int offset, int limit) {
+    return JsonBufferWriter.reusable(out, offset)
+            .beginObject()
+            .fieldString("status", "ok")
+            .comma()
+            .fieldInt("limit", limit)
+            .endObject()
+            .result();
+}
+
+public record StatsResponse(String status, int limit) {}
+```
+
+Effect: avoids building a response DTO graph for the hot path and avoids serializer-owned temporary
+buffers. Trade-off: this is more manual than returning a record. Keep golden JSON tests for direct
+writers and use this only where measurements justify it.
+
+#### 5. Dynamic DTO: business-shaped response
+
+Use this when the response is naturally a business object graph: nested domain response, validation
+result, search result, screen model, or anything where readability and correctness are more important
+than micro-optimizing one route.
+
+```java
+public record CatalogResponse(String category, List<ProductResponse> products) {}
+
+@GetMapping(value = "/catalog", requestType = Void.class, responseType = CatalogResponse.class)
+public CatalogResponse catalog(@RequestParam("category") String category) {
+    return catalogService.buildCatalog(category);
+}
+```
+
+Effect: easiest implementation and the right default for real business APIs. Cost: every request can
+allocate the Java object graph. If the route becomes a top p99/RSS contributor, move only that route to
+direct writer, raw/precomputed JSON, or native cache depending on the actual access pattern.
+
+#### Selection Rule
+
+| If you are thinking... | Choose |
+|------------------------|--------|
+| "This is a normal API response." | Small JSON or dynamic DTO with records |
+| "I already have JSON bytes." | Raw/precomputed JSON |
+| "The same JSON repeats often and can expire by key/TTL." | Native cache JSON |
+| "This one route is hot and has a fixed JSON shape." | Direct JSON writer |
+| "The response is complex business data and not proven hot." | Dynamic DTO |
+
 ### DTO, Runtime Class, and Response Model Decision Guide
 
 This framework has a strict design rule for application data contracts:

@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Clarified user-facing documentation with use-case driven API choices, runtime profile guidance,
   low-RSS tuning recipes, and softer release notes language.
+- Added a response path playbook for Small JSON, Raw/precomputed JSON, Native cache JSON, Direct
+  JSON writer, and Dynamic DTO selection.
 
 ---
 

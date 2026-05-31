@@ -23,13 +23,22 @@ important.
 
 ## Which API Should I Use?
 
-| Use case | Use this first | Tune these properties |
-|----------|----------------|-----------------------|
-| Normal business JSON | Java record DTOs | body/response limits, `reactor.runtime.profile` |
-| Read-heavy JSON/config | `RawResponse`, then `@NativeStaticRoute` if immutable | `reactor.rust.native-cache.*` |
-| Large file/export | `FileResponse` | `file-stream.chunk-bytes`, `static-file.max-concurrent-streams` |
-| Hot generated JSON | `JsonBufferWriter` or `DirectJsonWriterRegistry` | `json.direct-writer-enabled`, writer retain limits |
-| WebSocket push | `WebSocketSession` API | `websocket.outbound-queue-capacity`, `websocket.max-frame-bytes` |
+| Use case | Use this first | Move to this when needed | Main effect |
+|----------|----------------|--------------------------|-------------|
+| Small JSON | Java record DTOs | `@DirectQuery*` / `@DirectPath*` binding for hot scalar params | Simple default for normal REST APIs |
+| Dynamic DTO | Java record graph + DSL-JSON | Direct writer/raw/cache only for measured hot routes | Keeps business code clear |
+| Raw/precomputed JSON | `RawResponse.json(...)` | `RawResponse.registeredJson(...)` for immutable/read-heavy payloads | Skips DTO serialization |
+| Native cache JSON | Explicit bounded native cache key | `@NativeStaticRoute` only for immutable routes | Avoids repeated body build and Java-to-Rust body transfer on hits |
+| Direct JSON writer | Java record DTO | `JsonBufferWriter` or `DirectJsonWriterRegistry` | Reduces DTO graph and serializer buffer allocation |
+| Large file/export | `FileResponse` | `@NativeStaticFileRoute` for immutable files | Keeps file bytes out of Java heap |
+| WebSocket push | `WebSocketSession` API | Tune bounded outbound queues | Keeps push overload controlled |
+
+Practical selection rule:
+
+- Use Small JSON or Dynamic DTO for ordinary business endpoints.
+- Use Raw/precomputed JSON when JSON bytes already exist before the handler returns.
+- Use Native cache JSON only when the same response is intentionally reused with a clear key, TTL, or immutable route.
+- Use Direct JSON writer only for hot fixed-shape JSON where benchmark data shows DTO/serialization cost.
 
 ## Profile Guide
 

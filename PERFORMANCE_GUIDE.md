@@ -29,6 +29,98 @@ records. A large file should be `FileResponse`. A hot read-heavy JSON endpoint m
 | `raw-json` | JSON is already serialized or precomputed | `RawResponse.json(...)`, `RawResponse.registeredJson(...)`, optional `@NativeStaticRoute` | Static response must really be static |
 | `file-static` / `file-stream` | File/export path | `FileResponse`, optional `@NativeStaticFileRoute` | Large fanout needs stream bulkhead tuning |
 
+## Response Path Selection
+
+Use this table before changing code. Each path removes a different cost; picking the wrong path can
+make the code more complex without improving p99 or RSS.
+
+| Path | Choose it when | Cost removed | Required API/annotation | Watch point |
+|------|----------------|--------------|-------------------------|-------------|
+| Small JSON | Normal small request/response JSON | None beyond normal optimized record serialization | `@GetMapping` / `@PostMapping` or `@RustRoute`, Java record DTOs | Default path; do not over-optimize early |
+| Raw/precomputed JSON | JSON/text/bytes already exist before the handler returns | DTO creation and DSL-JSON serialization | `RawResponse.json(...)`, `RawResponse.text(...)`, route `responseType = RawResponse.class` | Java still passes bytes per request |
+| Native cache JSON | Same JSON repeats with explicit key/TTL or is immutable until restart | Repeated body build, repeated Java-to-Rust body transfer | `RawResponse.registeredJson(...)`, `RawResponse.nativeJson(id)`, `NativeBridge.registerDynamicResponse(...)`, optional `@NativeStaticRoute` | Native memory must be capped; not for per-user unique data |
+| Direct JSON writer | Hot fixed-shape JSON where allocation/serialization is measured | DTO graph allocation and serializer temporary buffer | `JsonBufferWriter`, `DirectJsonWriterRegistry`, `@DirectQuery*` / `@DirectPath*` where useful | More manual code; needs golden JSON tests |
+| Dynamic DTO | Business response is naturally nested/domain-shaped | Nothing; preserves maintainability | Java records with `responseType = MyRecord.class` | Object graph can dominate at high concurrency |
+
+### Small JSON
+
+Start here for normal APIs. Use records for request and response bodies. Add direct primitive
+query/path binding only when the route is hot and the scalar parse/allocation cost is visible.
+Use `@DirectQuery*` for query params and `@DirectPath*` for path params.
+
+```java
+@GetMapping(value = "/products/{id}", requestType = Void.class, responseType = ProductResponse.class)
+public ProductResponse product(@PathVariable("id") String id) {
+    return productService.find(Long.parseLong(id));
+}
+```
+
+### Raw/precomputed JSON
+
+Use this when JSON is already produced by a read model, cache, RPC provider, or native component.
+
+```java
+@GetMapping(value = "/catalog/raw", requestType = Void.class, responseType = RawResponse.class)
+public RawResponse catalogRaw() {
+    return RawResponse.json(catalogReadModel.getJsonBytes());
+}
+```
+
+### Native cache JSON
+
+Use this only for deliberate read-heavy caching. Immutable responses can use `@NativeStaticRoute`.
+Dynamic repeated responses should use a bounded key and TTL.
+
+```java
+int nativeId = NativeBridge.lookupDynamicResponse("catalog:v1");
+if (nativeId > 0) {
+    return RawResponse.nativeJson(nativeId);
+}
+byte[] payload = catalogReadModel.renderJson();
+int registeredId = NativeBridge.registerDynamicResponse(
+        "catalog:v1",
+        payload,
+        "Content-Type: application/json\n",
+        200,
+        300_000L
+);
+return registeredId > 0 ? RawResponse.nativeJson(registeredId) : RawResponse.json(payload);
+```
+
+Production rule: if the cache key is almost always unique, do not use native cache. Use dynamic DTO,
+direct writer, or a proper external cache/read model instead.
+
+### Direct JSON Writer
+
+Use this for hot fixed-shape JSON. The handler returns the byte count written to the direct buffer.
+Negative return values are handled by the framework as a capacity retry signal.
+
+```java
+@RustRoute(method = "GET", path = "/stats", requestType = Void.class, responseType = StatsResponse.class)
+@DirectQueryInt(value = "limit", defaultValue = 10, min = 1, max = 100)
+public int stats(ByteBuffer out, int offset, int limit) {
+    return JsonBufferWriter.reusable(out, offset)
+            .beginObject()
+            .fieldString("status", "ok")
+            .comma()
+            .fieldInt("limit", limit)
+            .endObject()
+            .result();
+}
+```
+
+### Dynamic DTO
+
+Keep this for normal business APIs and complex response shapes. It is the maintainability-first path.
+If it becomes hot, optimize the specific route rather than changing the whole service style.
+
+```java
+@GetMapping(value = "/catalog", requestType = Void.class, responseType = CatalogResponse.class)
+public CatalogResponse catalog(@RequestParam("category") String category) {
+    return catalogService.buildCatalog(category);
+}
+```
+
 ## Route Design Rules
 
 - Keep normal business handlers in Java and use record DTOs for ordinary endpoints.

@@ -49,14 +49,60 @@ reactor.rust.java.log.level=warn
 
 ## Which Response Type Should I Pick?
 
-| Use case | Recommended response | Why |
-|----------|----------------------|-----|
-| CRUD JSON | Java record DTO | Simple and maintainable |
-| Already serialized JSON | `RawResponse.json(...)` | Avoids deserialize/serialize roundtrip |
-| Immutable config/read model | `RawResponse.registeredJson(...)` + `@NativeStaticRoute` | Rust can serve without Java handler call |
-| File/download/export | `FileResponse` | File body stays out of Java heap |
-| Immutable static file | `FileResponse` + `@NativeStaticFileRoute` | Rust serves path directly after startup |
-| Hot predictable JSON | `JsonBufferWriter` or direct writer | Avoids DTO graph and serializer buffer |
+| Use case | Recommended response | Annotation/API | Why |
+|----------|----------------------|----------------|-----|
+| Small JSON | Java record DTO | `@GetMapping` / `@PostMapping` or `@RustRoute`, `responseType = MyRecord.class` | Simple default for normal REST APIs |
+| Dynamic business DTO | Java record graph + DSL-JSON | `responseType = MyRecord.class` | Best maintainability when the response is real business data |
+| Already serialized JSON | `RawResponse.json(...)` | route `responseType = RawResponse.class` | Avoids deserialize/serialize roundtrip |
+| Immutable config/read model | `RawResponse.registeredJson(...)` + `@NativeStaticRoute` | `@NativeStaticRoute` only when immutable until restart | Rust can serve without Java handler call |
+| Repeated read-heavy JSON | `RawResponse.nativeJson(id)` from dynamic native cache | `NativeBridge.lookupDynamicResponse(...)`, `NativeBridge.registerDynamicResponse(...)` | Avoids repeated body build and repeated Java-to-Rust transfer on hits |
+| Hot predictable JSON | `JsonBufferWriter` or direct writer | `@RustRoute` plus optional `@DirectQuery*` / `@DirectPath*` | Avoids DTO graph and serializer buffer |
+| File/download/export | `FileResponse` | route `responseType = FileResponse.class` | File body stays out of Java heap |
+| Immutable static file | `FileResponse` + `@NativeStaticFileRoute` | `@NativeStaticFileRoute` | Rust serves path directly after startup |
+
+## Runtime Flow By JSON Path
+
+Small JSON:
+
+- Rust handles the HTTP connection and calls the Java handler.
+- Java returns a record.
+- DSL-JSON serializes the record and Rust writes the response.
+
+Use it for normal APIs first. It is the safest default.
+
+Raw/precomputed JSON:
+
+- Java returns `RawResponse.json(...)`, `RawResponse.text(...)`, or `RawResponse.bytes(...)`.
+- The framework skips DTO serialization.
+- Rust writes the provided bytes.
+
+Use it when JSON already exists before the handler returns.
+
+Native cache JSON:
+
+- Java or startup code registers response bytes in Rust native memory.
+- Later requests return `RawResponse.nativeJson(id)`, or `@NativeStaticRoute` bypasses Java entirely for immutable routes.
+- Rust serves cached bytes while respecting native cache caps and TTL.
+
+Use it only for deliberate read-heavy responses with stable keys. Do not cache highly unique or
+authorization-dependent responses by default.
+
+Direct JSON writer:
+
+- Rust gives Java a direct response `ByteBuffer`.
+- Java writes JSON with `JsonBufferWriter` or a generated direct writer and returns the byte count.
+- Rust sends the buffer without building a DTO graph.
+
+Use it only for hot fixed-shape JSON where benchmarks show allocation or serialization cost.
+
+Dynamic DTO:
+
+- Java business code builds a record/list graph.
+- DSL-JSON serializes the object graph.
+- Rust writes the serialized response.
+
+Use it for complex business responses. If RSS or p99 becomes a problem, optimize that route with direct
+writer, raw/precomputed JSON, or native cache based on the actual access pattern.
 
 ## Body Limits
 
