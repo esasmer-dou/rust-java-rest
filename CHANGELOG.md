@@ -9,12 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [3.1.0] - 2026-06-01
+
 ### Changed
 
 - Clarified user-facing documentation with use-case driven API choices, runtime profile guidance,
   low-RSS tuning recipes, and softer release notes language.
 - Added a response path playbook for Small JSON, Raw/precomputed JSON, Native cache JSON, Direct
   JSON writer, and Dynamic DTO selection.
+- Promoted the measured `3.1.0-rc5` feature set to stable `3.1.0`.
+- Maven package version bumped to `3.1.0`.
+
+### Release Positioning
+
+- Stable for pilot and production adoption where route-level tuning, bounded overload behavior, and
+  low-RSS profile selection are treated as part of deployment.
+- Best fit remains small JSON, raw/precomputed JSON, direct/Rust JSON writer, native static/cache,
+  and file response paths.
+- Dynamic Java DTO graphs remain supported, but should be measured and tuned on hot routes when
+  RSS or p99 latency is a hard requirement.
 
 ---
 

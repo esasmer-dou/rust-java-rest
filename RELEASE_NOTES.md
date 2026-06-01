@@ -1,14 +1,14 @@
-# Rust-Java REST Framework v3.1.0-rc5
+# Rust-Java REST Framework v3.1.0
 
-This release candidate makes the low-RSS path easier to use and easier to measure. The normal Java
+This stable release makes the low-RSS path easier to use and easier to measure. The normal Java
 programming model is unchanged: handlers, services, components, and DTO contracts stay in Java. Rust
 continues to handle HTTP I/O, native response paths, file streaming, overload control, and selected
 serialization-heavy fast paths.
 
-Use this release for pilots and measured production trials. The best results are on small JSON,
-raw/precomputed JSON, direct/Rust JSON writers, native cache, and file responses. Endpoints that build
-large Java DTO graphs still work normally, but they should be tuned route by route when RSS or p99 is
-important.
+Use this release when you want a bounded, low-overhead Java REST runtime with Rust handling the I/O
+plane. The strongest paths are small JSON, raw/precomputed JSON, direct/Rust JSON writers, native
+cache, and file responses. Endpoints that build large Java DTO graphs still work normally, but they
+should be tuned route by route when RSS or p99 is important.
 
 ## What's New for Users
 
@@ -68,7 +68,7 @@ reactor.rust.static-file.max-concurrent-streams=64
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc5</version>
+    <version>3.1.0</version>
 </dependency>
 ```
 

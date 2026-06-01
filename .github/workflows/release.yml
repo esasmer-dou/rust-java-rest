@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, for example 3.1.0-rc5"
+        description: "Release version, for example 3.1.0 or 3.1.0-rc5"
         required: true
         type: string
 
@@ -100,7 +100,7 @@ jobs:
         with:
           name: v${{ steps.version.outputs.version }}
           body_path: docs/release-notes/v${{ steps.version.outputs.version }}.md
-          prerelease: true
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

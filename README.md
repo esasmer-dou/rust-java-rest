@@ -1,24 +1,25 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.1.0--rc5-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Profile](https://img.shields.io/badge/profile-low--rss-green.svg)]()
-[![Status](https://img.shields.io/badge/status-performance--preview-orange.svg)]()
+[![Status](https://img.shields.io/badge/status-stable-green.svg)]()
 
 Low-latency REST framework where Rust handles HTTP I/O and Java keeps the application code.
 
-## v3.1.0-rc5 - Low-RSS File Streaming and Benchmark Visibility
+## v3.1.0 - Low-RSS File Streaming and Benchmark Visibility
 
 The programming model stays familiar: handlers, services, components, and business logic are Java.
 Rust runs the HTTP I/O plane, native response paths, file streaming, overload protection, and selected
 serialization-heavy fast paths.
 
-Treat `v3.1.0-rc5` as a measured performance preview. It is ready for pilots and controlled production
-trials, especially for small JSON, raw/precomputed JSON, direct writer, native cache, and file response
-paths. Endpoints that build large Java DTO graphs still need route-level tuning when RSS or p99 is
-critical.
+Treat `v3.1.0` as the stable line for the measured feature set. It is intended for pilots and
+production services where profile selection, bounded overload behavior, and route-level tuning are
+part of deployment. The strongest paths are small JSON, raw/precomputed JSON, direct writer, native
+cache, and file response paths. Endpoints that build large Java DTO graphs still need route-level
+tuning when RSS or p99 is critical.
 
-### What's New in rc5
+### What's New in v3.1.0
 
 - `@NativeStaticFileRoute` can register immutable file routes once and let Rust serve runtime requests.
 - Small immutable files can be inlined in native memory with `reactor.rust.static-file.inline-max-bytes`.
@@ -504,7 +505,7 @@ How to use it:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc5</version>
+    <version>3.1.0</version>
 </dependency>
 ```
 
@@ -538,7 +539,7 @@ For read-heavy payloads that repeat often, register once in Rust and return the 
 ```java
 private static final RawResponse CACHED_CONFIG =
         RawResponse.registeredJson("""
-        {"feature":"enabled","version":"3.1.0-rc5"}
+        {"feature":"enabled","version":"3.1.0"}
         """.getBytes(StandardCharsets.UTF_8));
 
 @GetMapping(value = "/config", requestType = Void.class, responseType = RawResponse.class)
@@ -901,8 +902,8 @@ queues that hide memory growth.
 
 Profile: `low-rss`, CPU limit `2`, Rust-Java memory limit `96m`, Spring Boot memory limit `512m`,
 OpenJ9/Semeru 21, concurrency `512/1000`, duration `10s`, warmup `2s`, repeat `1`, randomized order.
-This is the latest rc5 working-tree benchmark. Use repeat `3` plus idle/soak before promoting a stable
-release.
+This snapshot is the evidence baseline used for v3.1.0. For your own production gate, run repeat `3`
+plus idle/soak on the exact workload and container limits you plan to deploy.
 
 | Endpoint | Rust-Java RPS | Spring Boot RPS | Ratio | Rust P99 | Spring P99 | Rust Max Mem | Spring Max Mem |
 |----------|--------------:|----------------:|------:|---------:|-----------:|-------------:|---------------:|
@@ -1103,7 +1104,7 @@ All v2.0.0 features are included:
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.1.0-rc5</version>
+    <version>3.1.0</version>
 </dependency>
 ```
 
@@ -1723,7 +1724,7 @@ The framework provides ultra-minimal Docker images optimized for production.
 | Image | Size | Base | Runtime Memory | Description |
 |-------|------|------|----------------|-------------|
 | `rust-java-rest:ultra` | **149MB** | Debian slim | **28 MB** | Ultra-low memory (v3.0.0) |
-| `ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc5` | Debian slim | low-rss profile | RC / performance preview |
+| `ghcr.io/esasmer-dou/rust-java-rest:3.1.0` | Debian slim | low-rss profile | Stable v3.1 line |
 | `rust-java-rest:minimal` | **74MB** | Distroless | ~35 MB | Minimal (v2.0.0) |
 | `rust-java-rest:optimized` | **136MB** | Debian slim | ~35 MB | With curl |
 
@@ -1731,8 +1732,8 @@ The framework provides ultra-minimal Docker images optimized for production.
 
 ```bash
 # Ultra-low memory image (v3.0.0) - RECOMMENDED
-docker pull ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc5
-docker run -p 8080:8080 --memory=128m ghcr.io/esasmer-dou/rust-java-rest:3.1.0-rc5
+docker pull ghcr.io/esasmer-dou/rust-java-rest:3.1.0
+docker run -p 8080:8080 --memory=128m ghcr.io/esasmer-dou/rust-java-rest:3.1.0
 
 # Legacy minimal image (v2.0.0)
 docker pull ghcr.io/esasmer-dou/rust-java-rest:2.0.0
