@@ -5,12 +5,15 @@ import com.reactor.rust.annotations.DirectQueryInt;
 import com.reactor.rust.annotations.NativeStaticFileRoute;
 import com.reactor.rust.annotations.NativeStaticRoute;
 import com.reactor.rust.annotations.RawRequestData;
+import com.reactor.rust.annotations.RouteAdmission;
 import com.reactor.rust.annotations.RustRoute;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.http.FileResponse;
+import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.json.DslJsonService;
+import com.reactor.rust.json.JsonBodyProducer;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -179,6 +182,7 @@ public class BenchmarkHandler {
             responseType = HeavyResponse.class
     )
     @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteAdmission(maxConcurrent = 96, queueTimeoutMs = 75)
     public int heavy(
             ByteBuffer out,
             int offset,
@@ -197,6 +201,7 @@ public class BenchmarkHandler {
             requestType = Void.class,
             responseType = HeavyResponse.class
     )
+    @RouteAdmission(maxConcurrent = 48, queueTimeoutMs = 100)
     public int heavyDto(
             ByteBuffer out,
             int offset,
@@ -208,6 +213,28 @@ public class BenchmarkHandler {
         int itemCount = parseItemCount(query);
         HeavyResponse response = createDynamicHeavyResponse(itemCount);
         return DslJsonService.writeToBuffer(response, out, offset);
+    }
+
+    /**
+     * GET /api/v1/heavy/producer - public producer-response API for object-graph-free JSON.
+     *
+     * <p>This is the user-facing shape for hot dynamic JSON when direct handler signatures are too
+     * low-level but building a DTO list is too expensive.</p>
+     */
+    @RustRoute(
+            method = "GET",
+            path = "/api/v1/heavy/producer",
+            requestType = Void.class,
+            responseType = JsonProducerResponse.class
+    )
+    @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteAdmission(maxConcurrent = 80, queueTimeoutMs = 150)
+    public JsonProducerResponse heavyProducer(int itemCount) {
+        return JsonProducerResponse.ok(new HeavyJsonProducer(
+                itemCount,
+                System.currentTimeMillis(),
+                System.nanoTime()
+        ));
     }
 
     /**
@@ -542,6 +569,23 @@ public class BenchmarkHandler {
             return 100;
         }
         return value;
+    }
+
+    private static final class HeavyJsonProducer implements JsonBodyProducer {
+        private final int itemCount;
+        private final long timestamp;
+        private final long nanosBase;
+
+        private HeavyJsonProducer(int itemCount, long timestamp, long nanosBase) {
+            this.itemCount = itemCount;
+            this.timestamp = timestamp;
+            this.nanosBase = nanosBase;
+        }
+
+        @Override
+        public int write(ByteBuffer out, int offset) {
+            return HeavyResponseDirectWriter.write(out, offset, itemCount, timestamp, nanosBase);
+        }
     }
 
     // ==================== Heavy DTOs ====================

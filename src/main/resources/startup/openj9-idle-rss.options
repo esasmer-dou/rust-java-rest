@@ -1,0 +1,13 @@
+# OpenJ9/Semeru idle-RSS profile for very low traffic services.
+# Use only when memory is more important than CPU throughput and warm JIT performance.
+-Xms8m
+-Xmx48m
+-Xss256k
+-Xquickstart
+-Xtune:virtualized
+-Xshareclasses:none
+-XX:ActiveProcessorCount=1
+-Xnojit
+-Dfile.encoding=UTF-8
+-Djava.security.egd=file:/dev/./urandom
+

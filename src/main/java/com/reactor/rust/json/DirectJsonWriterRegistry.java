@@ -50,6 +50,10 @@ public final class DirectJsonWriterRegistry {
         MISSES.clear();
     }
 
+    public static int providerCount() {
+        return PROVIDERS.size();
+    }
+
     @SuppressWarnings("unchecked")
     public static <T> DirectJsonWriter<T> findWriter(Class<T> type) {
         if (type == null) {

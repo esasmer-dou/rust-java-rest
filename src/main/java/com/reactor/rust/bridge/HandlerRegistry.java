@@ -15,6 +15,7 @@ import com.reactor.rust.annotations.DirectQueryShort;
 import com.reactor.rust.async.AsyncHandlerExecutor;
 import com.reactor.rust.http.DirectJsonResponse;
 import com.reactor.rust.http.FileResponse;
+import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.MediaType;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
@@ -98,6 +99,7 @@ public class HandlerRegistry {
         public final boolean usesDirectQueryBoolean;
         public final boolean usesDirectQueryDouble;
         public final boolean usesDirectQueryShort;
+        public final boolean usesDirectScalarInt;
         public final boolean usesDirectBodylessOutput;
         public final boolean returnsResponseEntity;
         public final boolean isAsync;
@@ -121,6 +123,7 @@ public class HandlerRegistry {
                 boolean usesDirectQueryBoolean,
                 boolean usesDirectQueryDouble,
                 boolean usesDirectQueryShort,
+                boolean usesDirectScalarInt,
                 boolean usesDirectBodylessOutput,
                 boolean returnsResponseEntity,
                 boolean isAsync,
@@ -128,7 +131,8 @@ public class HandlerRegistry {
                 byte[] defaultContentTypeHeader) {
             this(bean, method, requestType, responseType, handle, usesAnnotatedParams, usesDirectBodyBuffer,
                     usesDirectQueryInt, usesDirectQueryLong, usesDirectQueryBoolean,
-                    usesDirectQueryDouble, usesDirectQueryShort, usesDirectBodylessOutput, returnsResponseEntity, isAsync,
+                    usesDirectQueryDouble, usesDirectQueryShort, usesDirectScalarInt,
+                    usesDirectBodylessOutput, returnsResponseEntity, isAsync,
                     customResponseStatus, defaultContentTypeHeader,
                     MethodMetadata.getOrCreate(method, requestType, responseType));
         }
@@ -145,6 +149,7 @@ public class HandlerRegistry {
                 boolean usesDirectQueryBoolean,
                 boolean usesDirectQueryDouble,
                 boolean usesDirectQueryShort,
+                boolean usesDirectScalarInt,
                 boolean usesDirectBodylessOutput,
                 boolean returnsResponseEntity,
                 boolean isAsync,
@@ -163,6 +168,7 @@ public class HandlerRegistry {
             this.usesDirectQueryBoolean = usesDirectQueryBoolean;
             this.usesDirectQueryDouble = usesDirectQueryDouble;
             this.usesDirectQueryShort = usesDirectQueryShort;
+            this.usesDirectScalarInt = usesDirectScalarInt;
             this.usesDirectBodylessOutput = usesDirectBodylessOutput;
             this.returnsResponseEntity = returnsResponseEntity;
             this.isAsync = isAsync;
@@ -180,7 +186,7 @@ public class HandlerRegistry {
                 Class<?> responseType,
                 MethodHandle handle) {
             this(bean, method, requestType, responseType, handle, false, false,
-                    false, false, false, false, false, false, false, false, 200,
+                    false, false, false, false, false, false, false, false, false, 200,
                     DEFAULT_JSON_CONTENT_TYPE_HEADER);
         }
 
@@ -229,6 +235,10 @@ public class HandlerRegistry {
         return handlerBeans;
     }
 
+    public List<HandlerDescriptor> descriptorsSnapshot() {
+        return List.copyOf(handlers.values());
+    }
+
     public void registerBean(Object bean) {
         if (!handlerBeans.contains(bean)) {
             handlerBeans.add(bean);
@@ -270,7 +280,8 @@ public class HandlerRegistry {
             // Legacy V4 handlers receive the raw JNI arguments directly.
             boolean legacyV4 = isLegacyV4(method);
             boolean directV5 = isDirectV5(method);
-            boolean directQueryInt = isDirectInt(method)
+            boolean directScalarInt = isDirectScalarInt(method);
+            boolean directQueryInt = (isDirectInt(method) || directScalarInt)
                     && (method.isAnnotationPresent(DirectQueryInt.class)
                     || method.isAnnotationPresent(DirectPathInt.class));
             boolean directQueryLong = isDirectLong(method)
@@ -295,6 +306,7 @@ public class HandlerRegistry {
                     && !directQueryBoolean
                     && !directQueryDouble
                     && !directQueryShort
+                    && !directScalarInt
                     && !directBodylessOutput
                     && (ParameterResolver.isAnnotatedMethod(method)
                     || method.getParameterCount() == 0
@@ -324,7 +336,7 @@ public class HandlerRegistry {
             handlers.put(id, new HandlerDescriptor(
                 bean, method, requestType, responseType, mh,
                 usesAnnotatedParams, directV5, directQueryInt, directQueryLong, directQueryBoolean,
-                directQueryDouble, directQueryShort, directBodylessOutput,
+                directQueryDouble, directQueryShort, directScalarInt, directBodylessOutput,
                 returnsResponseEntity, isAsync, customResponseStatus,
                 defaultContentTypeHeader
             ));
@@ -342,6 +354,7 @@ public class HandlerRegistry {
                         + " directQueryBoolean=" + directQueryBoolean
                         + " directQueryDouble=" + directQueryDouble
                         + " directQueryShort=" + directQueryShort
+                        + " directScalarInt=" + directScalarInt
                         + " directBodylessOutput=" + directBodylessOutput
                         + " returnsResponseEntity=" + returnsResponseEntity
                     + " isAsync=" + isAsync
@@ -393,6 +406,13 @@ public class HandlerRegistry {
                 && parameterTypes[0] == ByteBuffer.class
                 && parameterTypes[1] == int.class
                 && parameterTypes[2] == int.class;
+    }
+
+    private static boolean isDirectScalarInt(Method method) {
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        return parameterTypes.length == 1
+                && parameterTypes[0] == int.class
+                && JsonProducerResponse.class.isAssignableFrom(method.getReturnType());
     }
 
     private static boolean isDirectLong(Method method) {
@@ -526,7 +546,10 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
-            return processDirectResult(desc, desc.handle.invoke(out, offset, queryInt), out, offset);
+            Object result = desc.usesDirectScalarInt
+                    ? desc.handle.invoke(queryInt)
+                    : desc.handle.invoke(out, offset, queryInt);
+            return processDirectResult(desc, result, out, offset);
         } catch (Throwable e) {
             return writeError(out, offset, e.getMessage());
         }
@@ -728,6 +751,16 @@ public class HandlerRegistry {
             );
         }
 
+        if (result instanceof JsonProducerResponse producerResponse) {
+            return writeJsonProducerResponse(
+                    producerResponse,
+                    producerResponse.getStatusCode(),
+                    EMPTY_BYTES,
+                    out,
+                    offset
+            );
+        }
+
         if (result instanceof ResponseEntity<?> responseEntity) {
             return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
         }
@@ -863,6 +896,16 @@ public class HandlerRegistry {
             return writeDirectJsonResponse(
                     directJsonResponse,
                     directJsonResponse.getStatusCode(),
+                    EMPTY_BYTES,
+                    out,
+                    offset
+            );
+        }
+
+        if (result instanceof JsonProducerResponse producerResponse) {
+            return writeJsonProducerResponse(
+                    producerResponse,
+                    producerResponse.getStatusCode(),
                     EMPTY_BYTES,
                     out,
                     offset
@@ -1312,6 +1355,10 @@ public class HandlerRegistry {
             return writeDirectJsonResponse(directJsonResponse, statusCode, headerBytes, out, offset);
         }
 
+        if (body instanceof JsonProducerResponse producerResponse) {
+            return writeJsonProducerResponse(producerResponse, statusCode, headerBytes, out, offset);
+        }
+
         int bodyOffset = offset + frameAndHeadersSize;
         int bodyLen = DslJsonService.writeToBuffer(body, out, bodyOffset);
         if (bodyLen < 0) {
@@ -1393,6 +1440,42 @@ public class HandlerRegistry {
         }
         if (directHeaderBytes.length > 0) {
             out.put(directHeaderBytes);
+        }
+        return totalSize;
+    }
+
+    private int writeJsonProducerResponse(
+            JsonProducerResponse response,
+            int statusCode,
+            byte[] entityHeaderBytes,
+            ByteBuffer out,
+            int offset
+    ) {
+        byte[] producerHeaderBytes = entityHeaderBytes.length == 0
+                ? response.getEncodedHeadersWithDefaultJson()
+                : response.getEncodedHeaders();
+        int headersLen = entityHeaderBytes.length + producerHeaderBytes.length;
+        int frameAndHeadersSize = RESPONSE_FRAME_HEADER_SIZE + headersLen;
+        int bodyOffset = offset + frameAndHeadersSize;
+        int bodyLen = response.writeBody(out, bodyOffset);
+        if (bodyLen < 0) {
+            return -(frameAndHeadersSize + -bodyLen);
+        }
+        int totalSize = frameAndHeadersSize + bodyLen;
+        if (totalSize > out.capacity() - offset) {
+            return -totalSize;
+        }
+
+        out.position(offset);
+        out.put(RESPONSE_FRAME_MAGIC);
+        out.putShort((short) statusCode);
+        out.putInt(headersLen);
+        out.putInt(bodyLen);
+        if (entityHeaderBytes.length > 0) {
+            out.put(entityHeaderBytes);
+        }
+        if (producerHeaderBytes.length > 0) {
+            out.put(producerHeaderBytes);
         }
         return totalSize;
     }
@@ -1801,6 +1884,16 @@ public class HandlerRegistry {
             return writeDirectJsonResponse(
                     directJsonResponse,
                     directJsonResponse.getStatusCode(),
+                    EMPTY_BYTES,
+                    out,
+                    offset
+            );
+        }
+
+        if (result instanceof JsonProducerResponse producerResponse) {
+            return writeJsonProducerResponse(
+                    producerResponse,
+                    producerResponse.getStatusCode(),
                     EMPTY_BYTES,
                     out,
                     offset

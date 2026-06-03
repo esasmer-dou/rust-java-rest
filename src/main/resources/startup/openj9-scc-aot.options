@@ -1,0 +1,8 @@
+# OpenJ9/Semeru startup profile for container deployments.
+# Keep the cache path writable and versioned per app/JDK/runtime image.
+-Xshareclasses:name=rust-java-rest-${APP_NAME}-${APP_VERSION},cacheDir=/opt/openj9-scc,nonfatal
+-Xscmx64m
+-Xscmaxaot32m
+-Xtune:virtualized
+-Dfile.encoding=UTF-8
+-Dreactor.native.extract.cache.enabled=true

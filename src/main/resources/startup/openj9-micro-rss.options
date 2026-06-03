@@ -1,0 +1,12 @@
+# OpenJ9/Semeru micro-RSS profile for small REST or REST+native-Dubbo services.
+# Keeps JVM internal worker decisions aligned with small Kubernetes CPU limits.
+-Xms8m
+-Xmx48m
+-Xss256k
+-Xquickstart
+-Xtune:virtualized
+-Xshareclasses:none
+-XX:ActiveProcessorCount=1
+-Dfile.encoding=UTF-8
+-Djava.security.egd=file:/dev/./urandom
+

@@ -1,6 +1,7 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.http.DirectJsonResponse;
+import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.json.JsonBufferWriter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,12 @@ class RoutePlanRegistryTest {
             return DirectJsonResponse.ok(
                     "ok",
                     (value, out, offset) -> JsonBufferWriter.reusable(out, offset).string(value).result()
+            );
+        }
+
+        public JsonProducerResponse producerJson() {
+            return JsonProducerResponse.ok(
+                    (out, offset) -> JsonBufferWriter.reusable(out, offset).string("ok").result()
             );
         }
     }
@@ -104,6 +111,28 @@ class RoutePlanRegistryTest {
         assertTrue(json.contains("\"optimized\":true"));
         assertTrue(json.contains("\"compiled_invoker\":true"));
         assertTrue(json.contains("\"exact_invoker\":true"));
+    }
+
+    @Test
+    void routePlanJsonShowsProducerJsonResponseStrategy() throws Exception {
+        Method method = RouteHandlers.class.getDeclaredMethod("producerJson");
+        RouteDef route = new RouteDef("GET", "/producer-json", 14, Void.class.getName(),
+                JsonProducerResponse.class.getName(), true, false, false, false, false, 0, 0);
+        RouteExecutionPlan plan = RouteExecutionPlan.from(route, new RouteHandlers(), method,
+                false, false,
+                false, false, false, false, false,
+                false, false, false, false, false,
+                false,
+                false,
+                true);
+
+        RoutePlanRegistry registry = RoutePlanRegistry.getInstance();
+        registry.add(plan);
+
+        String json = registry.toJson();
+        assertTrue(json.contains("\"strategy\":\"DIRECT_JSON_RESPONSE\""));
+        assertTrue(json.contains("\"direct_json_response\":true"));
+        assertTrue(json.contains("\"optimized\":true"));
     }
 
     @Test

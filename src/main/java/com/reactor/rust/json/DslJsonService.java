@@ -92,6 +92,12 @@ public final class DslJsonService {
 
     private DslJsonService() {}
 
+    public static void warmup() {
+        JsonWriter writer = WRITER_CACHE.get();
+        writer.reset();
+        DirectJsonWriterRegistry.providerCount();
+    }
+
     private static JsonWriter newWriter() {
         return DSL_JSON.newWriter(WRITER_INITIAL_BYTES);
     }

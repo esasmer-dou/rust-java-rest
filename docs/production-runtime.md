@@ -10,22 +10,51 @@ This page explains the runtime knobs you normally touch in production. The short
 
 | Profile | Use when | Practical note |
 |---------|----------|----------------|
-| `low-rss` | Memory is the main constraint | Good default for pilots and small/medium APIs |
-| `balanced` | Java handler waits on DB/RPC or p99 needs more headroom | More memory than `low-rss`, smoother under blocking work |
+| `micro-rest` | Very small REST service, Dubbo off, memory first | Lowest REST preset; bounded `503` under heavy route pressure |
+| `micro-dubbo` | Very small REST service with native Dubbo consumer enabled | Prefer static providers; pair with OpenJ9 micro JVM options |
+| `low-rss` | General memory-first REST service | More headroom than `micro-rest`, still conservative |
+| `balanced-dubbo` | Dubbo/RPC routes need smoother p99 | Higher RSS than `micro-dubbo`, more worker/connection headroom |
 | `throughput` | Dedicated high-RPS service with larger pod budget | More retained buffers/workers |
-| `micro-rss` / `ultra-low-rss` | Very small services or experiments | Too strict for high-concurrency downloads |
+| `fast-start` | Startup-sensitive service | Startup acceleration defaults; not a memory preset by itself |
+| `ready-low-latency` | First requests should be warm | Prewarm-oriented; may retain more warm state |
 
 Recommended first production-like baseline:
 
 ```properties
-reactor.runtime.profile=low-rss
-reactor.rust.http.max-connections=1024
-reactor.rust.http.max-inflight-response-bytes=16777216
+reactor.runtime.profile=micro-rest
+reactor.rust.http.max-connections=512
+reactor.rust.http.max-inflight-response-bytes=8388608
 reactor.rust.file-stream.chunk-bytes=65536
 reactor.rust.static-file.max-concurrent-streams=64
+reactor.rust.native-cache.max-entries=0
+reactor.rust.native-cache.max-bytes=0
 reactor.rust.log.level=error
 reactor.rust.java.log.level=warn
 ```
+
+For `micro-rest` and `micro-dubbo`, properties alone are not enough. The JVM must also be prevented
+from sizing internal workers from a large host CPU count:
+
+```bash
+-Xms8m -Xmx48m -Xss256k -Xquickstart -Xtune:virtualized -Xshareclasses:none -XX:ActiveProcessorCount=1
+```
+
+Use `startup/openj9-micro-rss.options` as the starting point. For very low traffic services only,
+`startup/openj9-idle-rss.options` adds `-Xnojit`; this can reduce memory further, but it trades away
+JIT-optimized Java execution and must be benchmarked before production use.
+
+Measured `v3.2.0` release-gate RSS guidance:
+
+| Service shape | Starting pod memory |
+|---------------|--------------------:|
+| Tiny low-traffic REST, no RPC/DB | 96 MiB |
+| Small REST with normal JSON | 128 MiB |
+| REST + native Dubbo consumer | 128-160 MiB |
+| Heavy dynamic JSON | 160 MiB or more, then measure |
+| Large file/download routes | Size by stream concurrency and file chunk settings |
+
+Do not set the pod limit exactly at the best idle RSS. Leave headroom for native buffers, class
+metadata, thread stacks, request bursts, and JIT/runtime state.
 
 ## Response Types
 

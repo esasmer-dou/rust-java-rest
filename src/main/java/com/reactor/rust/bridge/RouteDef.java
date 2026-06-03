@@ -48,6 +48,8 @@ public class RouteDef {
     public final boolean directBodylessOutput;
     public final int nativeStaticResponseId;
     public final int nativeStaticFileResponseId;
+    public final int admissionMaxConcurrent;
+    public final int admissionQueueTimeoutMs;
 
     public RouteDef(String httpMethod,
                     String path,
@@ -249,6 +251,74 @@ public class RouteDef {
                     boolean directBodylessOutput,
                     int nativeStaticResponseId,
                     int nativeStaticFileResponseId) {
+        this(httpMethod, path, handlerId, requestType, responseType,
+                bodyless, needsPathParams, needsQueryParams, needsHeaders, asyncRoute,
+                maxRequestBodyBytes, maxResponseBodyBytes,
+                directQueryIntName, directQueryIntDefault, directQueryIntMin, directQueryIntMax,
+                directQueryLongName, directQueryLongDefault, directQueryLongMin, directQueryLongMax,
+                directQueryBooleanName, directQueryBooleanDefault,
+                directQueryDoubleName, directQueryDoubleDefault, directQueryDoubleMin, directQueryDoubleMax,
+                directQueryShortName, directQueryShortDefault, directQueryShortMin, directQueryShortMax,
+                directPathIntName, directPathIntMin, directPathIntMax,
+                directPathLongName, directPathLongMin, directPathLongMax,
+                directPathBooleanName,
+                directPathDoubleName, directPathDoubleMin, directPathDoubleMax,
+                directPathShortName, directPathShortMin, directPathShortMax,
+                directBodylessOutput,
+                nativeStaticResponseId,
+                nativeStaticFileResponseId,
+                0,
+                0);
+    }
+
+    public RouteDef(String httpMethod,
+                    String path,
+                    int handlerId,
+                    String requestType,
+                    String responseType,
+                    boolean bodyless,
+                    boolean needsPathParams,
+                    boolean needsQueryParams,
+                    boolean needsHeaders,
+                    boolean asyncRoute,
+                    long maxRequestBodyBytes,
+                    long maxResponseBodyBytes,
+                    String directQueryIntName,
+                    int directQueryIntDefault,
+                    int directQueryIntMin,
+                    int directQueryIntMax,
+                    String directQueryLongName,
+                    long directQueryLongDefault,
+                    long directQueryLongMin,
+                    long directQueryLongMax,
+                    String directQueryBooleanName,
+                    boolean directQueryBooleanDefault,
+                    String directQueryDoubleName,
+                    double directQueryDoubleDefault,
+                    double directQueryDoubleMin,
+                    double directQueryDoubleMax,
+                    String directQueryShortName,
+                    short directQueryShortDefault,
+                    short directQueryShortMin,
+                    short directQueryShortMax,
+                    String directPathIntName,
+                    int directPathIntMin,
+                    int directPathIntMax,
+                    String directPathLongName,
+                    long directPathLongMin,
+                    long directPathLongMax,
+                    String directPathBooleanName,
+                    String directPathDoubleName,
+                    double directPathDoubleMin,
+                    double directPathDoubleMax,
+                    String directPathShortName,
+                    short directPathShortMin,
+                    short directPathShortMax,
+                    boolean directBodylessOutput,
+                    int nativeStaticResponseId,
+                    int nativeStaticFileResponseId,
+                    int admissionMaxConcurrent,
+                    int admissionQueueTimeoutMs) {
         this.httpMethod = httpMethod;
         this.path = path;
         this.handlerId = handlerId;
@@ -295,6 +365,8 @@ public class RouteDef {
         this.directBodylessOutput = directBodylessOutput;
         this.nativeStaticResponseId = nativeStaticResponseId;
         this.nativeStaticFileResponseId = nativeStaticFileResponseId;
+        this.admissionMaxConcurrent = Math.max(0, admissionMaxConcurrent);
+        this.admissionQueueTimeoutMs = Math.max(0, admissionQueueTimeoutMs);
     }
 
     private static boolean isVoidRequestType(String requestType) {

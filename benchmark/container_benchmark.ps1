@@ -4,7 +4,7 @@ param(
     [string] $Warmup = "5s",
     [int] $Threads = 4,
     [double] $CpuLimit = 2.0,
-    [ValidateSet("micro-rss", "ultra-low-rss", "low-rss", "balanced", "throughput")]
+    [ValidateSet("micro-rest", "micro-rest-plus", "micro-rss", "ultra-low-rss", "low-rss", "balanced", "throughput")]
     [string] $RuntimeProfile = "low-rss",
     [string] $FrameworkMemory = "",
     [string] $SpringMemory = "",
@@ -13,6 +13,8 @@ param(
     [bool] $RandomizeOrder = $true,
     [int] $RandomSeed = 0,
     [string] $EndpointClasses = "",
+    [ValidateSet("current", "cpu1", "cpu1-nojit")]
+    [string] $FrameworkJvmPreset = "current",
     [string] $FrameworkJavaOptsAppend = "",
     [switch] $SkipBuild,
     [switch] $KeepContainers
@@ -72,10 +74,101 @@ function Join-JavaOptions {
     return (($Parts | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " ")
 }
 
+function Get-FrameworkJvmPresetOptions {
+    param([string] $Preset)
+
+    switch ($Preset) {
+        "current" {
+            return ""
+        }
+        "cpu1" {
+            return Join-JavaOptions -Parts @(
+                "-Xss256k",
+                "-XX:ActiveProcessorCount=1"
+            )
+        }
+        "cpu1-nojit" {
+            return Join-JavaOptions -Parts @(
+                "-Xss256k",
+                "-XX:ActiveProcessorCount=1",
+                "-Xnojit"
+            )
+        }
+        default {
+            throw "Unknown framework JVM preset: $Preset"
+        }
+    }
+}
+
 function Get-RuntimeProfileConfig {
     param([string] $Profile)
 
     switch ($Profile) {
+        "micro-rest" {
+            return [PSCustomObject]@{
+                Description = "small-pod REST profile with one JNI worker, narrow queues, no native cache, and controlled overload"
+                FrameworkMemory = "80m"
+                SpringMemory = "512m"
+                FrameworkJavaOpts = Join-JavaOptions -Parts @(
+                    "-Xms8m",
+                    "-Xmx40m",
+                    "-Xquickstart",
+                    "-Xtune:virtualized",
+                    "-Xshareclasses:none",
+                    "-Dreactor.runtime.profile=micro-rest",
+                    "-Dreactor.rust.log.level=error",
+                    "-Dreactor.rust.java.log.level=warn",
+                    "-Dfile.encoding=UTF-8",
+                    "-Djava.security.egd=file:/dev/./urandom"
+                )
+                SpringJavaOpts = Join-JavaOptions -Parts @(
+                    "-Xms64m",
+                    "-Xmx256m",
+                    "-Xquickstart",
+                    "-Xtune:virtualized",
+                    "-Xshareclasses:none",
+                    "-Dserver.port=8080",
+                    "-Dlogging.level.root=WARN",
+                    "-Dfile.encoding=UTF-8",
+                    "-Djava.security.egd=file:/dev/./urandom"
+                )
+            }
+        }
+        "micro-rest-plus" {
+            return [PSCustomObject]@{
+                Description = "micro-rest with measured route admission headroom for heavy direct/dynamic JSON benchmark routes"
+                FrameworkMemory = "80m"
+                SpringMemory = "512m"
+                FrameworkJavaOpts = Join-JavaOptions -Parts @(
+                    "-Xms8m",
+                    "-Xmx40m",
+                    "-Xquickstart",
+                    "-Xtune:virtualized",
+                    "-Xshareclasses:none",
+                    "-Dreactor.runtime.profile=micro-rest",
+                    "-Dreactor.rust.log.level=error",
+                    "-Dreactor.rust.java.log.level=warn",
+                    "-Dreactor.rust.http.max-connections=768",
+                    "-Dreactor.rust.route-admission.get.api.v1.heavy.max-concurrent=128",
+                    "-Dreactor.rust.route-admission.get.api.v1.heavy.queue-timeout-ms=125",
+                    "-Dreactor.rust.route-admission.get.api.v1.heavy.dto.max-concurrent=64",
+                    "-Dreactor.rust.route-admission.get.api.v1.heavy.dto.queue-timeout-ms=125",
+                    "-Dfile.encoding=UTF-8",
+                    "-Djava.security.egd=file:/dev/./urandom"
+                )
+                SpringJavaOpts = Join-JavaOptions -Parts @(
+                    "-Xms64m",
+                    "-Xmx256m",
+                    "-Xquickstart",
+                    "-Xtune:virtualized",
+                    "-Xshareclasses:none",
+                    "-Dserver.port=8080",
+                    "-Dlogging.level.root=WARN",
+                    "-Dfile.encoding=UTF-8",
+                    "-Djava.security.egd=file:/dev/./urandom"
+                )
+            }
+        }
         "micro-rss" {
             return [PSCustomObject]@{
                 Description = "memory-first profile for cache/raw read-heavy endpoints; JIT disabled, minimal Java/Rust workers"
@@ -320,6 +413,13 @@ function Get-RuntimeProfileConfig {
 }
 
 $profileConfig = Get-RuntimeProfileConfig -Profile $RuntimeProfile
+$frameworkPresetOptions = Get-FrameworkJvmPresetOptions -Preset $FrameworkJvmPreset
+if (-not [string]::IsNullOrWhiteSpace($frameworkPresetOptions)) {
+    $profileConfig.FrameworkJavaOpts = Join-JavaOptions -Parts @(
+        $profileConfig.FrameworkJavaOpts,
+        $frameworkPresetOptions
+    )
+}
 if (-not [string]::IsNullOrWhiteSpace($FrameworkJavaOptsAppend)) {
     $profileConfig.FrameworkJavaOpts = Join-JavaOptions -Parts @(
         $profileConfig.FrameworkJavaOpts,
@@ -862,6 +962,7 @@ function Write-Summary {
     $lines.Add("- Date: $(Get-Date -Format o)")
     $lines.Add("- JVM runtime: ibm-semeru-runtimes:open-21-jre-jammy")
     $lines.Add("- runtime profile: $RuntimeProfile ($($profileConfig.Description))")
+    $lines.Add("- framework JVM preset: $FrameworkJvmPreset")
     $lines.Add("- CPU limit per service: $CpuLimit")
     $lines.Add("- Framework memory limit: $FrameworkMemory")
     $lines.Add("- Spring memory limit: $SpringMemory")
@@ -892,6 +993,7 @@ function Write-Summary {
         "small-json",
         "dynamic-dto-json",
         "direct-json-writer",
+        "producer-json",
         "rust-json-writer",
         "raw-json",
         "native-cache-json",
@@ -1079,6 +1181,15 @@ try {
             Class = "direct-json-writer"
             Method = "GET"
             RustPath = "/api/v1/heavy?items=100"
+            SpringPath = ""
+            Targets = @("rust_java")
+            Lua = "/results/get_status.lua"
+        },
+        [PSCustomObject]@{
+            Name = "heavy100_producer_json"
+            Class = "producer-json"
+            Method = "GET"
+            RustPath = "/api/v1/heavy/producer?items=100"
             SpringPath = ""
             Targets = @("rust_java")
             Lua = "/results/get_status.lua"

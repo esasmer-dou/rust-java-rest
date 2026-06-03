@@ -5,6 +5,7 @@ import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RoutePlanRegistry;
 import com.reactor.rust.http.RawResponse;
+import com.reactor.rust.startup.StartupTimeline;
 
 import java.lang.reflect.Method;
 
@@ -132,6 +133,11 @@ public class MetricsHandler {
     @GetMapping(value = "/diagnostics/routes", requestType = Void.class, responseType = RawResponse.class)
     public RawResponse getRoutePlans() {
         return RawResponse.text(RoutePlanRegistry.getInstance().toJson(), "application/json; charset=utf-8");
+    }
+
+    @GetMapping(value = "/diagnostics/startup", requestType = Void.class, responseType = RawResponse.class)
+    public RawResponse getStartupDiagnostics() {
+        return RawResponse.text(StartupTimeline.toJson(), "application/json; charset=utf-8");
     }
 
     /**

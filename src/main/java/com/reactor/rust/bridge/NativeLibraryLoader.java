@@ -1,12 +1,18 @@
 package com.reactor.rust.bridge;
 
+import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.startup.StartupTimeline;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Locale;
 
 /**
@@ -42,31 +48,37 @@ public final class NativeLibraryLoader {
         if (loaded) {
             return;
         }
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("native.load")) {
 
-        // Check for custom library path (e.g., for development)
-        String customPath = System.getProperty("rust.lib.path");
-        if (customPath != null) {
-            loadFromCustomPath(customPath);
-            loaded = true;
-            return;
-        }
-
-        // Check for java.library.path
-        String javaLibPath = System.getProperty("java.library.path");
-        if (javaLibPath != null && !javaLibPath.isEmpty()) {
-            try {
-                System.loadLibrary(LIBRARY_NAME);
+            // Check for custom library path (e.g., for development)
+            String customPath = System.getProperty("rust.lib.path");
+            if (customPath != null) {
+                loadFromCustomPath(customPath);
                 loaded = true;
-                FrameworkLogger.info("[NativeLibraryLoader] Loaded from java.library.path: " + LIBRARY_NAME);
                 return;
-            } catch (UnsatisfiedLinkError e) {
-                // Fall through to JAR extraction
             }
-        }
 
-        // Extract from JAR resources
-        loadFromResources();
-        loaded = true;
+            // Check for java.library.path
+            String javaLibPath = System.getProperty("java.library.path");
+            boolean tryJavaLibraryPath = PropertiesLoader.getBoolean(
+                    "reactor.native.load.java-library-path-first",
+                    true
+            );
+            if (tryJavaLibraryPath && javaLibPath != null && !javaLibPath.isEmpty()) {
+                try {
+                    System.loadLibrary(LIBRARY_NAME);
+                    loaded = true;
+                    FrameworkLogger.info("[NativeLibraryLoader] Loaded from java.library.path: " + LIBRARY_NAME);
+                    return;
+                } catch (UnsatisfiedLinkError e) {
+                    // Fall through to JAR extraction
+                }
+            }
+
+            // Extract from JAR resources
+            loadFromResources();
+            loaded = true;
+        }
     }
 
     /**
@@ -96,14 +108,16 @@ public final class NativeLibraryLoader {
         FrameworkLogger.info("[NativeLibraryLoader] Looking for resource: " + resourcePath);
 
         // Extract library from JAR to temp file
-        Path tempFile = extractLibrary(resourcePath, libraryFileName);
+        Path tempFile = extractLibrary(resourcePath, libraryFileName, platform);
 
         // Load the extracted library
         System.load(tempFile.toString());
         FrameworkLogger.info("[NativeLibraryLoader] Loaded from extracted: " + tempFile);
 
-        // Delete on exit (best effort)
-        tempFile.toFile().deleteOnExit();
+        if (!isExtractionCacheEnabled()) {
+            // Delete on exit (best effort). Cached native files are intentionally kept for faster cold starts.
+            tempFile.toFile().deleteOnExit();
+        }
     }
 
     /**
@@ -128,10 +142,9 @@ public final class NativeLibraryLoader {
     /**
      * Extract library from JAR resources to temp file.
      */
-    private static Path extractLibrary(String resourcePath, String libraryFileName) {
+    private static Path extractLibrary(String resourcePath, String libraryFileName, Platform platform) {
         try (InputStream is = NativeLibraryLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
-                Platform platform = detectPlatform();
                 String macOSNote = platform.os == OsType.MACOS
                     ? "\n\nmacOS support is coming soon! For now, you can build from source:\n" +
                       "  1. Install Rust: https://rustup.rs\n" +
@@ -147,13 +160,18 @@ public final class NativeLibraryLoader {
                 );
             }
 
+            byte[] bytes = is.readAllBytes();
+            if (isExtractionCacheEnabled()) {
+                return extractToCache(bytes, libraryFileName, platform);
+            }
+
             // Create temp file with correct extension
             String prefix = LIBRARY_NAME;
             String suffix = libraryFileName.substring(libraryFileName.lastIndexOf('.'));
             Path tempFile = Files.createTempFile(prefix, suffix);
 
             // Copy library to temp file
-            Files.copy(is, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            Files.write(tempFile, bytes);
 
             // Make executable (for Unix-like systems)
             try {
@@ -166,6 +184,63 @@ public final class NativeLibraryLoader {
 
         } catch (IOException e) {
             throw new UnsatisfiedLinkError("Failed to extract native library: " + e.getMessage());
+        }
+    }
+
+    private static boolean isExtractionCacheEnabled() {
+        return PropertiesLoader.getBoolean("reactor.native.extract.cache.enabled", true);
+    }
+
+    private static Path extractToCache(byte[] bytes, String libraryFileName, Platform platform) throws IOException {
+        String hash = sha256(bytes);
+        String cacheDir = PropertiesLoader.get(
+                "reactor.native.extract.cache-dir",
+                Path.of(System.getProperty("user.home"), ".reactor", "native").toString()
+        );
+        if (cacheDir == null || cacheDir.isBlank()) {
+            cacheDir = Path.of(System.getProperty("user.home"), ".reactor", "native").toString();
+        }
+        Path targetDir = Path.of(cacheDir)
+                .resolve("abi-" + NativeBridge.EXPECTED_NATIVE_ABI_VERSION)
+                .resolve(platform.toString())
+                .resolve(hash.substring(0, 16));
+        Files.createDirectories(targetDir);
+        Path target = targetDir.resolve(libraryFileName);
+
+        if (isValidCachedFile(target, bytes.length, hash)) {
+            FrameworkLogger.info("[NativeLibraryLoader] Using cached native library: " + target);
+            return target;
+        }
+
+        Path temp = Files.createTempFile(targetDir, libraryFileName, ".tmp");
+        Files.write(temp, bytes);
+        try {
+            temp.toFile().setExecutable(true);
+        } catch (Exception ignored) {
+            // Ignore on Windows
+        }
+        try {
+            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+        FrameworkLogger.info("[NativeLibraryLoader] Cached native library: " + target);
+        return target;
+    }
+
+    private static boolean isValidCachedFile(Path target, int expectedSize, String expectedHash) throws IOException {
+        if (!Files.exists(target) || Files.size(target) != expectedSize) {
+            return false;
+        }
+        return expectedHash.equals(sha256(Files.readAllBytes(target)));
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest is not available", e);
         }
     }
 

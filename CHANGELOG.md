@@ -9,6 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+---
+
+## [3.2.0] - 2026-06-03
+
+### Added
+
+- Added startup phase diagnostics via `/diagnostics/startup` and Prometheus gauges.
+- Added optional `META-INF/reactor/components.idx` support to bypass component classpath scanning.
+- Added optional `META-INF/reactor/routes.idx` validation as a startup production gate.
+- Added native DLL/SO extraction cache keyed by ABI, platform, and SHA-256.
+- Added `fast-start` and `ready-low-latency` runtime profiles.
+- Added readiness prewarm hooks for handler descriptors, DSL-JSON writer state, and direct writer lookup.
+- Added OpenJ9/Semeru startup tuning docs and a startup benchmark runner.
+- Added tests for startup timeline metrics/JSON, startup index parsing, and index generation.
+- Added optional OpenJ9 CRIU/Semeru InstantOn checkpoint hook and Docker Desktop image flow.
+- Added `ready_since_restore_ms` startup diagnostics for CRIU-restored containers.
+- Added WSL/Linux InstantOn benchmark script for normal vs restored container startup comparison.
+- Added `@RouteAdmission` for route-level native admission control before the JNI worker queue.
+- Added route admission matrix benchmark runner and memory proof runner.
+- Added `JsonProducerResponse` and `JsonBodyProducer` for heavy dynamic JSON without building Java
+  DTO list graphs.
+- Added direct primitive query/path binding expansion for hot numeric parameters.
+- Added user-facing REST cookbook with GET, GET-by-id, POST, PUT, PATCH, and DELETE examples.
+- Added richer profile/RSS decision guidance for `micro-rest`, `micro-dubbo`, `low-rss`,
+  `balanced-dubbo`, `throughput`, `fast-start`, and `ready-low-latency`.
+- Added lean production artifact behavior: the default jar excludes sample/benchmark classes and
+  sample code is attached as a separate classifier.
+
+### Changed
+
+- Route index validation now detects both missing routes and unexpected runtime routes.
+- Native extraction cache now verifies cached file content by SHA-256, not only by file size.
+- Classpath component scanning loads candidate classes without static initialization.
+- Native ABI is now `20`; use the DLL/SO from this package.
+- Maven package version bumped to `3.2.0`.
+- README and release notes now avoid broad "always faster" or "always 50 MiB" claims and describe
+  workload-specific profile decisions.
+- Heavy producer sample route now uses measured route admission defaults
+  `maxConcurrent=80`, `queueTimeoutMs=150`.
+- `RawResponse`, `JsonProducerResponse`, and `FileResponse` cache encoded headers to avoid repeated
+  UTF-8/header encoding work on hot response paths.
+
+### Validation
+
+- `mvn -q test`
+- `mvn -q -DskipTests package`
+- Full repeat benchmark: `micro-rest-plus`, endpoint classes
+  `small-json-legacy,small-json-direct,dynamic-dto-json,producer-json,direct-json-writer,raw-json,native-cache-json,file-static`,
+  concurrency `64/256/512/1000`, repeat `3`.
+- Idle/soak memory proof with mixed small/raw/heavy/cache/export endpoints.
+- Route admission full matrix for producer JSON at c256/c512 with `64/80/96/128` concurrency limits
+  and `75/125/150 ms` queue timeouts.
+
+### Benchmark Notes
+
+- At c512, small JSON averaged `9153 RPS`, `115.83 ms` p99, and `68.75 MiB` sampled RSS versus
+  Spring Boot `3459 RPS`, `368.60 ms` p99, and `314.33 MiB` sampled RSS.
+- At c512, raw/precomputed JSON averaged `9659 RPS`, `114.80 ms` p99, and `68.56 MiB` sampled RSS
+  versus Spring Boot `3875 RPS`, `623.98 ms` p99, and `274.13 MiB` sampled RSS.
+- At c512, dynamic DTO JSON averaged `3338 RPS`, `309.68 ms` p99, and `67.82 MiB` sampled RSS
+  versus Spring Boot `1524 RPS`, `776.47 ms` p99, and `309.98 MiB` sampled RSS. Dynamic DTO remains
+  supported, but the Java object graph cost is still real.
+- Memory proof baseline was `66.11 MiB`, peak was `91.35 MiB`, and final idle RSS was `75.59 MiB`.
+- For heavy dynamic JSON and high concurrency, release guidance is to use route admission and at
+  least `128 MiB` pod headroom unless a service-specific soak test proves lower memory is safe.
+
 ---
 
 ## [3.1.0] - 2026-06-01
@@ -286,6 +354,8 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[3.2.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.1.0...v3.2.0
+[3.1.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/esasmer-dou/rust-java-rest/releases/tag/v1.0.0

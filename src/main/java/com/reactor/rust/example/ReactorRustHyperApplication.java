@@ -12,6 +12,9 @@ import com.reactor.rust.example.handler.FileUploadHandler;
 import com.reactor.rust.example.handler.OrderHandler;
 import com.reactor.rust.example.handler.UserHandler;
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.startup.StartupPrewarmer;
+import com.reactor.rust.startup.StartupTimeline;
+import com.reactor.rust.startup.InstantOnCheckpoint;
 import com.reactor.rust.metrics.MetricsHandler;
 import com.reactor.rust.websocket.WebSocketRegistry;
 import com.reactor.rust.staticfiles.StaticFileScanner;
@@ -55,31 +58,49 @@ import com.reactor.rust.staticfiles.StaticFileScanner;
 public class ReactorRustHyperApplication {
 
     public static void main(String[] args) {
+        StartupTimeline.mark("main.enter");
         FrameworkLogger.info("[JAVA] Starting Rust-Java REST Framework...");
 
         // 1. Load properties
-        PropertiesLoader.load();
-        RuntimeProfiles.apply();
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("properties.load")) {
+            PropertiesLoader.load();
+        }
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("runtime.profile")) {
+            RuntimeProfiles.apply();
+        }
 
         // 2. Initialize DI Container (ZERO runtime overhead)
         BeanContainer container = initDIContainer();
 
         // 3. Register handlers with DI FIRST (before route scanning)
-        registerHandlers(container);
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("handlers.register")) {
+            registerHandlers(container);
+        }
 
         // 4. Scan and register routes AFTER handlers are registered
         RouteScanner.scanAndRegister();
 
         // 5. Scan and register WebSocket handlers
-        registerWebSocketHandlers(container);
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("websocket.register")) {
+            registerWebSocketHandlers(container);
+        }
 
         // 6. Scan and register static file handlers
-        StaticFileScanner.scanAndRegister(container.getBeansOfType(Object.class));
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("static_files.register")) {
+            StaticFileScanner.scanAndRegister(container.getBeansOfType(Object.class));
+        }
 
         // 7. Configure native runtime before starting Hyper.
-        NativeBridge.configureRuntimeFromProperties();
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("native.configure")) {
+            NativeBridge.configureRuntimeFromProperties();
+        }
+
+        StartupPrewarmer.prewarmIfEnabled();
 
         FrameworkLogger.info("[JAVA] Context initialized.");
+
+        // Optional OpenJ9/Semeru CRIU checkpoint. Must stay before HTTP sockets are opened.
+        InstantOnCheckpoint.checkpointIfEnabled();
 
         // 8. Start HTTP server
         int port = PropertiesLoader.getInt("server.port", 8080);
@@ -93,7 +114,11 @@ public class ReactorRustHyperApplication {
                 container.shutdown();
             }
         }, "rust-hyper-shutdown"));
-        NativeBridge.startHttpServer(port);
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("http.start")) {
+            NativeBridge.startHttpServer(port);
+        }
+        StartupTimeline.ready();
+        FrameworkLogger.info("[JAVA] Startup ready in " + StartupTimeline.readyMillis() + " ms");
 
         // 9. Keep JVM alive - Rust server runs in separate thread
         try {
@@ -114,10 +139,14 @@ public class ReactorRustHyperApplication {
         BeanContainer container = BeanContainer.getInstance();
 
         // Scan for @Component, @Service, @Repository, @Configuration
-        container.scan("com.reactor.rust.example");
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("di.scan")) {
+            container.scan("com.reactor.rust.example");
+        }
 
         // Start container - resolves all dependencies
-        container.start();
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("di.start")) {
+            container.start();
+        }
 
         FrameworkLogger.info("[JAVA] DI Container started with " +
             container.getBeanNames().size() + " beans");

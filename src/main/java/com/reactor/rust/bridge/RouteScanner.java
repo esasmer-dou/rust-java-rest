@@ -1,15 +1,23 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.annotations.*;
+import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.http.FileResponse;
+import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.metrics.Metrics;
+import com.reactor.rust.startup.StartupIndex;
+import com.reactor.rust.startup.StartupTimeline;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -29,32 +37,84 @@ public final class RouteScanner {
      * Scan all registered handlers and register routes with Rust
      */
     public static void scanAndRegister() {
-        HandlerRegistry registry = HandlerRegistry.getInstance();
-        List<Object> handlers = registry.getHandlers();
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("routes.scan_register")) {
+            HandlerRegistry registry = HandlerRegistry.getInstance();
+            List<Object> handlers = registry.getHandlers();
 
-        List<RouteDef> routes = new ArrayList<>();
-        RoutePlanRegistry routePlans = RoutePlanRegistry.getInstance();
-        routePlans.clear();
-        routePlans.configureFromProperties();
+            List<RouteDef> routes = new ArrayList<>();
+            RoutePlanRegistry routePlans = RoutePlanRegistry.getInstance();
+            routePlans.clear();
+            routePlans.configureFromProperties();
 
-        for (Object bean : handlers) {
-            scanHandler(bean, routes);
+            for (Object bean : handlers) {
+                scanHandler(bean, routes);
+            }
+
+            validateRouteIndex(routes);
+            routePlans.publishStartupMetrics();
+            routePlans.logSummary();
+            routePlans.validateProductionGate();
+
+            // Pass NativeBridge class to Rust for JNI callbacks
+            NativeBridge.passNativeBridgeClass(NativeBridge.class);
+
+            // Register all routes with Rust
+            NativeBridge.registerRoutes(routes);
+
+            FrameworkLogger.info("[RUST] Routes registered: exact=" +
+                    routes.stream().filter(r -> !r.path.contains("{")).count() +
+                    " pattern=" +
+                    routes.stream().filter(r -> r.path.contains("{")).count());
+        }
+    }
+
+    private static void validateRouteIndex(List<RouteDef> routes) {
+        StartupIndex.IndexResult index = StartupIndex.routeKeys();
+        boolean required = PropertiesLoader.getBoolean("reactor.startup.route-index.required", false);
+        boolean validate = PropertiesLoader.getBoolean("reactor.startup.route-index.validate", false);
+        if (!index.present()) {
+            if (required) {
+                throw new IllegalStateException("Required startup route index is missing: "
+                        + StartupIndex.ROUTES_RESOURCE);
+            }
+            return;
+        }
+        Metrics.getInstance().setGauge("reactor.startup.route_index.routes", index.entries().size());
+        if (!validate && !required) {
+            FrameworkLogger.info("[RouteScanner] Route index detected: routes=" + index.entries().size());
+            return;
         }
 
-        routePlans.publishStartupMetrics();
-        routePlans.logSummary();
-        routePlans.validateProductionGate();
-
-        // Pass NativeBridge class to Rust for JNI callbacks
-        NativeBridge.passNativeBridgeClass(NativeBridge.class);
-
-        // Register all routes with Rust
-        NativeBridge.registerRoutes(routes);
-
-        FrameworkLogger.info("[RUST] Routes registered: exact=" +
-                routes.stream().filter(r -> !r.path.contains("{")).count() +
-                " pattern=" +
-                routes.stream().filter(r -> r.path.contains("{")).count());
+        Set<String> actual = new HashSet<>();
+        for (RouteDef route : routes) {
+            actual.add((route.httpMethod + " " + route.path).toUpperCase(java.util.Locale.ROOT));
+        }
+        Set<String> expectedRoutes = new HashSet<>();
+        for (String route : index.entries()) {
+            expectedRoutes.add(route.toUpperCase(java.util.Locale.ROOT));
+        }
+        List<String> missing = new ArrayList<>();
+        for (String expected : index.entries()) {
+            if (!actual.contains(expected.toUpperCase(java.util.Locale.ROOT))) {
+                missing.add(expected);
+            }
+        }
+        List<String> unexpected = new ArrayList<>();
+        for (String route : actual) {
+            if (!expectedRoutes.contains(route)) {
+                unexpected.add(route);
+            }
+        }
+        Metrics.getInstance().setGauge("reactor.startup.route_index.missing", missing.size());
+        Metrics.getInstance().setGauge("reactor.startup.route_index.unexpected", unexpected.size());
+        if (!missing.isEmpty() || !unexpected.isEmpty()) {
+            String message = "Route index mismatch; missing routes=" + missing
+                    + " unexpected routes=" + unexpected;
+            if (required) {
+                throw new IllegalStateException(message);
+            }
+            FrameworkLogger.warn("[RouteScanner] " + message);
+        }
     }
 
     /**
@@ -95,7 +155,7 @@ public final class RouteScanner {
             );
             boolean legacyV4 = isLegacyV4(method);
             boolean directV5 = isDirectV5(method);
-            boolean directIntSignature = isDirectInt(method);
+            boolean directIntSignature = isDirectInt(method) || isDirectScalarIntProducer(method);
             boolean directLongSignature = isDirectLong(method);
             boolean directBooleanSignature = isDirectBoolean(method);
             boolean directDoubleSignature = isDirectDouble(method);
@@ -143,7 +203,8 @@ public final class RouteScanner {
             }
             if (directQueryIntAnnotation != null && !directIntSignature) {
                 throw new IllegalArgumentException(
-                        "@DirectQueryInt requires handler signature (ByteBuffer out, int offset, int value): " + method
+                        "@DirectQueryInt requires handler signature (ByteBuffer out, int offset, int value) "
+                                + "or JsonProducerResponse handler(int value): " + method
                 );
             }
             if (directQueryInt && !isVoidRequestType(routeInfo.requestType)) {
@@ -222,7 +283,8 @@ public final class RouteScanner {
             }
             if (directPathIntAnnotation != null && !directIntSignature) {
                 throw new IllegalArgumentException(
-                        "@DirectPathInt requires handler signature (ByteBuffer out, int offset, int value): " + method
+                        "@DirectPathInt requires handler signature (ByteBuffer out, int offset, int value) "
+                                + "or JsonProducerResponse handler(int value): " + method
                 );
             }
             if (directPathInt && !isVoidRequestType(routeInfo.requestType)) {
@@ -361,6 +423,7 @@ public final class RouteScanner {
                         "A route cannot be both @NativeStaticRoute and @NativeStaticFileRoute: " + method
                 );
             }
+            RouteAdmissionConfig admission = routeAdmissionConfig(method, routeInfo);
 
             RouteDef route = new RouteDef(
                     routeInfo.httpMethod,
@@ -408,7 +471,9 @@ public final class RouteScanner {
                     directPathShortAnnotation != null ? directPathShortAnnotation.max() : Short.MAX_VALUE,
                     directBodylessOutput,
                     nativeStaticResponseId,
-                    nativeStaticFileResponseId
+                    nativeStaticFileResponseId,
+                    admission.maxConcurrent,
+                    admission.queueTimeoutMs
             );
             routes.add(route);
             RoutePlanRegistry.getInstance().add(RouteExecutionPlan.from(
@@ -717,6 +782,13 @@ public final class RouteScanner {
                 && parameterTypes[2] == int.class;
     }
 
+    private static boolean isDirectScalarIntProducer(Method method) {
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        return parameterTypes.length == 1
+                && parameterTypes[0] == int.class
+                && JsonProducerResponse.class.isAssignableFrom(method.getReturnType());
+    }
+
     private static boolean isDirectLong(Method method) {
         Class<?>[] parameterTypes = method.getParameterTypes();
         return parameterTypes.length == 3
@@ -754,6 +826,60 @@ public final class RouteScanner {
         return parameterTypes.length == 2
                 && parameterTypes[0] == java.nio.ByteBuffer.class
                 && parameterTypes[1] == int.class;
+    }
+
+    private static RouteAdmissionConfig routeAdmissionConfig(Method method, RouteInfo routeInfo) {
+        if (!PropertiesLoader.getBoolean("reactor.rust.route-admission.enabled", true)) {
+            return RouteAdmissionConfig.DISABLED;
+        }
+
+        RouteAdmission annotation = method.getAnnotation(RouteAdmission.class);
+        int maxConcurrent = annotation != null ? annotation.maxConcurrent() : 0;
+        int queueTimeoutMs = annotation != null ? annotation.queueTimeoutMs() : 0;
+
+        if (maxConcurrent < 0) {
+            maxConcurrent = PropertiesLoader.getInt(
+                    "reactor.rust.route-admission.default-max-concurrent",
+                    0
+            );
+        }
+        if (queueTimeoutMs < 0) {
+            queueTimeoutMs = PropertiesLoader.getInt(
+                    "reactor.rust.route-admission.default-queue-timeout-ms",
+                    0
+            );
+        }
+
+        String prefix = "reactor.rust.route-admission." + routeAdmissionKey(routeInfo);
+        maxConcurrent = PropertiesLoader.getInt(prefix + ".max-concurrent", maxConcurrent);
+        queueTimeoutMs = PropertiesLoader.getInt(prefix + ".queue-timeout-ms", queueTimeoutMs);
+
+        maxConcurrent = Math.max(0, maxConcurrent);
+        queueTimeoutMs = Math.max(0, queueTimeoutMs);
+        if (maxConcurrent == 0) {
+            queueTimeoutMs = 0;
+        }
+        return new RouteAdmissionConfig(maxConcurrent, queueTimeoutMs);
+    }
+
+    private static String routeAdmissionKey(RouteInfo routeInfo) {
+        String raw = (routeInfo.httpMethod + "." + routeInfo.path)
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", ".");
+        raw = raw.replaceAll("^\\.+|\\.+$", "");
+        return raw.isEmpty() ? "route" : raw;
+    }
+
+    private static final class RouteAdmissionConfig {
+        static final RouteAdmissionConfig DISABLED = new RouteAdmissionConfig(0, 0);
+
+        final int maxConcurrent;
+        final int queueTimeoutMs;
+
+        RouteAdmissionConfig(int maxConcurrent, int queueTimeoutMs) {
+            this.maxConcurrent = maxConcurrent;
+            this.queueTimeoutMs = queueTimeoutMs;
+        }
     }
 
     /**

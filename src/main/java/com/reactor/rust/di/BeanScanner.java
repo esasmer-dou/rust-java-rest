@@ -1,9 +1,14 @@
 package com.reactor.rust.di;
 
+import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.metrics.Metrics;
+import com.reactor.rust.startup.StartupIndex;
+import com.reactor.rust.startup.StartupTimeline;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.JarURLConnection;
 import java.net.URL;
 import java.util.Enumeration;
 import java.util.jar.JarEntry;
@@ -26,6 +31,53 @@ final class BeanScanner {
      * Scan a package for @Component classes.
      */
     void scanPackage(String packageName) {
+        try (StartupTimeline.Scope ignored = StartupTimeline.phase("di.scan." + packageName)) {
+            if (scanPackageFromIndex(packageName)) {
+                return;
+            }
+            scanPackageFallback(packageName);
+        }
+    }
+
+    private boolean scanPackageFromIndex(String packageName) {
+        if (!PropertiesLoader.getBoolean("reactor.startup.component-index.enabled", true)) {
+            return false;
+        }
+        StartupIndex.IndexResult index = StartupIndex.componentClasses(packageName);
+        if (!index.present()) {
+            if (PropertiesLoader.getBoolean("reactor.startup.component-index.required", false)) {
+                throw new IllegalStateException(
+                        "Required startup component index is missing: " + StartupIndex.COMPONENTS_RESOURCE
+                );
+            }
+            return false;
+        }
+        if (index.entries().isEmpty()) {
+            if (PropertiesLoader.getBoolean("reactor.startup.component-index.required", false)) {
+                throw new IllegalStateException(
+                        "Required startup component index has no entries for package: " + packageName
+                );
+            }
+            return false;
+        }
+
+        int processed = 0;
+        for (String className : index.entries()) {
+            processClass(className, true);
+            processed++;
+        }
+        Metrics.getInstance().setGauge("reactor.startup.component_index.classes", processed);
+        FrameworkLogger.info("[BeanScanner] Component index used for " + packageName + ": classes=" + processed);
+        return true;
+    }
+
+    private void scanPackageFallback(String packageName) {
+        if (!PropertiesLoader.getBoolean("reactor.startup.scan.fallback-enabled", true)) {
+            throw new IllegalStateException(
+                    "Classpath component scan fallback is disabled and no component index was available for "
+                            + packageName
+            );
+        }
         try {
             String path = packageName.replace('.', '/');
             Enumeration<URL> resources = Thread.currentThread()
@@ -63,7 +115,7 @@ final class BeanScanner {
                 scanDirectory(file, packageName + "." + file.getName());
             } else if (file.getName().endsWith(".class")) {
                 String className = packageName + "." + file.getName().substring(0, file.getName().length() - 6);
-                processClass(className);
+                processClass(className, false);
             }
         }
     }
@@ -72,10 +124,11 @@ final class BeanScanner {
      * Scan a JAR file for classes.
      */
     private void scanJar(URL jarUrl, String packageName) {
-        String jarPath = jarUrl.getPath().substring(5, jarUrl.getPath().indexOf("!"));
         String packagePath = packageName.replace('.', '/');
 
-        try (JarFile jar = new JarFile(jarPath)) {
+        try {
+            JarURLConnection connection = (JarURLConnection) jarUrl.openConnection();
+            try (JarFile jar = connection.getJarFile()) {
             Enumeration<JarEntry> entries = jar.entries();
 
             while (entries.hasMoreElements()) {
@@ -84,8 +137,9 @@ final class BeanScanner {
 
                 if (name.startsWith(packagePath) && name.endsWith(".class")) {
                     String className = name.replace('/', '.').substring(0, name.length() - 6);
-                    processClass(className);
+                    processClass(className, false);
                 }
+            }
             }
         } catch (IOException e) {
             FrameworkLogger.warn("[BeanScanner] Error scanning JAR: " + e.getMessage());
@@ -95,9 +149,13 @@ final class BeanScanner {
     /**
      * Process a class - check for annotations and register if needed.
      */
-    private void processClass(String className) {
+    private void processClass(String className, boolean strict) {
         try {
-            Class<?> clazz = Class.forName(className);
+            ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+            if (classLoader == null) {
+                classLoader = BeanScanner.class.getClassLoader();
+            }
+            Class<?> clazz = Class.forName(className, false, classLoader);
 
             // Skip if already registered (use hasBean to avoid exception)
             if (container.hasBean(clazz)) {
@@ -110,11 +168,17 @@ final class BeanScanner {
             }
 
         } catch (ClassNotFoundException e) {
-            // Ignore classes that can't be loaded
+            if (strict) {
+                throw new IllegalStateException("Indexed component class cannot be loaded: " + className, e);
+            }
         } catch (NoClassDefFoundError e) {
-            // Ignore classes with missing dependencies
+            if (strict) {
+                throw new IllegalStateException("Indexed component dependency is missing: " + className, e);
+            }
         } catch (Exception e) {
-            // Ignore other errors silently - not all classes are beans
+            if (strict) {
+                throw new IllegalStateException("Indexed component cannot be processed: " + className, e);
+            }
         }
     }
 

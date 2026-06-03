@@ -7,6 +7,10 @@ import java.util.Locale;
 public final class RuntimeProfiles {
 
     public static final String PROFILE_DEFAULT = "default";
+    public static final String PROFILE_MICRO_REST = "micro-rest";
+    public static final String PROFILE_MICRO_DUBBO = "micro-dubbo";
+    public static final String PROFILE_FAST_START = "fast-start";
+    public static final String PROFILE_READY_LOW_LATENCY = "ready-low-latency";
     public static final String PROFILE_LOW_RSS = "low-rss";
     public static final String PROFILE_BALANCED_DUBBO = "balanced-dubbo";
     public static final String PROFILE_THROUGHPUT = "throughput";
@@ -21,13 +25,95 @@ public final class RuntimeProfiles {
             case PROFILE_DEFAULT -> {
                 return;
             }
+            case PROFILE_MICRO_REST -> applyMicroRest();
+            case PROFILE_MICRO_DUBBO -> applyMicroDubbo();
+            case PROFILE_FAST_START -> applyFastStart();
+            case PROFILE_READY_LOW_LATENCY -> applyReadyLowLatency();
             case PROFILE_LOW_RSS -> applyLowRss();
             case PROFILE_BALANCED_DUBBO -> applyBalancedDubbo();
             case PROFILE_THROUGHPUT -> applyThroughput();
-            default -> throw new IllegalArgumentException("reactor.runtime.profile must be default, low-rss, "
-                    + "balanced-dubbo, or throughput");
+            default -> throw new IllegalArgumentException("reactor.runtime.profile must be default, micro-rest, "
+                    + "micro-dubbo, low-rss, fast-start, ready-low-latency, balanced-dubbo, or throughput");
         }
         FrameworkLogger.info("[JAVA] Runtime profile applied: " + profile);
+    }
+
+    private static void applyMicroRest() {
+        set("reactor.dubbo.enabled", "false");
+        set("reactor.rust.jni.workers", "1");
+        set("reactor.rust.jni.queue-capacity", "128");
+        set("reactor.rust.http.max-connections", "512");
+        set("reactor.rust.http.max-inflight-body-bytes", "4194304");
+        set("reactor.rust.http.max-inflight-response-bytes", "8388608");
+        set("reactor.rust.http.http1-only-enabled", "true");
+        set("reactor.rust.runtime.worker-threads", "1");
+        set("reactor.rust.runtime.max-blocking-threads", "1");
+        set("reactor.rust.runtime.thread-stack-bytes", "262144");
+        set("reactor.rust.file-stream.chunk-bytes", "32768");
+        set("reactor.rust.static-file.inline-max-bytes", "0");
+        set("reactor.rust.static-file.max-concurrent-streams", "32");
+        set("reactor.rust.websocket.max-frame-bytes", "262144");
+        set("reactor.rust.websocket.outbound-queue-capacity", "16");
+        set("reactor.rust.websocket.send-timeout-ms", "1000");
+        set("reactor.rust.response-pool.small-capacity", "8");
+        set("reactor.rust.response-pool.medium-capacity", "2");
+        set("reactor.rust.response-pool.large-capacity", "1");
+        set("reactor.rust.response-pool.huge-capacity", "1");
+        set("reactor.rust.native-cache.max-entries", "0");
+        set("reactor.rust.native-cache.max-bytes", "0");
+        set("reactor.rust.native-cache.ttl-ms", "60000");
+        set("reactor.rust.json.writer-retain-max-bytes", "32768");
+        set("reactor.rust.async.max-inflight", "64");
+        set("reactor.rust.async.response-timeout-ms", "1500");
+    }
+
+    private static void applyMicroDubbo() {
+        applyMicroRest();
+        set("reactor.dubbo.enabled", "true");
+        set("reactor.dubbo.transport", "native");
+        set("reactor.dubbo.runtime-profile", "micro-dubbo");
+        set("reactor.dubbo.retries", "0");
+        set("reactor.dubbo.check", "false");
+        set("reactor.dubbo.registry-check", "false");
+        set("reactor.dubbo.connections", "1");
+        set("reactor.dubbo.share-connections", "1");
+        set("reactor.dubbo.refer-thread-num", "1");
+        set("reactor.dubbo.max-inflight", "32");
+        set("reactor.dubbo.native-connections-per-endpoint", "1");
+        set("reactor.dubbo.native-async-workers", "1");
+        set("reactor.dubbo.native-async-queue-capacity", "32");
+        set("reactor.dubbo.catalog.adaptive-enabled", "true");
+        set("reactor.dubbo.catalog.min-inflight", "1");
+        set("reactor.dubbo.catalog.initial-inflight", "2");
+        set("reactor.dubbo.catalog.max-inflight", "2");
+        set("reactor.dubbo.catalog.response-timeout-ms", "800");
+        set("reactor.dubbo.catalog.target-latency-ms", "75");
+        set("reactor.dubbo.catalog.high-latency-ms", "250");
+        set("reactor.dubbo.catalog.adaptive-sample-size", "64");
+        set("reactor.dubbo.catalog.adaptive-increase-step", "1");
+        set("reactor.dubbo.catalog.adaptive-decrease-percent", "75");
+        set("reactor.dubbo.catalog.rpc-workers", "0");
+        set("reactor.dubbo.catalog.rpc-queue-capacity", "0");
+    }
+
+    private static void applyFastStart() {
+        applyLowRss();
+        set("reactor.startup.prewarm.enabled", "false");
+        set("reactor.startup.component-index.enabled", "true");
+        set("reactor.startup.scan.fallback-enabled", "true");
+        set("reactor.native.extract.cache.enabled", "true");
+        set("reactor.rust.static-file.inline-max-bytes", "0");
+        set("reactor.rust.static-file.max-concurrent-streams", "64");
+    }
+
+    private static void applyReadyLowLatency() {
+        applyLowRss();
+        set("reactor.startup.prewarm.enabled", "true");
+        set("reactor.startup.prewarm.json", "true");
+        set("reactor.startup.component-index.enabled", "true");
+        set("reactor.startup.scan.fallback-enabled", "true");
+        set("reactor.native.extract.cache.enabled", "true");
+        set("reactor.rust.static-file.inline-max-bytes", "524288");
     }
 
     private static void applyLowRss() {

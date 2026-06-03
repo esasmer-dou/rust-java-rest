@@ -1,6 +1,7 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.http.DirectJsonResponse;
+import com.reactor.rust.http.JsonProducerResponse;
 
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Method;
@@ -77,6 +78,8 @@ public final class RouteExecutionPlan {
     public final boolean directJsonResponse;
     public final int nativeStaticResponseId;
     public final int nativeStaticFileResponseId;
+    public final int admissionMaxConcurrent;
+    public final int admissionQueueTimeoutMs;
     public final boolean legacyV4;
     public final boolean compiledInvoker;
     public final boolean exactInvoker;
@@ -111,6 +114,8 @@ public final class RouteExecutionPlan {
             boolean directJsonResponse,
             int nativeStaticResponseId,
             int nativeStaticFileResponseId,
+            int admissionMaxConcurrent,
+            int admissionQueueTimeoutMs,
             boolean legacyV4,
             boolean compiledInvoker,
             boolean exactInvoker
@@ -144,6 +149,8 @@ public final class RouteExecutionPlan {
         this.directJsonResponse = directJsonResponse;
         this.nativeStaticResponseId = nativeStaticResponseId;
         this.nativeStaticFileResponseId = nativeStaticFileResponseId;
+        this.admissionMaxConcurrent = admissionMaxConcurrent;
+        this.admissionQueueTimeoutMs = admissionQueueTimeoutMs;
         this.legacyV4 = legacyV4;
         this.compiledInvoker = compiledInvoker;
         this.exactInvoker = exactInvoker;
@@ -311,6 +318,8 @@ public final class RouteExecutionPlan {
                 directJsonResponse,
                 nativeStaticResponseId,
                 nativeStaticFileResponseId,
+                route.admissionMaxConcurrent,
+                route.admissionQueueTimeoutMs,
                 legacyV4,
                 compiledInvoker,
                 compiledInvoker && exactInvoker
@@ -345,6 +354,8 @@ public final class RouteExecutionPlan {
                 + " directJsonResponse=" + directJsonResponse
                 + " nativeStaticResponse=" + (nativeStaticResponseId > 0)
                 + " nativeStaticFile=" + (nativeStaticFileResponseId > 0)
+                + " admission={maxConcurrent=" + admissionMaxConcurrent
+                + ",queueTimeoutMs=" + admissionQueueTimeoutMs + "}"
                 + " reason=" + reason;
     }
 
@@ -383,6 +394,9 @@ public final class RouteExecutionPlan {
                 .append("\"native_static_response_id\":").append(nativeStaticResponseId).append(',')
                 .append("\"native_static_file\":").append(nativeStaticFileResponseId > 0).append(',')
                 .append("\"native_static_file_response_id\":").append(nativeStaticFileResponseId).append(',')
+                .append("\"route_admission_enabled\":").append(admissionMaxConcurrent > 0).append(',')
+                .append("\"route_admission_max_concurrent\":").append(admissionMaxConcurrent).append(',')
+                .append("\"route_admission_queue_timeout_ms\":").append(admissionQueueTimeoutMs).append(',')
                 .append("\"legacy_v4\":").append(legacyV4).append(',')
                 .append("\"compiled_invoker\":").append(compiledInvoker).append(',')
                 .append("\"exact_invoker\":").append(exactInvoker)
@@ -391,17 +405,19 @@ public final class RouteExecutionPlan {
     }
 
     private static boolean returnsDirectJsonResponse(Method method) {
-        if (DirectJsonResponse.class.isAssignableFrom(method.getReturnType())) {
+        if (DirectJsonResponse.class.isAssignableFrom(method.getReturnType())
+                || JsonProducerResponse.class.isAssignableFrom(method.getReturnType())) {
             return true;
         }
         Type genericReturnType = method.getGenericReturnType();
         if (genericReturnType instanceof ParameterizedType parameterizedType) {
             for (Type argument : parameterizedType.getActualTypeArguments()) {
-                if (argument == DirectJsonResponse.class) {
+                if (argument == DirectJsonResponse.class || argument == JsonProducerResponse.class) {
                     return true;
                 }
                 if (argument instanceof ParameterizedType nested
-                        && nested.getRawType() == DirectJsonResponse.class) {
+                        && (nested.getRawType() == DirectJsonResponse.class
+                        || nested.getRawType() == JsonProducerResponse.class)) {
                     return true;
                 }
             }
