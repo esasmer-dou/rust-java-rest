@@ -45,7 +45,36 @@ JIT-optimized Java execution and must be benchmarked before production use.
 
 Measured `v3.2.0` release-gate RSS guidance:
 
-| Service shape | Starting pod memory |
+These values are recommended initial Kubernetes memory limits, not exact RSS promises. A service can
+idle below the value in the table, but the pod needs headroom for native buffers, thread stacks, class
+metadata, JIT/runtime state, request bursts, and route-specific payloads.
+
+How to read this table:
+
+- `RSS` is the current memory footprint of the process.
+- `resources.requests.memory` is the memory Kubernetes uses for scheduling.
+- `resources.limits.memory` is the hard memory cap; crossing it can produce `OOMKilled`.
+- The table is the first safe `limits.memory` value to try, not the exact RSS target.
+- Do not set `limits.memory` equal to the best idle RSS. The pod also needs room for request bursts,
+  native buffers, response buffers, thread stacks, class metadata, and runtime/JIT state.
+
+Example:
+
+```yaml
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+  limits:
+    memory: "96Mi"
+    cpu: "500m"
+```
+
+For a tiny low-traffic REST service, this gives the pod room above an observed `66-75 MiB` RSS range.
+For services with Dubbo, DB pools, cache, WebSocket, heavy JSON, or high concurrency, start higher and
+lower only after load plus idle/soak measurements.
+
+| Service shape | Initial pod memory limit to try |
 |---------------|--------------------:|
 | Tiny low-traffic REST, no RPC/DB | 96 MiB |
 | Small REST with normal JSON | 128 MiB |

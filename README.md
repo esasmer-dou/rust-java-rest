@@ -671,9 +671,44 @@ A very small, low-traffic service can stay close to the low-memory target when:
 For real Kubernetes sizing, do not set the pod limit exactly at the best idle number. Give the process
 headroom for native buffers, thread stacks, class metadata, request bursts, and JIT/runtime state.
 
-Practical starting budget:
+Recommended initial Kubernetes memory limit:
 
-| Service shape | Starting pod memory |
+This is not the exact RSS the process will always consume. It is the first safe pod
+`resources.limits.memory` value to try before your own load and idle/soak test. The service may idle
+below this number, but the pod still needs headroom for native buffers, thread stacks, class metadata,
+JIT/runtime state, request bursts, and route-specific payloads.
+
+How to read this table:
+
+- `RSS` is the memory the process is using at that moment.
+- `resources.requests.memory` is what Kubernetes uses for scheduling. It is not a hard cap.
+- `resources.limits.memory` is the hard cap. If the process goes over this value, Kubernetes can kill
+  the pod with `OOMKilled`.
+- The table gives a first safe `limits.memory` value to try, not the exact memory the service will
+  always use.
+- If the service idles at `66 MiB`, do not set the pod limit to `66Mi`. A small traffic burst,
+  response buffer, native allocation, thread stack, or JIT/runtime change can push it over the limit.
+- Start with the table value, run a load test, wait for idle again, then adjust. Lower the limit only
+  after peak RSS, final idle RSS, p99, and `503` rate are stable.
+
+Simple example:
+
+```yaml
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+  limits:
+    memory: "96Mi"
+    cpu: "500m"
+```
+
+This means: Kubernetes schedules the pod as if it needs at least `64Mi`, but the pod is allowed to use
+up to `96Mi`. If your release-gate test shows idle RSS around `66 MiB` and final idle RSS around
+`75 MiB`, `96Mi` is a reasonable first limit for a tiny low-traffic REST service. If you add Dubbo,
+database pools, native cache, WebSocket, heavy JSON, or high concurrency, start higher.
+
+| Service shape | Initial pod memory limit to try |
 |---------------|--------------------:|
 | Tiny low-traffic REST, no RPC/DB | 96 MiB |
 | Small REST with normal JSON | 128 MiB |
