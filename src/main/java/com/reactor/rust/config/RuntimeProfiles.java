@@ -40,6 +40,10 @@ public final class RuntimeProfiles {
 
     private static void applyMicroRest() {
         set("reactor.dubbo.enabled", "false");
+        set("reactor.runtime.low-rss-gate.mode", "observe");
+        set("reactor.startup.component-index.enabled", "true");
+        set("reactor.websocket.enabled", "false");
+        set("reactor.static-files.enabled", "false");
         set("reactor.rust.jni.workers", "1");
         set("reactor.rust.jni.queue-capacity", "128");
         set("reactor.rust.http.max-connections", "512");
@@ -117,6 +121,8 @@ public final class RuntimeProfiles {
     }
 
     private static void applyLowRss() {
+        set("reactor.runtime.low-rss-gate.mode", "observe");
+        set("reactor.startup.component-index.enabled", "true");
         set("reactor.rust.jni.workers", "2");
         set("reactor.rust.jni.queue-capacity", "512");
         set("reactor.rust.http.max-connections", "1024");

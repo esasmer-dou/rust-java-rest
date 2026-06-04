@@ -22,6 +22,8 @@ Recommended first production-like baseline:
 
 ```properties
 reactor.runtime.profile=micro-rest
+reactor.websocket.enabled=false
+reactor.static-files.enabled=false
 reactor.rust.http.max-connections=512
 reactor.rust.http.max-inflight-response-bytes=8388608
 reactor.rust.file-stream.chunk-bytes=65536
@@ -31,6 +33,25 @@ reactor.rust.native-cache.max-bytes=0
 reactor.rust.log.level=error
 reactor.rust.java.log.level=warn
 ```
+
+`micro-rest` and `micro-dubbo` are memory-first profiles. They keep the WebSocket registration path
+and annotation-based static-file scanner off by default. If a service actually uses these features,
+enable only that feature explicitly:
+
+```properties
+reactor.runtime.profile=micro-rest
+reactor.websocket.enabled=true
+```
+
+or:
+
+```properties
+reactor.runtime.profile=micro-rest
+reactor.static-files.enabled=true
+```
+
+Do not keep optional surfaces enabled "just in case" in a small pod. Each optional scanner/registry
+adds class loading, metadata, and startup work, even if the route is never called.
 
 For `micro-rest` and `micro-dubbo`, properties alone are not enough. The JVM must also be prevented
 from sizing internal workers from a large host CPU count:
@@ -43,7 +64,36 @@ Use `startup/openj9-micro-rss.options` as the starting point. For very low traff
 `startup/openj9-idle-rss.options` adds `-Xnojit`; this can reduce memory further, but it trades away
 JIT-optimized Java execution and must be benchmarked before production use.
 
-Measured `v3.2.0` release-gate RSS guidance:
+For applications that use startup indexes, generate the component index for the actual feature set.
+For a tiny REST-only service, exclude optional WebSocket/static-file components from the index:
+
+```bash
+java -cp "app.jar:lib/*" com.reactor.rust.startup.StartupIndexGenerator \
+  --output target/classes \
+  --packages com.example.api \
+  --exclude-websocket \
+  --exclude-static-files
+```
+
+If WebSocket or `@StaticFiles` is part of the service contract, do not exclude it.
+
+## Production Artifact Rule
+
+Run production services with the lean framework artifact:
+
+- Use the normal Maven dependency for application compile/runtime.
+- Use `rust-java-rest-*-core-runtime.jar` in benchmark images when you need a single framework
+  runtime jar.
+- Do not put `target/classes` from the framework project on a production or production-like
+  benchmark classpath.
+- Do not use the `sample` classifier for production. It intentionally contains demo handlers,
+  DTOs, and a sample startup index.
+
+The default jar, `core-runtime` jar, sources jar, and javadocs exclude
+`com.reactor.rust.example`, `com.reactor.rust.benchmark`, and `com.reactor.rust.dubbo.sample`.
+The sample jar keeps those classes only so examples and local benchmarks remain runnable.
+
+Measured `v3.2.1` release-gate RSS guidance:
 
 These values are recommended initial Kubernetes memory limits, not exact RSS promises. A service can
 idle below the value in the table, but the pod needs headroom for native buffers, thread stacks, class

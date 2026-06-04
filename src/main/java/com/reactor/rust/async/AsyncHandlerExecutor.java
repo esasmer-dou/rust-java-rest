@@ -15,12 +15,7 @@ public final class AsyncHandlerExecutor {
 
     private static final AsyncHandlerExecutor INSTANCE = new AsyncHandlerExecutor();
 
-    // Virtual thread executor (Java 21+)
-    private final ExecutorService virtualThreadExecutor;
-
-    // Fallback thread pool for non-virtual thread JVMs
-    private final ExecutorService fallbackExecutor;
-
+    private final ExecutorService executor;
     private final boolean virtualThreadsAvailable;
     private final Semaphore inFlight;
     private final int maxInflight;
@@ -29,16 +24,17 @@ public final class AsyncHandlerExecutor {
         this.virtualThreadsAvailable = isVirtualThreadAvailable();
         this.maxInflight = Math.max(1, PropertiesLoader.getInt("reactor.rust.async.max-inflight", 1024));
         this.inFlight = new Semaphore(maxInflight);
-        this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
-        this.fallbackExecutor = Executors.newFixedThreadPool(
-                Runtime.getRuntime().availableProcessors() * 2,
-                r -> {
-                    Thread t = new Thread(r);
-                    t.setName("async-handler-" + t.threadId());
-                    t.setDaemon(true);
-                    return t;
-                }
-        );
+        this.executor = virtualThreadsAvailable
+                ? Executors.newVirtualThreadPerTaskExecutor()
+                : Executors.newFixedThreadPool(
+                        Math.max(1, Runtime.getRuntime().availableProcessors()),
+                        r -> {
+                            Thread t = new Thread(r);
+                            t.setName("async-handler-" + t.threadId());
+                            t.setDaemon(true);
+                            return t;
+                        }
+                );
 
         FrameworkLogger.info("[AsyncExecutor] Initialized (virtualThreads="
                 + virtualThreadsAvailable + ", maxInflight=" + maxInflight + ")");
@@ -68,7 +64,6 @@ public final class AsyncHandlerExecutor {
         if (!inFlight.tryAcquire()) {
             return CompletableFuture.failedFuture(new RejectedExecutionException("async handler bulkhead full"));
         }
-        Executor executor = virtualThreadsAvailable ? virtualThreadExecutor : fallbackExecutor;
         try {
             return CompletableFuture.supplyAsync(task, executor)
                     .whenComplete((ignored, error) -> inFlight.release());
@@ -90,25 +85,20 @@ public final class AsyncHandlerExecutor {
      * Get the appropriate executor.
      */
     public Executor getExecutor() {
-        return virtualThreadsAvailable ? virtualThreadExecutor : fallbackExecutor;
+        return executor;
     }
 
     /**
      * Shutdown executor (for graceful shutdown).
      */
     public void shutdown() {
-        virtualThreadExecutor.shutdown();
-        fallbackExecutor.shutdown();
+        executor.shutdown();
         try {
-            if (!virtualThreadExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                virtualThreadExecutor.shutdownNow();
-            }
-            if (!fallbackExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                fallbackExecutor.shutdownNow();
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
             }
         } catch (InterruptedException e) {
-            virtualThreadExecutor.shutdownNow();
-            fallbackExecutor.shutdownNow();
+            executor.shutdownNow();
             Thread.currentThread().interrupt();
         }
         FrameworkLogger.info("[AsyncExecutor] Shutdown complete");

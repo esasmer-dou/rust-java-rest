@@ -13,6 +13,48 @@ No unreleased changes yet.
 
 ---
 
+## [3.2.1] - 2026-06-04
+
+### Changed
+
+- Maven package version bumped to `3.2.1`.
+- Production-like benchmark images can now use `-FrameworkArtifactMode core-runtime`, so
+  `rust-java-rest-*-core-runtime.jar` is used instead of framework `target/classes`.
+- `jvm_baseline_rss_matrix.ps1` now forwards the framework artifact mode, keeping repeated JVM/RSS
+  checks aligned with production classpath rules.
+- Published sources and javadocs now exclude framework sample, benchmark, and Dubbo sample packages.
+- Runtime profile defaults no longer override keys explicitly configured in `rust-spring.properties`;
+  JVM system properties and environment variables still have highest priority.
+- README, benchmark docs, and production runtime docs now document the production artifact rule:
+  use the normal dependency or `core-runtime`; do not use the `sample` classifier in production.
+
+### Fixed
+
+- Prevented sample/example classes and sample startup indexes from leaking into production-like
+  consumer RSS measurements.
+- Added regression coverage for explicit property values overriding runtime profile defaults.
+
+### Validation
+
+- `mvn -q test`
+- `mvn -q -DskipTests package`
+- Jar policy check: main jar, `core-runtime`, and sources jar contain no sample/benchmark packages
+  and no sample startup index.
+- Native-static Dubbo consumer smoke RSS check with `-FrameworkArtifactMode core-runtime`.
+- A/B smoke check for `core-runtime` versus framework `target/classes` benchmark classpath.
+
+### Benchmark Notes
+
+- Latest native-static Dubbo consumer smoke, `cpu1`, idle `5s`:
+  - `core-runtime`: ready RSS `57.27 MiB`, after first RPC RSS `58.28 MiB`, Docker memory ready
+    `30.00 MiB`, image build context `5.01 MB`.
+  - `classes`: ready RSS `58.75 MiB`, after first RPC RSS `59.88 MiB`, Docker memory ready
+    `31.48 MiB`, image build context `9.99 MB`.
+- This is a packaging and measurement-correctness patch, not a broad JVM RSS breakthrough. RSS can
+  stay close because unloaded classes do not always become live RSS.
+
+---
+
 ## [3.2.0] - 2026-06-03
 
 ### Added
@@ -354,6 +396,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[3.2.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v2.0.0...v3.0.0

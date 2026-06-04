@@ -13,14 +13,16 @@ param(
     [bool] $RandomizeOrder = $true,
     [int] $RandomSeed = 0,
     [string] $EndpointClasses = "",
-    [ValidateSet("current", "cpu1", "cpu1-nojit")]
+    [ValidateSet("current", "cpu1", "cpu1-xss192", "cpu1-xss160", "cpu1-xss128", "cpu1-nojit", "cpu1-nojit-xss160", "cpu1-nojit-xss128")]
     [string] $FrameworkJvmPreset = "current",
     [string] $FrameworkJavaOptsAppend = "",
+    [switch] $FrameworkOnly,
     [switch] $SkipBuild,
     [switch] $KeepContainers
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $FrameworkRoot = Split-Path -Parent $ScriptDir
@@ -77,27 +79,28 @@ function Join-JavaOptions {
 function Get-FrameworkJvmPresetOptions {
     param([string] $Preset)
 
-    switch ($Preset) {
-        "current" {
-            return ""
-        }
-        "cpu1" {
-            return Join-JavaOptions -Parts @(
-                "-Xss256k",
-                "-XX:ActiveProcessorCount=1"
-            )
-        }
-        "cpu1-nojit" {
-            return Join-JavaOptions -Parts @(
-                "-Xss256k",
-                "-XX:ActiveProcessorCount=1",
-                "-Xnojit"
-            )
-        }
-        default {
-            throw "Unknown framework JVM preset: $Preset"
-        }
+    if ($Preset -eq "current") {
+        return ""
     }
+
+    $parts = New-Object System.Collections.Generic.List[string]
+    if ($Preset -like "*xss128") {
+        $parts.Add("-Xss128k")
+    } elseif ($Preset -like "*xss160") {
+        $parts.Add("-Xss160k")
+    } elseif ($Preset -like "*xss192") {
+        $parts.Add("-Xss192k")
+    } else {
+        $parts.Add("-Xss256k")
+    }
+
+    if ($Preset -like "cpu1*") {
+        $parts.Add("-XX:ActiveProcessorCount=1")
+    }
+    if ($Preset -like "*nojit*") {
+        $parts.Add("-Xnojit")
+    }
+    return Join-JavaOptions -Parts ([string[]]$parts)
 }
 
 function Get-RuntimeProfileConfig {
@@ -967,12 +970,17 @@ function Write-Summary {
     $lines.Add("- Framework memory limit: $FrameworkMemory")
     $lines.Add("- Spring memory limit: $SpringMemory")
     $lines.Add("- Framework JAVA_OPTS: ``$($profileConfig.FrameworkJavaOpts)``")
-    $lines.Add("- Spring JAVA_OPTS: ``$($profileConfig.SpringJavaOpts)``")
+    if ($FrameworkOnly) {
+        $lines.Add("- Spring target: skipped (`-FrameworkOnly`)")
+    } else {
+        $lines.Add("- Spring JAVA_OPTS: ``$($profileConfig.SpringJavaOpts)``")
+    }
     $lines.Add("- load probe duration: $Duration")
     $lines.Add("- load probe warmup: $Warmup")
     $lines.Add("- concurrency levels: $($ConcurrencyValues -join ', ')")
     $lines.Add("- repeat count: $RepeatCount")
     $lines.Add("- randomized order: $RandomizeOrder")
+    $lines.Add("- results CSV: $(Join-Path $ResultsDir "results.csv")")
     if ($EndpointClassFilter.Count -gt 0) {
         $lines.Add("- endpoint class filter: $($EndpointClassFilter -join ', ')")
     }
@@ -1088,20 +1096,26 @@ $rows = New-Object System.Collections.Generic.List[object]
 try {
     if (-not $SkipBuild) {
         Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $FrameworkRoot
-        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $SpringRoot
+        if (-not $FrameworkOnly) {
+            Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $SpringRoot
+        }
     }
 
     $frameworkJar = Find-FrameworkJar
     Ensure-FrameworkRuntimeDependencies
-    $springJar = Find-SpringJar
 
     Invoke-Docker -Arguments @("build", "-t", $FrameworkImage, "-f", "benchmark/docker/framework.Dockerfile", "--build-arg", "JAR_FILE=$frameworkJar", ".") -WorkingDirectory $FrameworkRoot
-    Invoke-Docker -Arguments @("build", "-t", $SpringImage, "-f", "Dockerfile.benchmark", "--build-arg", "JAR_FILE=$springJar", ".") -WorkingDirectory $SpringRoot
+    if (-not $FrameworkOnly) {
+        $springJar = Find-SpringJar
+        Invoke-Docker -Arguments @("build", "-t", $SpringImage, "-f", "Dockerfile.benchmark", "--build-arg", "JAR_FILE=$springJar", ".") -WorkingDirectory $SpringRoot
+    }
     Invoke-Docker -Arguments @("build", "-t", $RunnerImage, "-f", "Dockerfile.benchmark", ".") -WorkingDirectory $ScriptDir
 
     Ensure-Network
     Remove-ContainerIfExists $FrameworkContainer
-    Remove-ContainerIfExists $SpringContainer
+    if (-not $FrameworkOnly) {
+        Remove-ContainerIfExists $SpringContainer
+    }
 
     $frameworkJavaOpts = $profileConfig.FrameworkJavaOpts
     $springJavaOpts = $profileConfig.SpringJavaOpts
@@ -1116,19 +1130,23 @@ try {
         "-e", "JAVA_OPTS=$frameworkJavaOpts",
         $FrameworkImage
     )
-    Invoke-Docker -Arguments @(
-        "run", "-d",
-        "--name", $SpringContainer,
-        "--network", $NetworkName,
-        "-p", "8081:8080",
-        "--cpus", "$CpuLimit",
-        "--memory", $SpringMemory,
-        "-e", "JAVA_OPTS=$springJavaOpts",
-        $SpringImage
-    )
+    if (-not $FrameworkOnly) {
+        Invoke-Docker -Arguments @(
+            "run", "-d",
+            "--name", $SpringContainer,
+            "--network", $NetworkName,
+            "-p", "8081:8080",
+            "--cpus", "$CpuLimit",
+            "--memory", $SpringMemory,
+            "-e", "JAVA_OPTS=$springJavaOpts",
+            $SpringImage
+        )
+    }
 
     Wait-Http -Name "Rust-Java framework" -Url "http://127.0.0.1:8080/api/v1/candidates" -Container $FrameworkContainer
-    Wait-Http -Name "Spring Boot" -Url "http://127.0.0.1:8081/api/v1/candidates" -Container $SpringContainer
+    if (-not $FrameworkOnly) {
+        Wait-Http -Name "Spring Boot" -Url "http://127.0.0.1:8081/api/v1/candidates" -Container $SpringContainer
+    }
 
     $endpoints = @(
         [PSCustomObject]@{
@@ -1260,9 +1278,11 @@ try {
         $endpoints = @($endpoints | Where-Object { $_.Class -in $EndpointClassFilter })
     }
     $targets = @(
-        [PSCustomObject]@{ Name = "rust_java"; Container = $FrameworkContainer; BaseUrl = "http://rust-java-rest:8080" },
-        [PSCustomObject]@{ Name = "spring_boot"; Container = $SpringContainer; BaseUrl = "http://spring-boot-rest:8080" }
+        [PSCustomObject]@{ Name = "rust_java"; Container = $FrameworkContainer; BaseUrl = "http://rust-java-rest:8080" }
     )
+    if (-not $FrameworkOnly) {
+        $targets += [PSCustomObject]@{ Name = "spring_boot"; Container = $SpringContainer; BaseUrl = "http://spring-boot-rest:8080" }
+    }
 
     $testPlan = New-Object System.Collections.Generic.List[object]
     foreach ($target in $targets) {
@@ -1318,18 +1338,22 @@ try {
         "metrics scrape failed" | Set-Content -Path (Join-Path $ResultsDir "rust_java_metrics.prom") -Encoding UTF8
     }
 
+    $resultsCsv = Join-Path $ResultsDir "results.csv"
+    $rows.ToArray() | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $resultsCsv
     $summary = Write-Summary -Rows $rows.ToArray()
     Write-Host "Benchmark complete: $summary"
 } finally {
     if (Test-ContainerExists $FrameworkContainer) {
         & docker logs $FrameworkContainer *> (Join-Path $ResultsDir "$FrameworkContainer.log")
     }
-    if (Test-ContainerExists $SpringContainer) {
+    if (-not $FrameworkOnly -and (Test-ContainerExists $SpringContainer)) {
         & docker logs $SpringContainer *> (Join-Path $ResultsDir "$SpringContainer.log")
     }
 
     if (-not $KeepContainers) {
         Remove-ContainerIfExists $FrameworkContainer
-        Remove-ContainerIfExists $SpringContainer
+        if (-not $FrameworkOnly) {
+            Remove-ContainerIfExists $SpringContainer
+        }
     }
 }

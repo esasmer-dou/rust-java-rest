@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v3.2.0)
+[![Version](https://img.shields.io/badge/version-3.2.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v3.2.1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-green.svg)]()
@@ -17,9 +17,11 @@ The model is intentionally simple:
 - The framework is not a Spring Boot clone. It gives you familiar REST annotations with a much
   smaller runtime surface.
 
-## v3.2.0 At A Glance
+## v3.2.1 At A Glance
 
-`v3.2.0` is the stable release for the current low-RSS and route-tuning line.
+`v3.2.1` is a stable patch release for the current low-RSS and route-tuning line. It keeps the
+`v3.2.0` programming model and benchmark profile, then tightens production packaging, runtime
+configuration behavior, and benchmark measurement discipline.
 
 What changed for users:
 
@@ -34,7 +36,10 @@ What changed for users:
 - File streaming bulkhead for large exports/downloads.
 - Startup diagnostics, optional startup indexes, OpenJ9 tuning docs, and benchmark runners.
 - Lean production package split: the default jar excludes sample/benchmark classes; sample classes
-  are attached as a separate classifier.
+  are attached as a separate classifier. Benchmark consumer images can now run against
+  `core-runtime` so sample classes do not leak into production-like RSS measurements.
+- Runtime profiles no longer overwrite values that users explicitly set in `rust-spring.properties`.
+  System properties and environment variables still have the highest priority.
 - Native ABI `20`; use the DLL/SO shipped with this package.
 
 Measured release-gate signal:
@@ -72,7 +77,7 @@ Interpretation:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.0</version>
+  <version>3.2.1</version>
 </dependency>
 ```
 
@@ -121,6 +126,15 @@ The package also includes startup option files:
 
 Use `openj9-idle-rss.options` only for very low traffic services. It can reduce RSS, but `-Xnojit`
 trades away JIT-optimized Java execution.
+
+Artifact rule:
+
+- `rust-java-rest-3.2.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-3.2.1-core-runtime.jar`: single lean runtime jar for benchmark/container
+  classpaths when you do not want to copy dependency jars separately.
+- `rust-java-rest-3.2.1-sample.jar`: runnable demo and benchmark app only. Do not use this as a
+  production dependency.
+- Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 ## Quick Start
 
@@ -622,10 +636,32 @@ Low-traffic small REST service:
 
 ```properties
 reactor.runtime.profile=micro-rest
+reactor.websocket.enabled=false
+reactor.static-files.enabled=false
 reactor.rust.http.max-connections=512
 reactor.rust.http.max-inflight-response-bytes=8388608
 reactor.rust.native-cache.max-entries=0
 reactor.rust.native-cache.max-bytes=0
+```
+
+`micro-rest` and `micro-dubbo` are memory-first profiles. They disable WebSocket registration and the
+annotation-based static-file scanner unless you explicitly enable them. If your service needs one of
+these features, turn on only that feature:
+
+```properties
+reactor.runtime.profile=micro-rest
+reactor.websocket.enabled=true
+```
+
+For build-time startup indexes, generate the index for the feature set you really deploy. A REST-only
+service can keep optional components out of the index:
+
+```bash
+java -cp "app.jar:lib/*" com.reactor.rust.startup.StartupIndexGenerator \
+  --output target/classes \
+  --packages com.example.api \
+  --exclude-websocket \
+  --exclude-static-files
 ```
 
 Small REST service with Dubbo consumer:
@@ -774,7 +810,7 @@ Rules:
 
 ## UTF-8 Behavior
 
-`v3.2.0` keeps the UTF-8 fixes for:
+`v3.2.1` keeps the UTF-8 fixes for:
 
 - response bodies;
 - `RawResponse.text(...)` and `RawResponse.json(...)` content types;
@@ -866,7 +902,7 @@ reactor.rust.websocket.send-timeout-ms=5000
 
 ## Benchmark And Release Evidence
 
-Release-gate commands used for `v3.2.0`:
+Release-gate commands used for `v3.2.1`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
@@ -896,7 +932,7 @@ More benchmark details:
 
 - [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
-- [docs/release-notes/v3.2.0.md](docs/release-notes/v3.2.0.md)
+- [docs/release-notes/v3.2.1.md](docs/release-notes/v3.2.1.md)
 
 ## Native Binaries
 

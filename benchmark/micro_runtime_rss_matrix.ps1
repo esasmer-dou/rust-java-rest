@@ -2,8 +2,14 @@ param(
     [int] $HostPortBase = 18120,
     [string] $ResultsDir = "",
     [string] $ContainerMemory = "96m",
-    [ValidateSet("current", "cpu1", "cpu1-nojit")]
+    [ValidateSet("current", "cpu1", "cpu1-xss192", "cpu1-xss160", "cpu1-xss128", "cpu1-nojit", "cpu1-nojit-xss160", "cpu1-nojit-xss128")]
     [string] $JvmPreset = "cpu1",
+    [ValidateSet("core-runtime", "classes")]
+    [string] $FrameworkArtifactMode = "core-runtime",
+    [ValidateSet("classes", "full-jar", "native-static")]
+    [string] $DubboArtifactMode = "classes",
+    [int] $IdleSeconds = 0,
+    [switch] $OnlyDubbo,
     [switch] $SkipBuild,
     [switch] $SkipZookeeper,
     [switch] $KeepContainers
@@ -26,7 +32,7 @@ New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
 
 $NetworkName = "reactor-rss-matrix-net"
 $FrameworkImage = "rust-java-rest:rss-matrix"
-$ConsumerImage = "rest-sample-dubbo-consumer:rss-matrix"
+$ConsumerImage = "rest-sample-dubbo-consumer:rss-matrix-$DubboArtifactMode"
 $ZookeeperContainer = "reactor-rss-zookeeper"
 
 function Invoke-Checked {
@@ -60,7 +66,15 @@ function Resolve-CommonJavaOptions {
     $parts = New-Object System.Collections.Generic.List[string]
     $parts.Add("-Xms8m")
     $parts.Add("-Xmx48m")
-    $parts.Add("-Xss256k")
+    if ($JvmPreset -like "*xss128") {
+        $parts.Add("-Xss128k")
+    } elseif ($JvmPreset -like "*xss160") {
+        $parts.Add("-Xss160k")
+    } elseif ($JvmPreset -like "*xss192") {
+        $parts.Add("-Xss192k")
+    } else {
+        $parts.Add("-Xss256k")
+    }
     $parts.Add("-Xquickstart")
     $parts.Add("-Xtune:virtualized")
     $parts.Add("-Xshareclasses:none")
@@ -69,10 +83,10 @@ function Resolve-CommonJavaOptions {
     $parts.Add("-Dreactor.rust.log.level=error")
     $parts.Add("-Dreactor.rust.java.log.level=warn")
 
-    if ($JvmPreset -eq "cpu1" -or $JvmPreset -eq "cpu1-nojit") {
+    if ($JvmPreset -like "cpu1*") {
         $parts.Add("-XX:ActiveProcessorCount=1")
     }
-    if ($JvmPreset -eq "cpu1-nojit") {
+    if ($JvmPreset -like "*nojit*") {
         $parts.Add("-Xnojit")
     }
     return [string[]]$parts
@@ -88,6 +102,16 @@ function Find-FrameworkSampleJar {
     return "target/$($jar.Name)"
 }
 
+function Find-FrameworkCoreRuntimeJar {
+    $jar = Get-ChildItem -Path (Join-Path $FrameworkRoot "target") -Filter "rust-java-rest-*-core-runtime.jar" |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if ($null -eq $jar) {
+        throw "Framework core-runtime jar not found. Run mvn package first."
+    }
+    return $jar.FullName
+}
+
 function Ensure-RuntimeDependencyDir {
     $dependencyDir = Join-Path $FrameworkRoot "target\dependency"
     if ((Test-Path $dependencyDir) -and
@@ -101,21 +125,49 @@ function Ensure-RuntimeDependencyDir {
     ) -WorkingDirectory $FrameworkRoot
 }
 
+function Consumer-ProfileArgs {
+    if ($DubboArtifactMode -eq "native-static") {
+        return @("-Pnative-static-consumer")
+    }
+    return @("-Pfull-dubbo-consumer")
+}
+
+function Consumer-DependencyDir {
+    return (Join-Path $ConsumerRoot "target\dependency-$DubboArtifactMode")
+}
+
 function Prepare-Builds {
+    if (-not $SkipZookeeper -and $DubboArtifactMode -ne "classes") {
+        throw "ZooKeeper RSS scenario currently uses legacy classes mode. Use -SkipZookeeper for full-jar/native-static A/B runs."
+    }
     if ($SkipBuild) {
         Ensure-RuntimeDependencyDir
         return
     }
     Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $FrameworkRoot
-    Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $DubboRoot
-    Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $ConsumerRoot
+    Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "install") -WorkingDirectory $DubboRoot
+    Invoke-Checked -FilePath "mvn" -Arguments (@(Consumer-ProfileArgs) + @("-q", "-DskipTests", "package")) -WorkingDirectory $ConsumerRoot
     Ensure-RuntimeDependencyDir
+
+    if ($DubboArtifactMode -ne "classes") {
+        $consumerDepDir = Consumer-DependencyDir
+        New-Item -ItemType Directory -Force -Path $consumerDepDir | Out-Null
+        Invoke-Checked -FilePath "mvn" -Arguments (@(Consumer-ProfileArgs) + @(
+            "-q",
+            "-DskipTests",
+            "dependency:copy-dependencies",
+            "-DincludeScope=runtime",
+            "-DexcludeArtifactIds=rust-java-rest",
+            "-DoutputDirectory=target/dependency-$DubboArtifactMode"
+        )) -WorkingDirectory $ConsumerRoot
+        return
+    }
 
     $zkDepDir = Join-Path $ConsumerRoot "target\dependency-zk"
     New-Item -ItemType Directory -Force -Path $zkDepDir | Out-Null
     Invoke-Checked -FilePath "mvn" -Arguments @(
         "-q",
-        "-Pzookeeper-discovery",
+        "-Pfull-dubbo-consumer,zookeeper-discovery",
         "-DskipTests",
         "dependency:copy-dependencies",
         "-DincludeScope=runtime",
@@ -154,14 +206,29 @@ function Build-ConsumerImage {
     New-Item -ItemType Directory -Force -Path $context | Out-Null
 
     Copy-Directory -Source (Join-Path $ConsumerRoot "target\classes") -Target (Join-Path $context "consumer\classes")
-    Copy-Directory -Source (Join-Path $FrameworkRoot "target\classes") -Target (Join-Path $context "framework\classes")
-    Copy-Directory -Source (Join-Path $FrameworkRoot "target\dependency") -Target (Join-Path $context "framework\lib")
-    Copy-Directory -Source (Join-Path $DubboRoot "target\classes") -Target (Join-Path $context "dubbo\classes")
+    if ($FrameworkArtifactMode -eq "core-runtime") {
+        $frameworkLib = Join-Path $context "framework\lib"
+        New-Item -ItemType Directory -Force -Path $frameworkLib | Out-Null
+        Copy-Item -LiteralPath (Find-FrameworkCoreRuntimeJar) -Destination $frameworkLib
+    } else {
+        Copy-Directory -Source (Join-Path $FrameworkRoot "target\classes") -Target (Join-Path $context "framework\classes")
+        $frameworkStartupIndex = Join-Path $context "framework\classes\META-INF\reactor"
+        if (Test-Path $frameworkStartupIndex) {
+            Remove-Item -Recurse -Force -Path $frameworkStartupIndex
+        }
+        Copy-Directory -Source (Join-Path $FrameworkRoot "target\dependency") -Target (Join-Path $context "framework\lib")
+    }
 
-    $zkDepDir = Join-Path $ConsumerRoot "target\dependency-zk"
-    New-Item -ItemType Directory -Force -Path $zkDepDir | Out-Null
-    Copy-Directory -Source $zkDepDir -Target (Join-Path $context "consumer\lib-zk")
+    if ($DubboArtifactMode -eq "classes") {
+        Copy-Directory -Source (Join-Path $DubboRoot "target\classes") -Target (Join-Path $context "dubbo\classes")
+        $zkDepDir = Join-Path $ConsumerRoot "target\dependency-zk"
+        New-Item -ItemType Directory -Force -Path $zkDepDir | Out-Null
+        Copy-Directory -Source $zkDepDir -Target (Join-Path $context "consumer\lib-zk")
+    } else {
+        Copy-Directory -Source (Consumer-DependencyDir) -Target (Join-Path $context "consumer\lib")
+    }
 
+    if ($DubboArtifactMode -eq "classes" -and $FrameworkArtifactMode -eq "classes") {
     @'
 FROM ibm-semeru-runtimes:open-21-jre-jammy
 
@@ -181,6 +248,63 @@ EXPOSE 8080
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -cp '/app/consumer/classes:/app/framework/classes:/app/framework/lib/*:/app/dubbo/classes:/app/consumer/lib-zk/*' com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication"]
 '@ | Set-Content -Path (Join-Path $context "Dockerfile") -Encoding ASCII
+    } elseif ($DubboArtifactMode -eq "classes") {
+    @'
+FROM ibm-semeru-runtimes:open-21-jre-jammy
+
+WORKDIR /app
+
+ENV MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=131072 \
+    JAVA_OPTS="-Xms8m -Xmx48m -Xss256k -Xquickstart -Xtune:virtualized -Xshareclasses:none -XX:ActiveProcessorCount=1 -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom"
+
+COPY consumer/classes /app/consumer/classes
+COPY framework/lib /app/framework/lib
+COPY dubbo/classes /app/dubbo/classes
+COPY consumer/lib-zk /app/consumer/lib-zk
+
+EXPOSE 8080
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -cp '/app/consumer/classes:/app/framework/lib/*:/app/dubbo/classes:/app/consumer/lib-zk/*' com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication"]
+'@ | Set-Content -Path (Join-Path $context "Dockerfile") -Encoding ASCII
+    } elseif ($FrameworkArtifactMode -eq "classes") {
+    @'
+FROM ibm-semeru-runtimes:open-21-jre-jammy
+
+WORKDIR /app
+
+ENV MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=131072 \
+    JAVA_OPTS="-Xms8m -Xmx48m -Xss256k -Xquickstart -Xtune:virtualized -Xshareclasses:none -XX:ActiveProcessorCount=1 -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom"
+
+COPY consumer/classes /app/consumer/classes
+COPY framework/classes /app/framework/classes
+COPY framework/lib /app/framework/lib
+COPY consumer/lib /app/consumer/lib
+
+EXPOSE 8080
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -cp '/app/consumer/classes:/app/framework/classes:/app/framework/lib/*:/app/consumer/lib/*' com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication"]
+'@ | Set-Content -Path (Join-Path $context "Dockerfile") -Encoding ASCII
+    } else {
+    @'
+FROM ibm-semeru-runtimes:open-21-jre-jammy
+
+WORKDIR /app
+
+ENV MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=131072 \
+    JAVA_OPTS="-Xms8m -Xmx48m -Xss256k -Xquickstart -Xtune:virtualized -Xshareclasses:none -XX:ActiveProcessorCount=1 -Dfile.encoding=UTF-8 -Djava.security.egd=file:/dev/./urandom"
+
+COPY consumer/classes /app/consumer/classes
+COPY framework/lib /app/framework/lib
+COPY consumer/lib /app/consumer/lib
+
+EXPOSE 8080
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -cp '/app/consumer/classes:/app/framework/lib/*:/app/consumer/lib/*' com.reactor.sample.dubbo.consumer.app.RestSampleDubboConsumerApplication"]
+'@ | Set-Content -Path (Join-Path $context "Dockerfile") -Encoding ASCII
+    }
 
     Invoke-Checked -FilePath "docker" -Arguments @(
         "build",
@@ -407,7 +531,11 @@ function Run-Scenario {
         Add-Measurement -Scenario $Scenario -Phase "ready" -Container $container
 
         foreach ($phase in $Phases) {
-            Invoke-Endpoint -Port $Port -Path $phase.path -Count $phase.count
+            if ($phase.PSObject.Properties.Name -contains "idleSeconds") {
+                Start-Sleep -Seconds $phase.idleSeconds
+            } else {
+                Invoke-Endpoint -Port $Port -Path $phase.path -Count $phase.count
+            }
             Add-Measurement -Scenario $Scenario -Phase $phase.name -Container $container
         }
 
@@ -432,18 +560,27 @@ Build-ConsumerImage
 $zookeeperStarted = Start-Zookeeper
 
 try {
-    Run-Scenario `
-        -Scenario "micro-rest" `
-        -Image $FrameworkImage `
-        -Port $HostPortBase `
-        -ReadyPath "/metrics" `
-        -JavaOpts (Join-JavaOptions ($CommonJavaOpts + @("-Dreactor.runtime.profile=micro-rest"))) `
-        -Phases @(
-            [PSCustomObject]@{ name = "small-json-warm"; path = "/api/v1/candidates/direct"; count = 20 },
-            [PSCustomObject]@{ name = "native-cache-warm"; path = "/api/v1/heavy/cache?items=100"; count = 50 },
-            [PSCustomObject]@{ name = "raw-json-warm"; path = "/api/v1/heavy/raw"; count = 50 }
-        )
+    if (-not $OnlyDubbo) {
+        Run-Scenario `
+            -Scenario "micro-rest" `
+            -Image $FrameworkImage `
+            -Port $HostPortBase `
+            -ReadyPath "/metrics" `
+            -JavaOpts (Join-JavaOptions ($CommonJavaOpts + @("-Dreactor.runtime.profile=micro-rest"))) `
+            -Phases @(
+                [PSCustomObject]@{ name = "small-json-warm"; path = "/api/v1/candidates/direct"; count = 20 },
+                [PSCustomObject]@{ name = "native-cache-warm"; path = "/api/v1/heavy/cache?items=100"; count = 50 },
+                [PSCustomObject]@{ name = "raw-json-warm"; path = "/api/v1/heavy/raw"; count = 50 }
+            )
+    }
 
+    $dubboStaticPhases = @(
+        [PSCustomObject]@{ name = "metrics"; path = "/api/v1/catalog/dubbo-metrics"; count = 10 },
+        [PSCustomObject]@{ name = "first-rpc-no-provider"; path = "/api/v1/catalog/nested"; count = 1 }
+    )
+    if ($IdleSeconds -gt 0) {
+        $dubboStaticPhases += [PSCustomObject]@{ name = "idle-after-warm"; idleSeconds = $IdleSeconds }
+    }
     Run-Scenario `
         -Scenario "micro-dubbo-static" `
         -Image $ConsumerImage `
@@ -456,12 +593,16 @@ try {
             "-Dreactor.dubbo.lazy=true",
             "-Dreactor.dubbo.providers=127.0.0.1:20880"
         ))) `
-        -Phases @(
+        -Phases $dubboStaticPhases
+
+    if ($zookeeperStarted -and -not $SkipZookeeper) {
+        $dubboZkPhases = @(
             [PSCustomObject]@{ name = "metrics"; path = "/api/v1/catalog/dubbo-metrics"; count = 10 },
             [PSCustomObject]@{ name = "first-rpc-no-provider"; path = "/api/v1/catalog/nested"; count = 1 }
         )
-
-    if ($zookeeperStarted -and -not $SkipZookeeper) {
+        if ($IdleSeconds -gt 0) {
+            $dubboZkPhases += [PSCustomObject]@{ name = "idle-after-warm"; idleSeconds = $IdleSeconds }
+        }
         Run-Scenario `
             -Scenario "micro-dubbo-zk" `
             -Image $ConsumerImage `
@@ -474,10 +615,7 @@ try {
                 "-Dreactor.dubbo.lazy=true",
                 "-Dreactor.dubbo.registry-address=zookeeper://$ZookeeperContainer`:2181"
             ))) `
-            -Phases @(
-                [PSCustomObject]@{ name = "metrics"; path = "/api/v1/catalog/dubbo-metrics"; count = 10 },
-                [PSCustomObject]@{ name = "first-rpc-no-provider"; path = "/api/v1/catalog/nested"; count = 1 }
-            )
+            -Phases $dubboZkPhases
     }
 } finally {
     if (-not $KeepContainers) {
@@ -499,6 +637,10 @@ $lines.Add("- JVM image: ibm-semeru-runtimes:open-21-jre-jammy")
 $lines.Add("- JVM preset: $JvmPreset")
 $lines.Add("- JVM options: $(Join-JavaOptions $CommonJavaOpts)")
 $lines.Add("- Container memory limit: $ContainerMemory")
+$lines.Add("- Framework artifact mode: $FrameworkArtifactMode")
+$lines.Add("- Dubbo artifact mode: $DubboArtifactMode")
+$lines.Add("- Only Dubbo: $OnlyDubbo")
+$lines.Add("- Idle seconds: $IdleSeconds")
 $lines.Add("- Source CSV: $csv")
 $lines.Add("")
 $lines.Add("| Scenario | Phase | smaps RSS MiB | PSS MiB | Private Dirty MiB | Docker Mem MiB | Threads |")

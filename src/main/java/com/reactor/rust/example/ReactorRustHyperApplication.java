@@ -4,6 +4,7 @@ import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.config.RuntimeFootprintGate;
 import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.example.handler.BenchmarkHandler;
@@ -67,6 +68,7 @@ public class ReactorRustHyperApplication {
         }
         try (StartupTimeline.Scope ignored = StartupTimeline.phase("runtime.profile")) {
             RuntimeProfiles.apply();
+            RuntimeFootprintGate.validate();
         }
 
         // 2. Initialize DI Container (ZERO runtime overhead)
@@ -81,13 +83,21 @@ public class ReactorRustHyperApplication {
         RouteScanner.scanAndRegister();
 
         // 5. Scan and register WebSocket handlers
-        try (StartupTimeline.Scope ignored = StartupTimeline.phase("websocket.register")) {
-            registerWebSocketHandlers(container);
+        if (PropertiesLoader.getBoolean("reactor.websocket.enabled", true)) {
+            try (StartupTimeline.Scope ignored = StartupTimeline.phase("websocket.register")) {
+                registerWebSocketHandlers(container);
+            }
+        } else {
+            FrameworkLogger.info("[JAVA] WebSocket registration disabled by reactor.websocket.enabled=false");
         }
 
         // 6. Scan and register static file handlers
-        try (StartupTimeline.Scope ignored = StartupTimeline.phase("static_files.register")) {
-            StaticFileScanner.scanAndRegister(container.getBeansOfType(Object.class));
+        if (PropertiesLoader.getBoolean("reactor.static-files.enabled", true)) {
+            try (StartupTimeline.Scope ignored = StartupTimeline.phase("static_files.register")) {
+                StaticFileScanner.scanAndRegister(container.getBeansOfType(Object.class));
+            }
+        } else {
+            FrameworkLogger.info("[JAVA] Static file registration disabled by reactor.static-files.enabled=false");
         }
 
         // 7. Configure native runtime before starting Hyper.

@@ -8,7 +8,7 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.0</version>
+    <version>3.2.1</version>
     <name>Rust-Java REST Framework</name>
     <description>Low-latency REST API framework with Rust Hyper HTTP I/O, Java handlers, low-RSS runtime profiles, route admission, and native response paths</description>
 
@@ -116,6 +116,7 @@
                                 <exclude>com/reactor/rust/example/**</exclude>
                                 <exclude>com/reactor/rust/benchmark/**</exclude>
                                 <exclude>com/reactor/rust/dubbo/sample/**</exclude>
+                                <exclude>META-INF/reactor/**</exclude>
                             </excludes>
                         </configuration>
                     </execution>
@@ -163,6 +164,7 @@
                                         <exclude>com/reactor/rust/example/**</exclude>
                                         <exclude>com/reactor/rust/benchmark/**</exclude>
                                         <exclude>com/reactor/rust/dubbo/sample/**</exclude>
+                                        <exclude>META-INF/reactor/**</exclude>
                                     </excludes>
                                 </filter>
                                 <filter>
@@ -204,6 +206,26 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>${exec-maven-plugin-version}</version>
+                <executions>
+                    <execution>
+                        <id>generate-sample-startup-index</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>com.reactor.rust.startup.StartupIndexGenerator</mainClass>
+                            <arguments>
+                                <argument>--output</argument>
+                                <argument>${project.build.outputDirectory}</argument>
+                                <argument>--packages</argument>
+                                <argument>com.reactor.rust.example</argument>
+                                <argument>--exclude-websocket</argument>
+                                <argument>--exclude-static-files</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
                 <configuration>
                     <mainClass>com.reactor.rust.example.ReactorRustHyperApplication</mainClass>
                 </configuration>
@@ -221,6 +243,13 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
                 <version>${maven-source-plugin-version}</version>
+                <configuration>
+                    <excludes>
+                        <exclude>com/reactor/rust/example/**</exclude>
+                        <exclude>com/reactor/rust/benchmark/**</exclude>
+                        <exclude>com/reactor/rust/dubbo/sample/**</exclude>
+                    </excludes>
+                </configuration>
                 <executions>
                     <execution>
                         <id>attach-sources</id>

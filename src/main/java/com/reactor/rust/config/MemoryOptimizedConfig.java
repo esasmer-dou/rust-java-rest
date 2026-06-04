@@ -7,31 +7,19 @@ import java.lang.annotation.Target;
 import java.nio.ByteBuffer;
 
 /**
- * Memory-Optimized Configuration for 30MB Target
+ * Legacy memory tuning helper.
  *
- * This configuration reduces memory footprint from ~65MB to ~30MB through:
- * - Smaller buffer sizes (4KB instead of 64KB)
- * - Reduced buffer pool (20 instead of 100)
- * - Thread-local buffer reuse
- * - Lazy bean initialization
- *
- * JVM Flags Required:
- * -Xms16m -Xmx32m -XX:MaxMetaspaceSize=16m -XX:ReservedCodeCacheSize=16m
- * -XX:+UseSerialGC -XX:CICompilerCount=1 -XX:ThreadStackSize=256k
- * -Xss256k -XX:+UseCompressedOops -XX:+UseCompressedClassPointers
+ * <p>This class is kept for compatibility with older sample code. It is not a production guarantee
+ * that a JVM process will fit into 30 MB RSS. Current production tuning should prefer
+ * {@link RuntimeProfiles}, {@link RuntimeFootprintGate}, container memory diagnostics, and measured
+ * OpenJ9 options.</p>
  */
 public class MemoryOptimizedConfig {
 
-    // Buffer configuration for 30MB target
-    public static final int BUFFER_SIZE = 4096;          // 4KB (was 64KB)
-    public static final int BUFFER_POOL_SIZE = 20;        // 20 buffers (was 100)
-    public static final int MAX_WORKER_THREADS = 4;       // 4 threads (was 8)
-    public static final int MAX_BLOCKING_THREADS = 16;    // 16 blocking (was 64)
-
-    // Estimated memory savings:
-    // Buffer pool: (64KB * 100) - (4KB * 20) = 6.32MB saved
-    // Thread stacks: (8 * 1MB) - (4 * 256KB) = ~7MB saved
-    // Total estimated savings: ~13-15MB
+    public static final int BUFFER_SIZE = 4096;
+    public static final int BUFFER_POOL_SIZE = 20;
+    public static final int MAX_WORKER_THREADS = 4;
+    public static final int MAX_BLOCKING_THREADS = 16;
 
     /**
      * Thread-local buffer for zero-allocation JSON processing.
@@ -67,7 +55,10 @@ public class MemoryOptimizedConfig {
     }
 
     /**
-     * JVM Memory Configuration for 30MB target
+     * JVM options suitable for an aggressive small-pod experiment.
+     *
+     * <p>Use as a starting point only. Real pod limits must be chosen from RSS, PSS, thread count,
+     * class loading, and idle/soak measurements.</p>
      */
     public static class JvmConfig {
         public static final String HEAP_MIN = "16m";

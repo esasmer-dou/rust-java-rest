@@ -55,6 +55,69 @@ Use `micro-rest` when the service is memory-first and controlled overload is acc
 HTTP status contains `503`, the reported RPS includes rejected requests; use the `200=` count and p99
 together when judging useful throughput.
 
+Framework-only JVM A/B test:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
+  -FrameworkOnly `
+  -RuntimeProfile micro-rest `
+  -FrameworkJvmPreset cpu1 `
+  -EndpointClasses "small-json-direct,dynamic-dto-json,direct-json-writer,producer-json,raw-json,native-cache-json" `
+  -ConcurrencyLevels "64,256" `
+  -Duration 5s `
+  -Warmup 2s `
+  -RepeatCount 3 `
+  -RandomSeed 20260604
+```
+
+Use this for JVM preset decisions such as `cpu1` versus `cpu1-nojit`. It skips the Spring target and
+writes `results.csv` plus `summary.md`. Do not use it for Rust/Spring product claims.
+
+Production-only framework classpath check:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\micro_runtime_rss_matrix.ps1 `
+  -SkipZookeeper `
+  -OnlyDubbo `
+  -DubboArtifactMode native-static `
+  -FrameworkArtifactMode core-runtime `
+  -JvmPreset cpu1 `
+  -IdleSeconds 5
+```
+
+Use `-FrameworkArtifactMode core-runtime` for production-like consumer RSS checks. This runs the
+sample consumer with `rust-java-rest-*-core-runtime.jar` plus user application classes, not
+`target/classes`. The old `-FrameworkArtifactMode classes` path is a debug fallback only; it can
+pull framework sample/example classes into the container classpath and inflate the measurement.
+
+Latest local A/B smoke check, same native-static Dubbo consumer, `cpu1`, idle `5s`:
+
+| Framework artifact mode | Ready RSS MiB | After first RPC RSS MiB | Docker Mem MiB ready | Image build context |
+|-------------------------|--------------:|------------------------:|---------------------:|--------------------:|
+| `core-runtime` | `57.27` | `58.28` | `30.00` | `5.01 MB` |
+| `classes` | `58.75` | `59.88` | `31.48` | `9.99 MB` |
+
+Interpretation: this is not a large JVM baseline breakthrough. It is a packaging and measurement
+correctness gate: production-like runs should not include sample/example classes unless the app
+actually uses them. RSS can stay close because unloaded classes do not always become live RSS, but
+classpath size, accidental startup-index pollution, and user-facing artifact surface are cleaner.
+
+Latest framework-only `cpu1` vs `cpu1-nojit` result, `micro-rest`, repeat `3`, duration `5s`,
+concurrency `64/256`:
+
+| Endpoint | C | cpu1 200 RPS | nojit 200 RPS | nojit p99 | RSS delta |
+|----------|--:|-------------:|---------------:|----------:|----------:|
+| `heavy100_direct_writer` | 64 | 2,718 | 106 | `1180ms` | `-18.12 MiB` |
+| `heavy100_dynamic_dto` | 64 | 1,047 | 62 | `1410ms` | `-17.67 MiB` |
+| `heavy100_producer_json` | 64 | 2,164 | 84 | `1530ms` | `-17.82 MiB` |
+| `candidates_direct_bodyless` | 64 | 6,011 | 921 | `167.93ms` | `-18.15 MiB` |
+| `heavy100_raw` | 64 | 7,722 | 8,340 | `23.10ms` | `-17.83 MiB` |
+
+Interpretation: `cpu1-nojit` is not a production default for Java business or JSON writer routes.
+It saves memory under warmed load, but Java-heavy endpoints lose useful throughput and p99 becomes
+unacceptable. It is only a candidate for very low-call-rate services or raw/precomputed/static
+response workloads where Java execution is minimal.
+
 Micro REST plus route-admission check:
 
 ```powershell
@@ -138,7 +201,12 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
 |--------|------|----------|
 | `current` | Nothing beyond the selected runtime profile | Baseline comparison and previous benchmark continuity |
 | `cpu1` | `-Xss256k -XX:ActiveProcessorCount=1` | Small pods where RSS/thread count matters but JIT should stay enabled |
+| `cpu1-xss192` | `-Xss192k -XX:ActiveProcessorCount=1` | Stack-size A/B test for small pods; validate with your call depth |
+| `cpu1-xss160` | `-Xss160k -XX:ActiveProcessorCount=1` | Stack-size A/B test when every MiB matters |
+| `cpu1-xss128` | `-Xss128k -XX:ActiveProcessorCount=1` | Aggressive stack-size A/B test only after smoke tests pass |
 | `cpu1-nojit` | `-Xss256k -XX:ActiveProcessorCount=1 -Xnojit` | Very low traffic services only; not a general throughput default |
+| `cpu1-nojit-xss160` | `-Xss160k -XX:ActiveProcessorCount=1 -Xnojit` | Idle-service RSS experiment; not a throughput default |
+| `cpu1-nojit-xss128` | `-Xss128k -XX:ActiveProcessorCount=1 -Xnojit` | Most aggressive idle-service RSS experiment; validate stack depth and latency |
 
 Short local trade-off check, low-rss, c=64/256, duration `5s`, repeat `1`:
 
@@ -202,13 +270,24 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\micro_runtime_rss_matrix.ps
   -JvmPreset cpu1 -SkipZookeeper
 ```
 
+To isolate JVM baseline choices across repeated runs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\jvm_baseline_rss_matrix.ps1 `
+  -Repeats 3 `
+  -JvmPresets "cpu1,cpu1-xss128,cpu1-nojit,cpu1-nojit-xss128" `
+  -DubboArtifactMode native-static
+```
+
 JVM presets:
 
 | Preset | Use when | Trade-off |
 |--------|----------|-----------|
 | `current` | You want to compare against the previous OpenJ9 baseline | Higher JVM worker/thread footprint on hosts with many CPUs |
 | `cpu1` | Small pod, low-RSS service, JIT still enabled | Lower RSS/thread count; do not use for CPU-heavy throughput without measuring |
+| `cpu1-xss192` / `cpu1-xss160` / `cpu1-xss128` | You need to prove whether smaller thread stacks help this service | The latest local matrix showed little RSS benefit; validate stack depth before production |
 | `cpu1-nojit` | Very low traffic service where RSS matters more than CPU throughput | Lowest RSS in this matrix; slower dynamic Java execution |
+| `cpu1-nojit-xss160` / `cpu1-nojit-xss128` | You want to combine no-JIT with smaller stacks | Treat as idle-service experiments; not defaults |
 
 Latest local micro-RSS result:
 
@@ -226,6 +305,32 @@ Latest local micro-RSS result:
 Interpretation: `cpu1` is the production-safe low-RSS JVM preset for small pods. `cpu1-nojit` is an
 idle-service option, not a throughput default. If the service does database/RPC work under real load,
 run the same matrix together with the normal latency benchmark before choosing it.
+
+Latest optional-surface-off check, `micro-rest`, `cpu1`, filtered sample startup index, repeat `1`:
+
+| Scenario | Phase | smaps RSS | Docker Mem | Threads |
+|----------|-------|----------:|-----------:|--------:|
+| `micro-rest` | ready | 59.11 MiB | 32.20 MiB | 22 |
+| `micro-dubbo-static` | ready | 58.39 MiB | 30.85 MiB | 22 |
+
+Interpretation: disabling optional WebSocket/static registration and filtering sample startup index
+cleans the low-RSS runtime surface and removes false gate warnings. It does not produce a dramatic
+RSS drop by itself; the remaining pressure is JVM baseline, class metadata, JIT/runtime state, and
+Java-heavy route allocation.
+
+Latest JVM baseline isolation, native-static Dubbo artifact, static provider, repeat `1`, idle `10s`:
+
+| Preset | smaps RSS Ready | smaps RSS Idle | PSS Idle | Private Dirty Idle | Threads Idle |
+|--------|----------------:|---------------:|---------:|-------------------:|-------------:|
+| `cpu1` | 57.21 MiB | 58.23 MiB | 57.06 MiB | 28.62 MiB | 23 |
+| `cpu1-xss160` | 58.20 MiB | 59.13 MiB | 57.94 MiB | 29.55 MiB | 23 |
+| `cpu1-xss128` | 57.19 MiB | 58.11 MiB | 56.93 MiB | 29.56 MiB | 23 |
+| `cpu1-nojit` | 51.07 MiB | 51.50 MiB | 50.36 MiB | 29.14 MiB | 21 |
+| `cpu1-nojit-xss128` | 51.09 MiB | 51.51 MiB | 50.38 MiB | 29.14 MiB | 21 |
+
+Interpretation: on this host, smaller thread stacks alone did not materially reduce RSS. The visible
+RSS drop came from `-Xnojit`, which is a CPU/latency trade-off. Use it only for low-call-rate services
+or explicit idle-RSS targets, then run the normal p99 benchmark before deploying it.
 
 Full throughput profile:
 

@@ -4,14 +4,17 @@ import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RoutePlanRegistry;
+import com.reactor.rust.config.RuntimeFootprintGate;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.startup.StartupTimeline;
 
 import java.lang.reflect.Method;
 
 import java.lang.management.BufferPoolMXBean;
+import java.lang.management.ClassLoadingMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
+import java.lang.management.ThreadMXBean;
 
 /**
  * Built-in handler for exposing metrics in Prometheus format.
@@ -65,6 +68,8 @@ public class MetricsHandler {
     public RawResponse getMemoryDiagnostics() {
         MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         MemoryUsage nonHeap = ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage();
+        ClassLoadingMXBean classLoading = ManagementFactory.getClassLoadingMXBean();
+        ThreadMXBean threads = ManagementFactory.getThreadMXBean();
         Runtime runtime = Runtime.getRuntime();
         String nativeDiagnostics = NativeBridge.nativeMemoryDiagnosticsJson();
         if (nativeDiagnostics == null || nativeDiagnostics.isBlank()) {
@@ -92,7 +97,14 @@ public class MetricsHandler {
                 .append("\"non_heap_used_bytes\":").append(nonHeap.getUsed()).append(',')
                 .append("\"non_heap_committed_bytes\":").append(nonHeap.getCommitted()).append(',')
                 .append("\"runtime_total_bytes\":").append(runtime.totalMemory()).append(',')
-                .append("\"runtime_free_bytes\":").append(runtime.freeMemory())
+                .append("\"runtime_free_bytes\":").append(runtime.freeMemory()).append(',')
+                .append("\"available_processors\":").append(runtime.availableProcessors()).append(',')
+                .append("\"loaded_class_count\":").append(classLoading.getLoadedClassCount()).append(',')
+                .append("\"total_loaded_class_count\":").append(classLoading.getTotalLoadedClassCount()).append(',')
+                .append("\"unloaded_class_count\":").append(classLoading.getUnloadedClassCount()).append(',')
+                .append("\"thread_count\":").append(threads.getThreadCount()).append(',')
+                .append("\"daemon_thread_count\":").append(threads.getDaemonThreadCount()).append(',')
+                .append("\"peak_thread_count\":").append(threads.getPeakThreadCount())
                 .append("},");
         json.append("\"buffer_pools\":[");
         boolean first = true;
@@ -109,6 +121,7 @@ public class MetricsHandler {
                     .append('}');
         }
         json.append("],");
+        json.append("\"runtime_gate\":").append(RuntimeFootprintGate.lastReportJson()).append(',');
         json.append("\"native\":").append(nativeDiagnostics).append(',');
         json.append("\"native_dubbo\":").append(nativeDubboMetrics).append(',');
         json.append("\"native_metrics_prometheus\":").append(jsonString(nativeMetrics));

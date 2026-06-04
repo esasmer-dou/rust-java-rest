@@ -7,7 +7,9 @@ import com.reactor.rust.annotations.PostMapping;
 import com.reactor.rust.annotations.PutMapping;
 import com.reactor.rust.annotations.RequestMapping;
 import com.reactor.rust.annotations.RustRoute;
+import com.reactor.rust.annotations.StaticFiles;
 import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.websocket.annotation.WebSocket;
 
 import java.io.File;
 import java.io.IOException;
@@ -52,6 +54,9 @@ public final class StartupIndexGenerator {
         for (String packageName : arguments.packages()) {
             for (String className : classNames(packageName, classLoader)) {
                 Class<?> clazz = Class.forName(className, false, classLoader);
+                if (arguments.shouldExclude(clazz)) {
+                    continue;
+                }
                 if (isComponent(clazz)) {
                     components.add(className);
                     collectRoutes(clazz, routes);
@@ -187,10 +192,17 @@ public final class StartupIndexGenerator {
         return (basePath + route).replaceAll("//+", "/");
     }
 
-    private record Arguments(Path output, List<String> packages) {
+    private record Arguments(
+            Path output,
+            List<String> packages,
+            boolean excludeWebSocket,
+            boolean excludeStaticFiles
+    ) {
         static Arguments parse(String[] args) {
             Path output = Path.of("target/classes");
             List<String> packages = new ArrayList<>();
+            boolean excludeWebSocket = false;
+            boolean excludeStaticFiles = false;
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
                     case "--output" -> output = Path.of(nextValue(args, ++i, "--output"));
@@ -202,10 +214,17 @@ public final class StartupIndexGenerator {
                             }
                         }
                     }
+                    case "--exclude-websocket" -> excludeWebSocket = true;
+                    case "--exclude-static-files" -> excludeStaticFiles = true;
                     default -> throw new IllegalArgumentException("Unknown argument: " + args[i]);
                 }
             }
-            return new Arguments(output, packages);
+            return new Arguments(output, packages, excludeWebSocket, excludeStaticFiles);
+        }
+
+        boolean shouldExclude(Class<?> clazz) {
+            return (excludeWebSocket && clazz.isAnnotationPresent(WebSocket.class))
+                    || (excludeStaticFiles && clazz.isAnnotationPresent(StaticFiles.class));
         }
 
         private static String nextValue(String[] args, int index, String name) {

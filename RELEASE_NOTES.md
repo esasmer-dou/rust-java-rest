@@ -1,3 +1,48 @@
+# Rust-Java REST Framework v3.2.1
+
+`v3.2.1` is a stable patch release for production packaging and runtime hardening.
+
+The Java programming model is unchanged. Your handlers, services, components, request records,
+response records, DB code, and business logic stay in Java. Rust continues to handle the HTTP I/O
+plane, bounded native memory, file streaming, WebSocket transport, and selected serialization-heavy
+paths.
+
+## What's New For Users
+
+- Maven dependency version is now `3.2.1`.
+- Production-like benchmark images can use `rust-java-rest-*-core-runtime.jar` instead of framework
+  `target/classes`.
+- Default jar, `core-runtime`, sources jar, and javadocs exclude framework sample/benchmark packages.
+- `sample` classifier remains available for demos and benchmark examples only.
+- Runtime profiles no longer overwrite values explicitly configured in `rust-spring.properties`.
+- README, benchmark docs, and production runtime docs now explain the production artifact rule.
+
+## Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>3.2.1</version>
+</dependency>
+```
+
+## Production Artifact Rule
+
+Use the normal Maven dependency for applications. Use `rust-java-rest-3.2.1-core-runtime.jar` only
+when a benchmark/container classpath needs one lean framework runtime jar. Do not use
+`rust-java-rest-3.2.1-sample.jar` in production; it intentionally contains demo handlers, DTOs,
+benchmark endpoints, and a sample startup index.
+
+## Validation
+
+- `mvn -q test`
+- `mvn -q -DskipTests package`
+- Jar policy check for main jar, `core-runtime`, and sources jar.
+- Native-static Dubbo consumer smoke benchmark with `-FrameworkArtifactMode core-runtime`.
+
+---
+
 # Rust-Java REST Framework v3.1.0
 
 This stable release makes the low-RSS path easier to use and easier to measure. The normal Java

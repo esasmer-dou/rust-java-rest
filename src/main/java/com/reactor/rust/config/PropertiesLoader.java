@@ -7,8 +7,10 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * Simple Properties Loader - No Spring
@@ -17,6 +19,7 @@ import java.util.Properties;
 public final class PropertiesLoader {
 
     private static final Properties properties = new Properties();
+    private static final Set<String> explicitPropertyKeys = new HashSet<>();
     private static final String CONFIG_FILE = "rust-spring.properties";
     private static final String[] SEARCH_PATHS = {
             CONFIG_FILE,
@@ -31,10 +34,14 @@ public final class PropertiesLoader {
      * Load properties from file
      */
     public static void load() {
+        properties.clear();
+        explicitPropertyKeys.clear();
+
         // Try classpath first
         try (InputStream is = PropertiesLoader.class.getClassLoader().getResourceAsStream(CONFIG_FILE)) {
             if (is != null) {
                 properties.load(is);
+                recordExplicitPropertyKeys();
                 FrameworkLogger.info("[JAVA] Properties loaded from classpath: " + CONFIG_FILE);
                 return;
             }
@@ -46,6 +53,7 @@ public final class PropertiesLoader {
             if (Files.exists(filePath)) {
                 try (InputStream is = Files.newInputStream(filePath)) {
                     properties.load(is);
+                    recordExplicitPropertyKeys();
                     FrameworkLogger.info("[JAVA] Properties loaded from file: " + filePath.toAbsolutePath());
                     return;
                 } catch (IOException ignored) {}
@@ -75,6 +83,10 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.startup.scan.fallback-enabled", "true");
         properties.setProperty("reactor.startup.prewarm.enabled", "false");
         properties.setProperty("reactor.startup.prewarm.json", "true");
+        properties.setProperty("reactor.runtime.low-rss-gate.mode", "observe");
+        properties.setProperty("reactor.runtime.low-rss-gate.allow-zookeeper", "false");
+        properties.setProperty("reactor.websocket.enabled", "true");
+        properties.setProperty("reactor.static-files.enabled", "true");
         properties.setProperty("reactor.instanton.checkpoint.enabled", "false");
         properties.setProperty("reactor.instanton.checkpoint.dir", "/checkpoint");
         properties.setProperty("reactor.instanton.checkpoint.fail-on-unavailable", "true");
@@ -158,7 +170,7 @@ public final class PropertiesLoader {
     }
 
     public static void setProfileValue(String key, String value) {
-        if (!hasExternalOverride(key)) {
+        if (!hasExternalOverride(key) && !explicitPropertyKeys.contains(key)) {
             properties.setProperty(key, value);
         }
     }
@@ -260,5 +272,9 @@ public final class PropertiesLoader {
 
     private static String toEnvKey(String key) {
         return key.replace('.', '_').replace('-', '_').toUpperCase(Locale.ROOT);
+    }
+
+    private static void recordExplicitPropertyKeys() {
+        explicitPropertyKeys.addAll(properties.stringPropertyNames());
     }
 }
