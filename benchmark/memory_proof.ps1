@@ -5,6 +5,7 @@ param(
     [string[]] $Endpoints = @(
         "/api/v1/heavy?items=100",
         "/api/v1/heavy/dto?items=100",
+        "/api/v1/heavy/dto/legacy?items=100",
         "/api/v1/heavy/rust?items=100",
         "/api/v1/heavy/cache?items=100",
         "/api/v1/heavy/raw"
@@ -53,7 +54,8 @@ function Get-ProfileOpts {
             return [PSCustomObject]@{
                 Memory = "80m"
                 JavaOpts = Join-JavaOptions @(
-                    "-Xms8m", "-Xmx40m", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
+                    "-Xms8m", "-Xmx40m", "-Xss256k", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
+                    "-XX:ActiveProcessorCount=1", "-Xgc:threads=1", "-XX:-TransparentHugePage",
                     "-Dreactor.runtime.profile=micro-rest",
                     "-Dreactor.rust.log.level=error",
                     "-Dreactor.rust.java.log.level=warn",
@@ -66,15 +68,11 @@ function Get-ProfileOpts {
             return [PSCustomObject]@{
                 Memory = "80m"
                 JavaOpts = Join-JavaOptions @(
-                    "-Xms8m", "-Xmx40m", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
-                    "-Dreactor.runtime.profile=micro-rest",
+                    "-Xms8m", "-Xmx40m", "-Xss256k", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
+                    "-XX:ActiveProcessorCount=1", "-Xgc:threads=1", "-XX:-TransparentHugePage",
+                    "-Dreactor.runtime.profile=micro-rest-plus",
                     "-Dreactor.rust.log.level=error",
                     "-Dreactor.rust.java.log.level=warn",
-                    "-Dreactor.rust.http.max-connections=768",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.max-concurrent=128",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.queue-timeout-ms=125",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.dto.max-concurrent=64",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.dto.queue-timeout-ms=125",
                     "-Dfile.encoding=UTF-8",
                     "-Djava.security.egd=file:/dev/./urandom"
                 )
@@ -85,7 +83,7 @@ function Get-ProfileOpts {
                 Memory = "80m"
                 JavaOpts = Join-JavaOptions @(
                     "-Xms4m", "-Xmx24m", "-Xss256k", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
-                    "-Xnojit", "-XX:ActiveProcessorCount=1", "-Xgc:threads=1",
+                    "-Xnojit", "-XX:ActiveProcessorCount=1", "-Xgc:threads=1", "-XX:-TransparentHugePage",
                     "-Dreactor.rust.jni.workers=1",
                     "-Dreactor.rust.jni.queue-capacity=128",
                     "-Dreactor.rust.http.max-connections=192",
@@ -114,28 +112,30 @@ function Get-ProfileOpts {
         }
         "ultra-low-rss" {
             return [PSCustomObject]@{
-                Memory = "96m"
+                Memory = "80m"
                 JavaOpts = Join-JavaOptions @(
-                    "-Xms8m", "-Xmx40m", "-Xss256k", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
-                    "-Dreactor.rust.jni.workers=2",
-                    "-Dreactor.rust.jni.queue-capacity=512",
-                    "-Dreactor.rust.http.max-connections=640",
-                    "-Dreactor.rust.http.max-inflight-body-bytes=16777216",
-                    "-Dreactor.rust.http.max-inflight-response-bytes=33554432",
+                    "-Xms4m", "-Xmx32m", "-Xss256k", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
+                    "-XX:ActiveProcessorCount=1", "-Xgc:threads=1", "-XX:-TransparentHugePage",
+                    "-Dreactor.runtime.profile=micro-rest",
+                    "-Dreactor.rust.jni.workers=1",
+                    "-Dreactor.rust.jni.queue-capacity=96",
+                    "-Dreactor.rust.http.max-connections=256",
+                    "-Dreactor.rust.http.max-inflight-body-bytes=2097152",
+                    "-Dreactor.rust.http.max-inflight-response-bytes=4194304",
                     "-Dreactor.rust.http.http1-only-enabled=true",
-                    "-Dreactor.rust.runtime.worker-threads=2",
-                    "-Dreactor.rust.runtime.max-blocking-threads=4",
-                    "-Dreactor.rust.runtime.thread-stack-bytes=262144",
-                    "-Dreactor.rust.file-stream.chunk-bytes=65536",
-                    "-Dreactor.rust.static-file.inline-max-bytes=524288",
-                    "-Dreactor.rust.static-file.max-concurrent-streams=96",
-                    "-Dreactor.rust.response-pool.small-capacity=128",
-                    "-Dreactor.rust.response-pool.medium-capacity=128",
-                    "-Dreactor.rust.response-pool.large-capacity=4",
+                    "-Dreactor.rust.runtime.worker-threads=1",
+                    "-Dreactor.rust.runtime.max-blocking-threads=1",
+                    "-Dreactor.rust.runtime.thread-stack-bytes=196608",
+                    "-Dreactor.rust.file-stream.chunk-bytes=32768",
+                    "-Dreactor.rust.static-file.inline-max-bytes=0",
+                    "-Dreactor.rust.static-file.max-concurrent-streams=16",
+                    "-Dreactor.rust.response-pool.small-capacity=4",
+                    "-Dreactor.rust.response-pool.medium-capacity=1",
+                    "-Dreactor.rust.response-pool.large-capacity=1",
                     "-Dreactor.rust.response-pool.huge-capacity=1",
-                    "-Dreactor.rust.native-cache.max-entries=256",
-                    "-Dreactor.rust.native-cache.max-bytes=8388608",
-                    "-Dreactor.rust.json.writer-retain-max-bytes=131072",
+                    "-Dreactor.rust.native-cache.max-entries=0",
+                    "-Dreactor.rust.native-cache.max-bytes=0",
+                    "-Dreactor.rust.json.writer-retain-max-bytes=16384",
                     "-Dreactor.rust.log.level=error",
                     "-Dreactor.rust.java.log.level=warn",
                     "-Dfile.encoding=UTF-8",
@@ -171,7 +171,8 @@ function Get-ProfileOpts {
             return [PSCustomObject]@{
                 Memory = "96m"
                 JavaOpts = Join-JavaOptions @(
-                    "-Xms8m", "-Xmx40m", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
+                    "-Xms8m", "-Xmx40m", "-Xss256k", "-Xquickstart", "-Xtune:virtualized", "-Xshareclasses:none",
+                    "-XX:ActiveProcessorCount=1", "-Xgc:threads=1", "-XX:-TransparentHugePage",
                     "-Dreactor.runtime.profile=low-rss",
                     "-Dreactor.rust.jni.workers=2",
                     "-Dreactor.rust.jni.queue-capacity=512",

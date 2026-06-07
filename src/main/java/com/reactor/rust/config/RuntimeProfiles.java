@@ -8,6 +8,7 @@ public final class RuntimeProfiles {
 
     public static final String PROFILE_DEFAULT = "default";
     public static final String PROFILE_MICRO_REST = "micro-rest";
+    public static final String PROFILE_MICRO_REST_PLUS = "micro-rest-plus";
     public static final String PROFILE_MICRO_DUBBO = "micro-dubbo";
     public static final String PROFILE_FAST_START = "fast-start";
     public static final String PROFILE_READY_LOW_LATENCY = "ready-low-latency";
@@ -26,6 +27,7 @@ public final class RuntimeProfiles {
                 return;
             }
             case PROFILE_MICRO_REST -> applyMicroRest();
+            case PROFILE_MICRO_REST_PLUS -> applyMicroRestPlus();
             case PROFILE_MICRO_DUBBO -> applyMicroDubbo();
             case PROFILE_FAST_START -> applyFastStart();
             case PROFILE_READY_LOW_LATENCY -> applyReadyLowLatency();
@@ -33,7 +35,7 @@ public final class RuntimeProfiles {
             case PROFILE_BALANCED_DUBBO -> applyBalancedDubbo();
             case PROFILE_THROUGHPUT -> applyThroughput();
             default -> throw new IllegalArgumentException("reactor.runtime.profile must be default, micro-rest, "
-                    + "micro-dubbo, low-rss, fast-start, ready-low-latency, balanced-dubbo, or throughput");
+                    + "micro-rest-plus, micro-dubbo, low-rss, fast-start, ready-low-latency, balanced-dubbo, or throughput");
         }
         FrameworkLogger.info("[JAVA] Runtime profile applied: " + profile);
     }
@@ -69,6 +71,16 @@ public final class RuntimeProfiles {
         set("reactor.rust.json.writer-retain-max-bytes", "32768");
         set("reactor.rust.async.max-inflight", "64");
         set("reactor.rust.async.response-timeout-ms", "1500");
+    }
+
+    private static void applyMicroRestPlus() {
+        applyMicroRest();
+        set("reactor.rust.route-budget.heavy-json-direct.route-admission.max-concurrent", "80");
+        set("reactor.rust.route-budget.heavy-json-direct.route-admission.queue-timeout-ms", "150");
+        set("reactor.rust.route-budget.heavy-json-producer.route-admission.max-concurrent", "96");
+        set("reactor.rust.route-budget.heavy-json-producer.route-admission.queue-timeout-ms", "125");
+        set("reactor.rust.route-budget.heavy-json-legacy.route-admission.max-concurrent", "48");
+        set("reactor.rust.route-budget.heavy-json-legacy.route-admission.queue-timeout-ms", "100");
     }
 
     private static void applyMicroDubbo() {

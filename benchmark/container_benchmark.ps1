@@ -15,7 +15,11 @@ param(
     [string] $EndpointClasses = "",
     [ValidateSet("current", "cpu1", "cpu1-xss192", "cpu1-xss160", "cpu1-xss128", "cpu1-nojit", "cpu1-nojit-xss160", "cpu1-nojit-xss128")]
     [string] $FrameworkJvmPreset = "current",
+    [double] $FrameworkCodeCacheMaxRAMPercentage = 0,
+    [string] $FrameworkCodeCacheTotal = "",
     [string] $FrameworkJavaOptsAppend = "",
+    [switch] $PlanPreWarm,
+    [string] $PlanPreWarmDuration = "3s",
     [switch] $FrameworkOnly,
     [switch] $SkipBuild,
     [switch] $KeepContainers
@@ -115,9 +119,13 @@ function Get-RuntimeProfileConfig {
                 FrameworkJavaOpts = Join-JavaOptions -Parts @(
                     "-Xms8m",
                     "-Xmx40m",
+                    "-Xss256k",
                     "-Xquickstart",
                     "-Xtune:virtualized",
                     "-Xshareclasses:none",
+                    "-XX:ActiveProcessorCount=1",
+                    "-Xgc:threads=1",
+                    "-XX:-TransparentHugePage",
                     "-Dreactor.runtime.profile=micro-rest",
                     "-Dreactor.rust.log.level=error",
                     "-Dreactor.rust.java.log.level=warn",
@@ -139,23 +147,22 @@ function Get-RuntimeProfileConfig {
         }
         "micro-rest-plus" {
             return [PSCustomObject]@{
-                Description = "micro-rest with measured route admission headroom for heavy direct/dynamic JSON benchmark routes"
+                Description = "micro-rest-plus runtime profile with route-workload heavy JSON budgets; lower direct-heavy 503 at the cost of some useful RPS/p99 headroom"
                 FrameworkMemory = "80m"
                 SpringMemory = "512m"
                 FrameworkJavaOpts = Join-JavaOptions -Parts @(
                     "-Xms8m",
                     "-Xmx40m",
+                    "-Xss256k",
                     "-Xquickstart",
                     "-Xtune:virtualized",
                     "-Xshareclasses:none",
-                    "-Dreactor.runtime.profile=micro-rest",
+                    "-XX:ActiveProcessorCount=1",
+                    "-Xgc:threads=1",
+                    "-XX:-TransparentHugePage",
+                    "-Dreactor.runtime.profile=micro-rest-plus",
                     "-Dreactor.rust.log.level=error",
                     "-Dreactor.rust.java.log.level=warn",
-                    "-Dreactor.rust.http.max-connections=768",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.max-concurrent=128",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.queue-timeout-ms=125",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.dto.max-concurrent=64",
-                    "-Dreactor.rust.route-admission.get.api.v1.heavy.dto.queue-timeout-ms=125",
                     "-Dfile.encoding=UTF-8",
                     "-Djava.security.egd=file:/dev/./urandom"
                 )
@@ -187,6 +194,7 @@ function Get-RuntimeProfileConfig {
                     "-Xnojit",
                     "-XX:ActiveProcessorCount=1",
                     "-Xgc:threads=1",
+                    "-XX:-TransparentHugePage",
                     "-Dreactor.rust.jni.workers=1",
                     "-Dreactor.rust.jni.queue-capacity=128",
                     "-Dreactor.rust.json.writer-initial-bytes=4096",
@@ -227,36 +235,40 @@ function Get-RuntimeProfileConfig {
         }
         "ultra-low-rss" {
             return [PSCustomObject]@{
-                Description = "minimum RSS profile with reduced native/JVM threads and HTTP/1 only"
-                FrameworkMemory = "96m"
+                Description = "aggressively bounded low-RSS profile for very small REST services with fail-fast overload behavior"
+                FrameworkMemory = "80m"
                 SpringMemory = "512m"
                 FrameworkJavaOpts = Join-JavaOptions -Parts @(
-                    "-Xms8m",
-                    "-Xmx40m",
+                    "-Xms4m",
+                    "-Xmx32m",
                     "-Xss256k",
                     "-Xquickstart",
                     "-Xtune:virtualized",
                     "-Xshareclasses:none",
-                    "-Dreactor.rust.jni.workers=2",
-                    "-Dreactor.rust.jni.queue-capacity=512",
+                    "-XX:ActiveProcessorCount=1",
+                    "-Xgc:threads=1",
+                    "-XX:-TransparentHugePage",
+                    "-Dreactor.runtime.profile=micro-rest",
+                    "-Dreactor.rust.jni.workers=1",
+                    "-Dreactor.rust.jni.queue-capacity=96",
                     "-Dreactor.rust.json.writer-initial-bytes=4096",
-                    "-Dreactor.rust.json.writer-retain-max-bytes=131072",
-                    "-Dreactor.rust.http.max-connections=640",
-                    "-Dreactor.rust.http.max-inflight-body-bytes=16777216",
-                    "-Dreactor.rust.http.max-inflight-response-bytes=33554432",
+                    "-Dreactor.rust.json.writer-retain-max-bytes=16384",
+                    "-Dreactor.rust.http.max-connections=256",
+                    "-Dreactor.rust.http.max-inflight-body-bytes=2097152",
+                    "-Dreactor.rust.http.max-inflight-response-bytes=4194304",
                     "-Dreactor.rust.http.http1-only-enabled=true",
-                    "-Dreactor.rust.runtime.worker-threads=2",
-                    "-Dreactor.rust.runtime.max-blocking-threads=4",
-                    "-Dreactor.rust.runtime.thread-stack-bytes=262144",
-                    "-Dreactor.rust.file-stream.chunk-bytes=65536",
-                    "-Dreactor.rust.static-file.inline-max-bytes=524288",
-                    "-Dreactor.rust.static-file.max-concurrent-streams=96",
-                    "-Dreactor.rust.response-pool.small-capacity=128",
-                    "-Dreactor.rust.response-pool.medium-capacity=128",
-                    "-Dreactor.rust.response-pool.large-capacity=4",
+                    "-Dreactor.rust.runtime.worker-threads=1",
+                    "-Dreactor.rust.runtime.max-blocking-threads=1",
+                    "-Dreactor.rust.runtime.thread-stack-bytes=196608",
+                    "-Dreactor.rust.file-stream.chunk-bytes=32768",
+                    "-Dreactor.rust.static-file.inline-max-bytes=0",
+                    "-Dreactor.rust.static-file.max-concurrent-streams=16",
+                    "-Dreactor.rust.response-pool.small-capacity=4",
+                    "-Dreactor.rust.response-pool.medium-capacity=1",
+                    "-Dreactor.rust.response-pool.large-capacity=1",
                     "-Dreactor.rust.response-pool.huge-capacity=1",
-                    "-Dreactor.rust.native-cache.max-entries=256",
-                    "-Dreactor.rust.native-cache.max-bytes=8388608",
+                    "-Dreactor.rust.native-cache.max-entries=0",
+                    "-Dreactor.rust.native-cache.max-bytes=0",
                     "-Dfile.encoding=UTF-8",
                     "-Djava.security.egd=file:/dev/./urandom"
                 )
@@ -284,6 +296,10 @@ function Get-RuntimeProfileConfig {
                     "-Xquickstart",
                     "-Xtune:virtualized",
                     "-Xshareclasses:none",
+                    "-Xss256k",
+                    "-XX:ActiveProcessorCount=1",
+                    "-Xgc:threads=1",
+                    "-XX:-TransparentHugePage",
                     "-Dreactor.runtime.profile=low-rss",
                     "-Dreactor.rust.jni.workers=2",
                     "-Dreactor.rust.jni.queue-capacity=512",
@@ -423,10 +439,21 @@ if (-not [string]::IsNullOrWhiteSpace($frameworkPresetOptions)) {
         $frameworkPresetOptions
     )
 }
+$frameworkExtraOptions = New-Object 'System.Collections.Generic.List[string]'
+if ($FrameworkCodeCacheMaxRAMPercentage -gt 0) {
+    $frameworkExtraOptions.Add("-XX:codecachetotalMaxRAMPercentage=$FrameworkCodeCacheMaxRAMPercentage")
+}
+if (-not [string]::IsNullOrWhiteSpace($FrameworkCodeCacheTotal)) {
+    $frameworkExtraOptions.Add("-Xcodecachetotal$FrameworkCodeCacheTotal")
+}
 if (-not [string]::IsNullOrWhiteSpace($FrameworkJavaOptsAppend)) {
+    $frameworkExtraOptions.Add($FrameworkJavaOptsAppend)
+}
+$frameworkExtraOptionsValue = Join-JavaOptions -Parts ([string[]] $frameworkExtraOptions)
+if (-not [string]::IsNullOrWhiteSpace($frameworkExtraOptionsValue)) {
     $profileConfig.FrameworkJavaOpts = Join-JavaOptions -Parts @(
         $profileConfig.FrameworkJavaOpts,
-        $FrameworkJavaOptsAppend
+        $frameworkExtraOptionsValue
     )
 }
 if ([string]::IsNullOrWhiteSpace($FrameworkMemory)) {
@@ -833,6 +860,38 @@ function Invoke-RunnerCurl {
     return ($output -join "`n")
 }
 
+function Invoke-PlanPreWarmCase {
+    param(
+        [string] $Target,
+        [string] $EndpointName,
+        [string] $Method,
+        [string] $Url,
+        [int] $Concurrency
+    )
+
+    $bodyFile = if ($Method -eq "POST") { "/results/post_body.json" } else { "" }
+    $args = @(
+        "run", "--rm",
+        "--network", $NetworkName,
+        "--entrypoint", "load-probe",
+        "-v", "$ResultsDir`:/results",
+        $RunnerImage,
+        "--url", $Url,
+        "--method", $Method,
+        "--concurrency", "$Concurrency",
+        "--duration", $PlanPreWarmDuration,
+        "--timeout-ms", "10000"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($bodyFile)) {
+        $args += @("--body-file", $bodyFile)
+    }
+
+    & docker @args *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Plan pre-warm failed for $Target $EndpointName $Method concurrency=$Concurrency"
+    }
+}
+
 function Invoke-LoadProbe {
     param(
         [string] $Target,
@@ -977,6 +1036,10 @@ function Write-Summary {
     }
     $lines.Add("- load probe duration: $Duration")
     $lines.Add("- load probe warmup: $Warmup")
+    $lines.Add("- plan pre-warm: $PlanPreWarm")
+    if ($PlanPreWarm) {
+        $lines.Add("- plan pre-warm duration: $PlanPreWarmDuration")
+    }
     $lines.Add("- concurrency levels: $($ConcurrencyValues -join ', ')")
     $lines.Add("- repeat count: $RepeatCount")
     $lines.Add("- randomized order: $RandomizeOrder")
@@ -999,6 +1062,7 @@ function Write-Summary {
 
     foreach ($class in @(
         "small-json",
+        "dynamic-producer-json",
         "dynamic-dto-json",
         "direct-json-writer",
         "producer-json",
@@ -1050,6 +1114,41 @@ function Write-Summary {
 
     $lines | Set-Content -Path $summary -Encoding UTF8
     return $summary
+}
+
+function Save-RouteDiagnostics {
+    $jsonPath = Join-Path $ResultsDir "rust_java_routes.json"
+    $summaryPath = Join-Path $ResultsDir "rust_java_routes_summary.md"
+    $raw = Invoke-LocalHttpGet -Url "http://127.0.0.1:8080/diagnostics/routes" -TimeoutSeconds 5
+    if ($null -eq $raw) {
+        "route diagnostics scrape failed" | Set-Content -Path $jsonPath -Encoding UTF8
+        "route diagnostics scrape failed" | Set-Content -Path $summaryPath -Encoding UTF8
+        return
+    }
+
+    $raw | Set-Content -Path $jsonPath -Encoding UTF8
+    try {
+        $diag = $raw | ConvertFrom-Json
+        $lines = New-Object System.Collections.Generic.List[string]
+        $lines.Add("# Rust-Java Route Diagnostics")
+        $lines.Add("")
+        $lines.Add("- total routes: $($diag.total)")
+        $lines.Add("- production routes: $($diag.production_routes)")
+        $lines.Add("- benchmark-only routes: $($diag.benchmark_only)")
+        $lines.Add("- production legacy routes: $($diag.production_legacy)")
+        $lines.Add("- benchmark legacy routes: $($diag.benchmark_legacy)")
+        $lines.Add("- production heavy JSON object graph routes: $($diag.heavy_json_object_graph)")
+        $lines.Add("- benchmark heavy JSON object graph routes: $($diag.benchmark_heavy_json_object_graph)")
+        $lines.Add("")
+        $lines.Add("| Method | Path | Workload | Budget | Strategy | Benchmark Only | Production Route | Heavy JSON Object Graph |")
+        $lines.Add("|---|---|---|---|---|---:|---:|---:|")
+        foreach ($route in @($diag.routes)) {
+            $lines.Add("| $($route.method) | $($route.path) | $($route.workload) | $($route.workload_budget) | $($route.strategy) | $($route.benchmark_only) | $($route.production_route) | $($route.heavy_json_object_graph) |")
+        }
+        $lines | Set-Content -Path $summaryPath -Encoding UTF8
+    } catch {
+        "route diagnostics parse failed: $($_.Exception.Message)" | Set-Content -Path $summaryPath -Encoding UTF8
+    }
 }
 
 $getLua = Join-Path $ResultsDir "get_status.lua"
@@ -1186,10 +1285,19 @@ try {
             Lua = "/results/post_echo.lua"
         },
         [PSCustomObject]@{
-            Name = "heavy100_dynamic_dto"
-            Class = "dynamic-dto-json"
+            Name = "heavy100_dynamic_producer"
+            Class = "dynamic-producer-json"
             Method = "GET"
             RustPath = "/api/v1/heavy/dto?items=100"
+            SpringPath = ""
+            Targets = @("rust_java")
+            Lua = "/results/get_status.lua"
+        },
+        [PSCustomObject]@{
+            Name = "heavy100_dynamic_dto_legacy"
+            Class = "dynamic-dto-json"
+            Method = "GET"
+            RustPath = "/api/v1/heavy/dto/legacy?items=100"
             SpringPath = "/api/v1/heavy?items=100"
             Targets = @("rust_java", "spring_boot")
             Lua = "/results/get_status.lua"
@@ -1305,6 +1413,20 @@ try {
         }
     }
 
+    if ($PlanPreWarm) {
+        Write-Host "Running plan pre-warm duration=$PlanPreWarmDuration"
+        foreach ($case in ($testPlan.ToArray() | Sort-Object { $_.Target.Name }, { $_.Endpoint.Name }, Concurrency)) {
+            Write-Host "Pre-warm $($case.Target.Name) $($case.Endpoint.Name) $($case.Endpoint.Method) concurrency=$($case.Concurrency)"
+            Invoke-PlanPreWarmCase `
+                -Target $case.Target.Name `
+                -EndpointName $case.Endpoint.Name `
+                -Method $case.Endpoint.Method `
+                -Url "$($case.Target.BaseUrl)$($case.Path)" `
+                -Concurrency $case.Concurrency
+        }
+        Invoke-RunnerCurl "http://rust-java-rest:8080/metrics/reset" | Out-Null
+    }
+
     for ($run = 1; $run -le $RepeatCount; $run++) {
         $cases = if ($RandomizeOrder) {
             @($testPlan | Sort-Object { Get-Random })
@@ -1337,6 +1459,7 @@ try {
     } else {
         "metrics scrape failed" | Set-Content -Path (Join-Path $ResultsDir "rust_java_metrics.prom") -Encoding UTF8
     }
+    Save-RouteDiagnostics
 
     $resultsCsv = Join-Path $ResultsDir "results.csv"
     $rows.ToArray() | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $resultsCsv

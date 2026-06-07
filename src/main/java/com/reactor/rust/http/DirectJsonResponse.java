@@ -22,7 +22,7 @@ public final class DirectJsonResponse<T> {
 
     private final T body;
     private final DirectJsonWriter<? super T> writer;
-    private final HeaderMap headers = new HeaderMap(this);
+    private HeaderMap headers;
     private int statusCode;
     private volatile byte[] encodedHeaders;
     private volatile byte[] encodedHeadersWithDefaultJson;
@@ -48,7 +48,7 @@ public final class DirectJsonResponse<T> {
 
     public DirectJsonResponse<T> header(String name, String value) {
         if (name != null && !name.isBlank() && value != null) {
-            headers.put(name, value);
+            mutableHeaders().put(name, value);
         }
         return this;
     }
@@ -58,7 +58,7 @@ public final class DirectJsonResponse<T> {
     }
 
     public Map<String, String> getHeaders() {
-        return headers;
+        return mutableHeaders();
     }
 
     public byte[] getEncodedHeaders() {
@@ -88,6 +88,15 @@ public final class DirectJsonResponse<T> {
     private void invalidateEncodedHeaders() {
         encodedHeaders = null;
         encodedHeadersWithDefaultJson = null;
+    }
+
+    private HeaderMap mutableHeaders() {
+        HeaderMap current = headers;
+        if (current == null) {
+            current = new HeaderMap(this);
+            headers = current;
+        }
+        return current;
     }
 
     private static byte[] encodeHeaders(Map<String, String> headers) {

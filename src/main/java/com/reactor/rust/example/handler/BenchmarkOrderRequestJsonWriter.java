@@ -6,6 +6,7 @@ import com.reactor.rust.json.DirectJsonWriter;
 import com.reactor.rust.json.JsonBufferWriter;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -17,6 +18,7 @@ import java.util.List;
 final class BenchmarkOrderRequestJsonWriter implements DirectJsonWriter<BenchmarkOrderRequest> {
 
     static final BenchmarkOrderRequestJsonWriter INSTANCE = new BenchmarkOrderRequestJsonWriter();
+    private static final byte[] TEST_PREFIX = "test".getBytes(StandardCharsets.US_ASCII);
 
     private BenchmarkOrderRequestJsonWriter() {}
 
@@ -44,7 +46,7 @@ final class BenchmarkOrderRequestJsonWriter implements DirectJsonWriter<Benchmar
                 json.comma();
             }
             json.beginObject()
-                    .fieldString("name", "test" + i).comma()
+                    .fieldStringAsciiPrefixInt("name", TEST_PREFIX, i).comma()
                     .fieldFixed2Cents("price", Math.round((12.89d + i) * 100.0d))
                     .endObject();
         }

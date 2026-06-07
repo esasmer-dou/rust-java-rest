@@ -5,6 +5,7 @@ import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
+import com.reactor.rust.json.JsonBodyProducer;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.metrics.Metrics;
 import com.reactor.rust.startup.StartupIndex;
@@ -12,6 +13,8 @@ import com.reactor.rust.startup.StartupTimeline;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -181,6 +184,16 @@ public final class RouteScanner {
             boolean directPathBoolean = directPathBooleanAnnotation != null;
             boolean directPathDouble = directPathDoubleAnnotation != null;
             boolean directPathShort = directPathShortAnnotation != null;
+            boolean directPrimitiveOutput = (directQueryInt && isDirectInt(method))
+                    || (directQueryLong && isDirectLong(method))
+                    || (directQueryBoolean && isDirectBoolean(method))
+                    || (directQueryDouble && isDirectDouble(method))
+                    || (directQueryShort && isDirectShort(method))
+                    || (directPathInt && isDirectInt(method))
+                    || (directPathLong && isDirectLong(method))
+                    || (directPathBoolean && isDirectBoolean(method))
+                    || (directPathDouble && isDirectDouble(method))
+                    || (directPathShort && isDirectShort(method));
             int directPrimitiveAnnotations = (directQueryIntAnnotation != null ? 1 : 0)
                     + (directQueryLongAnnotation != null ? 1 : 0)
                     + (directQueryBooleanAnnotation != null ? 1 : 0)
@@ -204,7 +217,7 @@ public final class RouteScanner {
             if (directQueryIntAnnotation != null && !directIntSignature) {
                 throw new IllegalArgumentException(
                         "@DirectQueryInt requires handler signature (ByteBuffer out, int offset, int value) "
-                                + "or JsonProducerResponse handler(int value): " + method
+                                + "or JsonProducerResponse/JsonBodyProducer/RawResponse handler(int value): " + method
                 );
             }
             if (directQueryInt && !isVoidRequestType(routeInfo.requestType)) {
@@ -284,7 +297,7 @@ public final class RouteScanner {
             if (directPathIntAnnotation != null && !directIntSignature) {
                 throw new IllegalArgumentException(
                         "@DirectPathInt requires handler signature (ByteBuffer out, int offset, int value) "
-                                + "or JsonProducerResponse handler(int value): " + method
+                                + "or JsonProducerResponse/JsonBodyProducer/RawResponse handler(int value): " + method
                 );
             }
             if (directPathInt && !isVoidRequestType(routeInfo.requestType)) {
@@ -423,7 +436,17 @@ public final class RouteScanner {
                         "A route cannot be both @NativeStaticRoute and @NativeStaticFileRoute: " + method
                 );
             }
-            RouteAdmissionConfig admission = routeAdmissionConfig(method, routeInfo);
+            RouteWorkload workload = method.getAnnotation(RouteWorkload.class);
+            boolean benchmarkOnly = method.isAnnotationPresent(BenchmarkOnlyRoute.class);
+            RouteWorkload.Type workloadType = routeWorkloadType(
+                    workload,
+                    routeInfo,
+                    nativeStaticResponseId,
+                    nativeStaticFileResponseId
+            );
+            String workloadBudget = routeBudgetKey(workload, workloadType);
+            RouteAdmissionConfig admission = routeAdmissionConfig(method, routeInfo, workloadType, workloadBudget);
+            JniQueueAdmissionConfig jniAdmission = jniQueueAdmissionConfig(method, routeInfo, workloadType, workloadBudget);
 
             RouteDef route = new RouteDef(
                     routeInfo.httpMethod,
@@ -473,7 +496,9 @@ public final class RouteScanner {
                     nativeStaticResponseId,
                     nativeStaticFileResponseId,
                     admission.maxConcurrent,
-                    admission.queueTimeoutMs
+                    admission.queueTimeoutMs,
+                    jniAdmission.maxPending,
+                    jniAdmission.queueTimeoutMs
             );
             routes.add(route);
             RoutePlanRegistry.getInstance().add(RouteExecutionPlan.from(
@@ -493,8 +518,12 @@ public final class RouteScanner {
                     directPathDouble,
                     directPathShort,
                     directBodylessOutput,
+                    directPrimitiveOutput,
                     nativeStaticResponseId,
                     nativeStaticFileResponseId,
+                    workloadType.name(),
+                    workloadBudget,
+                    benchmarkOnly,
                     implicitRawMetadata,
                     HandlerRegistry.getInstance().usesExactInvoker(handlerId)
             ));
@@ -786,7 +815,37 @@ public final class RouteScanner {
         Class<?>[] parameterTypes = method.getParameterTypes();
         return parameterTypes.length == 1
                 && parameterTypes[0] == int.class
-                && JsonProducerResponse.class.isAssignableFrom(method.getReturnType());
+                && returnsDirectScalarIntResult(method);
+    }
+
+    private static boolean returnsDirectScalarIntResult(Method method) {
+        Class<?> returnType = method.getReturnType();
+        if (JsonProducerResponse.class.isAssignableFrom(returnType)
+                || JsonBodyProducer.class.isAssignableFrom(returnType)
+                || RawResponse.class.isAssignableFrom(returnType)) {
+            return true;
+        }
+        if (!CompletionStage.class.isAssignableFrom(returnType)) {
+            return false;
+        }
+        Type genericReturnType = method.getGenericReturnType();
+        if (!(genericReturnType instanceof ParameterizedType parameterizedType)) {
+            return false;
+        }
+        for (Type argument : parameterizedType.getActualTypeArguments()) {
+            if (argument instanceof Class<?> clazz
+                    && (JsonProducerResponse.class.isAssignableFrom(clazz)
+                    || JsonBodyProducer.class.isAssignableFrom(clazz))) {
+                return true;
+            }
+            if (argument instanceof ParameterizedType nested
+                    && nested.getRawType() instanceof Class<?> raw
+                    && (JsonProducerResponse.class.isAssignableFrom(raw)
+                    || JsonBodyProducer.class.isAssignableFrom(raw))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isDirectLong(Method method) {
@@ -828,7 +887,40 @@ public final class RouteScanner {
                 && parameterTypes[1] == int.class;
     }
 
-    private static RouteAdmissionConfig routeAdmissionConfig(Method method, RouteInfo routeInfo) {
+    private static RouteWorkload.Type routeWorkloadType(
+            RouteWorkload workload,
+            RouteInfo routeInfo,
+            int nativeStaticResponseId,
+            int nativeStaticFileResponseId
+    ) {
+        if (workload != null) {
+            return workload.value();
+        }
+        if (nativeStaticFileResponseId > 0 || FileResponse.class.isAssignableFrom(routeInfo.responseType)) {
+            return RouteWorkload.Type.FILE_STREAM;
+        }
+        if (nativeStaticResponseId > 0 || RawResponse.class.isAssignableFrom(routeInfo.responseType)) {
+            return RouteWorkload.Type.RAW_STATIC;
+        }
+        return RouteWorkload.Type.STANDARD;
+    }
+
+    private static String routeBudgetKey(RouteWorkload workload, RouteWorkload.Type workloadType) {
+        if (workload != null && !workload.budget().isBlank()) {
+            return configKey(workload.budget());
+        }
+        if (workloadType == RouteWorkload.Type.STANDARD) {
+            return "";
+        }
+        return workloadKey(workloadType);
+    }
+
+    private static RouteAdmissionConfig routeAdmissionConfig(
+            Method method,
+            RouteInfo routeInfo,
+            RouteWorkload.Type workloadType,
+            String workloadBudget
+    ) {
         if (!PropertiesLoader.getBoolean("reactor.rust.route-admission.enabled", true)) {
             return RouteAdmissionConfig.DISABLED;
         }
@@ -850,6 +942,17 @@ public final class RouteScanner {
             );
         }
 
+        String workloadPrefix = "reactor.rust.route-workload." + workloadKey(workloadType)
+                + ".route-admission";
+        maxConcurrent = getOptionalInt(workloadPrefix + ".max-concurrent", maxConcurrent);
+        queueTimeoutMs = getOptionalInt(workloadPrefix + ".queue-timeout-ms", queueTimeoutMs);
+
+        if (workloadBudget != null && !workloadBudget.isBlank()) {
+            String budgetPrefix = "reactor.rust.route-budget." + workloadBudget + ".route-admission";
+            maxConcurrent = getOptionalInt(budgetPrefix + ".max-concurrent", maxConcurrent);
+            queueTimeoutMs = getOptionalInt(budgetPrefix + ".queue-timeout-ms", queueTimeoutMs);
+        }
+
         String prefix = "reactor.rust.route-admission." + routeAdmissionKey(routeInfo);
         maxConcurrent = PropertiesLoader.getInt(prefix + ".max-concurrent", maxConcurrent);
         queueTimeoutMs = PropertiesLoader.getInt(prefix + ".queue-timeout-ms", queueTimeoutMs);
@@ -860,6 +963,78 @@ public final class RouteScanner {
             queueTimeoutMs = 0;
         }
         return new RouteAdmissionConfig(maxConcurrent, queueTimeoutMs);
+    }
+
+    private static JniQueueAdmissionConfig jniQueueAdmissionConfig(
+            Method method,
+            RouteInfo routeInfo,
+            RouteWorkload.Type workloadType,
+            String workloadBudget
+    ) {
+        if (!PropertiesLoader.getBoolean("reactor.rust.jni-admission.enabled", true)) {
+            return JniQueueAdmissionConfig.DISABLED;
+        }
+
+        JniQueueAdmission annotation = method.getAnnotation(JniQueueAdmission.class);
+        int maxPending = annotation != null ? annotation.maxPending() : 0;
+        int queueTimeoutMs = annotation != null ? annotation.queueTimeoutMs() : 0;
+
+        if (maxPending < 0) {
+            maxPending = PropertiesLoader.getInt(
+                    "reactor.rust.jni-admission.default-max-pending",
+                    0
+            );
+        }
+        if (queueTimeoutMs < 0) {
+            queueTimeoutMs = PropertiesLoader.getInt(
+                    "reactor.rust.jni-admission.default-queue-timeout-ms",
+                    0
+            );
+        }
+
+        String workloadPrefix = "reactor.rust.route-workload." + workloadKey(workloadType)
+                + ".jni-admission";
+        maxPending = getOptionalInt(workloadPrefix + ".max-pending", maxPending);
+        queueTimeoutMs = getOptionalInt(workloadPrefix + ".queue-timeout-ms", queueTimeoutMs);
+
+        if (workloadBudget != null && !workloadBudget.isBlank()) {
+            String budgetPrefix = "reactor.rust.route-budget." + workloadBudget + ".jni-admission";
+            maxPending = getOptionalInt(budgetPrefix + ".max-pending", maxPending);
+            queueTimeoutMs = getOptionalInt(budgetPrefix + ".queue-timeout-ms", queueTimeoutMs);
+        }
+
+        String prefix = "reactor.rust.jni-admission." + routeAdmissionKey(routeInfo);
+        maxPending = PropertiesLoader.getInt(prefix + ".max-pending", maxPending);
+        queueTimeoutMs = PropertiesLoader.getInt(prefix + ".queue-timeout-ms", queueTimeoutMs);
+
+        maxPending = Math.max(0, maxPending);
+        queueTimeoutMs = Math.max(0, queueTimeoutMs);
+        if (maxPending == 0) {
+            queueTimeoutMs = 0;
+        }
+        return new JniQueueAdmissionConfig(maxPending, queueTimeoutMs);
+    }
+
+    private static int getOptionalInt(String key, int fallback) {
+        String value = PropertiesLoader.get(key);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static String workloadKey(RouteWorkload.Type workloadType) {
+        return workloadType.name().toLowerCase(Locale.ROOT).replace('_', '-');
+    }
+
+    private static String configKey(String raw) {
+        String normalized = raw.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
+        normalized = normalized.replaceAll("^-+|-+$", "");
+        return normalized.isEmpty() ? "route" : normalized;
     }
 
     private static String routeAdmissionKey(RouteInfo routeInfo) {
@@ -878,6 +1053,18 @@ public final class RouteScanner {
 
         RouteAdmissionConfig(int maxConcurrent, int queueTimeoutMs) {
             this.maxConcurrent = maxConcurrent;
+            this.queueTimeoutMs = queueTimeoutMs;
+        }
+    }
+
+    private static final class JniQueueAdmissionConfig {
+        static final JniQueueAdmissionConfig DISABLED = new JniQueueAdmissionConfig(0, 0);
+
+        final int maxPending;
+        final int queueTimeoutMs;
+
+        JniQueueAdmissionConfig(int maxPending, int queueTimeoutMs) {
+            this.maxPending = maxPending;
             this.queueTimeoutMs = queueTimeoutMs;
         }
     }

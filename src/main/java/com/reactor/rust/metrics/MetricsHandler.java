@@ -13,6 +13,7 @@ import java.lang.reflect.Method;
 import java.lang.management.BufferPoolMXBean;
 import java.lang.management.ClassLoadingMXBean;
 import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.lang.management.ThreadMXBean;
 
@@ -88,7 +89,8 @@ public class MetricsHandler {
             nativeDubboMetrics = "{}";
         }
 
-        StringBuilder json = new StringBuilder(8192);
+        StringBuilder json = new StringBuilder(12288);
+        boolean first;
         json.append('{');
         json.append("\"jvm\":{")
                 .append("\"heap_used_bytes\":").append(heap.getUsed()).append(',')
@@ -106,8 +108,25 @@ public class MetricsHandler {
                 .append("\"daemon_thread_count\":").append(threads.getDaemonThreadCount()).append(',')
                 .append("\"peak_thread_count\":").append(threads.getPeakThreadCount())
                 .append("},");
+        json.append("\"memory_pools\":[");
+        first = true;
+        for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+            if (!first) {
+                json.append(',');
+            }
+            first = false;
+            MemoryUsage usage = pool.getUsage();
+            json.append('{')
+                    .append("\"name\":").append(jsonString(pool.getName())).append(',')
+                    .append("\"type\":").append(jsonString(pool.getType().name())).append(',')
+                    .append("\"used_bytes\":").append(usage == null ? -1 : usage.getUsed()).append(',')
+                    .append("\"committed_bytes\":").append(usage == null ? -1 : usage.getCommitted()).append(',')
+                    .append("\"max_bytes\":").append(usage == null ? -1 : usage.getMax())
+                    .append('}');
+        }
+        json.append("],");
         json.append("\"buffer_pools\":[");
-        boolean first = true;
+        first = true;
         for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
             if (!first) {
                 json.append(',');

@@ -50,6 +50,8 @@ public class RouteDef {
     public final int nativeStaticFileResponseId;
     public final int admissionMaxConcurrent;
     public final int admissionQueueTimeoutMs;
+    public final int jniAdmissionMaxPending;
+    public final int jniAdmissionQueueTimeoutMs;
 
     public RouteDef(String httpMethod,
                     String path,
@@ -98,6 +100,10 @@ public class RouteDef {
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
                 false,
                 0,
+                0,
+                0,
+                0,
+                0,
                 0);
     }
 
@@ -127,6 +133,10 @@ public class RouteDef {
                 "", -Double.MAX_VALUE, Double.MAX_VALUE,
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
                 false,
+                0,
+                0,
+                0,
+                0,
                 0,
                 0);
     }
@@ -161,6 +171,10 @@ public class RouteDef {
                 "", -Double.MAX_VALUE, Double.MAX_VALUE,
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
                 false,
+                0,
+                0,
+                0,
+                0,
                 0,
                 0);
     }
@@ -201,6 +215,10 @@ public class RouteDef {
                 "", -Double.MAX_VALUE, Double.MAX_VALUE,
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
                 false,
+                0,
+                0,
+                0,
+                0,
                 0,
                 0);
     }
@@ -268,6 +286,8 @@ public class RouteDef {
                 nativeStaticResponseId,
                 nativeStaticFileResponseId,
                 0,
+                0,
+                0,
                 0);
     }
 
@@ -318,7 +338,9 @@ public class RouteDef {
                     int nativeStaticResponseId,
                     int nativeStaticFileResponseId,
                     int admissionMaxConcurrent,
-                    int admissionQueueTimeoutMs) {
+                    int admissionQueueTimeoutMs,
+                    int jniAdmissionMaxPending,
+                    int jniAdmissionQueueTimeoutMs) {
         this.httpMethod = httpMethod;
         this.path = path;
         this.handlerId = handlerId;
@@ -367,6 +389,8 @@ public class RouteDef {
         this.nativeStaticFileResponseId = nativeStaticFileResponseId;
         this.admissionMaxConcurrent = Math.max(0, admissionMaxConcurrent);
         this.admissionQueueTimeoutMs = Math.max(0, admissionQueueTimeoutMs);
+        this.jniAdmissionMaxPending = Math.max(0, jniAdmissionMaxPending);
+        this.jniAdmissionQueueTimeoutMs = Math.max(0, jniAdmissionQueueTimeoutMs);
     }
 
     private static boolean isVoidRequestType(String requestType) {

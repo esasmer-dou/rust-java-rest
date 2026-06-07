@@ -1,0 +1,13 @@
+# OpenJ9/Semeru micro-RSS JIT-cap experiment for small REST services.
+# Use only after comparing p99/RPS against openj9-micro-rss.options on your endpoint mix.
+-Xms8m
+-Xmx48m
+-Xss256k
+-Xquickstart
+-Xtune:virtualized
+-Xshareclasses:none
+-XX:ActiveProcessorCount=1
+-XX:-TransparentHugePage
+-Xcodecachetotal8m
+-Dfile.encoding=UTF-8
+-Djava.security.egd=file:/dev/./urandom

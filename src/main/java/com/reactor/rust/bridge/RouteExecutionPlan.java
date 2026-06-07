@@ -1,7 +1,10 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.http.DirectJsonResponse;
+import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.JsonProducerResponse;
+import com.reactor.rust.http.RawResponse;
+import com.reactor.rust.json.JsonBodyProducer;
 
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Method;
@@ -56,6 +59,8 @@ public final class RouteExecutionPlan {
     public final String methodName;
     public final String requestType;
     public final String responseType;
+    public final String workload;
+    public final String workloadBudget;
     public final Strategy strategy;
     public final String reason;
     public final boolean bodyless;
@@ -76,13 +81,17 @@ public final class RouteExecutionPlan {
     public final boolean directBuffer;
     public final boolean directBodylessOutput;
     public final boolean directJsonResponse;
+    public final boolean directPrimitiveOutput;
     public final int nativeStaticResponseId;
     public final int nativeStaticFileResponseId;
     public final int admissionMaxConcurrent;
     public final int admissionQueueTimeoutMs;
+    public final int jniAdmissionMaxPending;
+    public final int jniAdmissionQueueTimeoutMs;
     public final boolean legacyV4;
     public final boolean compiledInvoker;
     public final boolean exactInvoker;
+    public final boolean benchmarkOnly;
 
     private RouteExecutionPlan(
             String httpMethod,
@@ -92,6 +101,8 @@ public final class RouteExecutionPlan {
             String methodName,
             String requestType,
             String responseType,
+            String workload,
+            String workloadBudget,
             Strategy strategy,
             String reason,
             boolean bodyless,
@@ -112,13 +123,17 @@ public final class RouteExecutionPlan {
             boolean directBuffer,
             boolean directBodylessOutput,
             boolean directJsonResponse,
+            boolean directPrimitiveOutput,
             int nativeStaticResponseId,
             int nativeStaticFileResponseId,
             int admissionMaxConcurrent,
             int admissionQueueTimeoutMs,
+            int jniAdmissionMaxPending,
+            int jniAdmissionQueueTimeoutMs,
             boolean legacyV4,
             boolean compiledInvoker,
-            boolean exactInvoker
+            boolean exactInvoker,
+            boolean benchmarkOnly
     ) {
         this.httpMethod = httpMethod;
         this.path = path;
@@ -127,6 +142,8 @@ public final class RouteExecutionPlan {
         this.methodName = methodName;
         this.requestType = requestType;
         this.responseType = responseType;
+        this.workload = workload == null || workload.isBlank() ? "STANDARD" : workload;
+        this.workloadBudget = workloadBudget == null ? "" : workloadBudget;
         this.strategy = strategy;
         this.reason = reason;
         this.bodyless = bodyless;
@@ -147,13 +164,17 @@ public final class RouteExecutionPlan {
         this.directBuffer = directBuffer;
         this.directBodylessOutput = directBodylessOutput;
         this.directJsonResponse = directJsonResponse;
+        this.directPrimitiveOutput = directPrimitiveOutput;
         this.nativeStaticResponseId = nativeStaticResponseId;
         this.nativeStaticFileResponseId = nativeStaticFileResponseId;
         this.admissionMaxConcurrent = admissionMaxConcurrent;
         this.admissionQueueTimeoutMs = admissionQueueTimeoutMs;
+        this.jniAdmissionMaxPending = jniAdmissionMaxPending;
+        this.jniAdmissionQueueTimeoutMs = jniAdmissionQueueTimeoutMs;
         this.legacyV4 = legacyV4;
         this.compiledInvoker = compiledInvoker;
         this.exactInvoker = exactInvoker;
+        this.benchmarkOnly = benchmarkOnly;
     }
 
     static RouteExecutionPlan from(
@@ -181,7 +202,7 @@ public final class RouteExecutionPlan {
                 directQueryDouble, directQueryShort,
                 directPathInt, directPathLong, directPathBoolean,
                 directPathDouble, directPathShort,
-                directBodylessOutput, 0, 0, implicitRawMetadata, exactInvoker);
+                directBodylessOutput, false, 0, 0, "STANDARD", "", false, implicitRawMetadata, exactInvoker);
     }
 
     static RouteExecutionPlan from(
@@ -201,8 +222,12 @@ public final class RouteExecutionPlan {
             boolean directPathDouble,
             boolean directPathShort,
             boolean directBodylessOutput,
+            boolean directPrimitiveOutput,
             int nativeStaticResponseId,
             int nativeStaticFileResponseId,
+            String workload,
+            String workloadBudget,
+            boolean benchmarkOnly,
             boolean implicitRawMetadata,
             boolean exactInvoker
     ) {
@@ -296,6 +321,8 @@ public final class RouteExecutionPlan {
                 method.getName(),
                 route.requestType,
                 route.responseType,
+                workload,
+                workloadBudget,
                 strategy,
                 reason,
                 route.bodyless,
@@ -316,13 +343,17 @@ public final class RouteExecutionPlan {
                 directV5,
                 directBodylessOutput,
                 directJsonResponse,
+                directPrimitiveOutput,
                 nativeStaticResponseId,
                 nativeStaticFileResponseId,
                 route.admissionMaxConcurrent,
                 route.admissionQueueTimeoutMs,
+                route.jniAdmissionMaxPending,
+                route.jniAdmissionQueueTimeoutMs,
                 legacyV4,
                 compiledInvoker,
-                compiledInvoker && exactInvoker
+                compiledInvoker && exactInvoker,
+                benchmarkOnly
         );
     }
 
@@ -334,6 +365,32 @@ public final class RouteExecutionPlan {
         return strategy == Strategy.DIRECT_BUFFER_WITH_IMPLICIT_RAW_METADATA;
     }
 
+    public boolean productionRoute() {
+        return !benchmarkOnly;
+    }
+
+    public boolean heavyJsonObjectGraph() {
+        if (!"HEAVY_JSON".equals(workload)) {
+            return false;
+        }
+        if (nativeStaticResponseId > 0
+                || nativeStaticFileResponseId > 0
+                || directJsonResponse
+                || directBuffer
+                || directPrimitiveOutput
+                || directBodylessOutput
+                || RawResponse.class.getName().equals(responseType)
+                || FileResponse.class.getName().equals(responseType)) {
+            return false;
+        }
+        return switch (strategy) {
+            case NATIVE_STATIC_RESPONSE, NATIVE_STATIC_FILE, DIRECT_BUFFER,
+                    DIRECT_BUFFER_WITH_IMPLICIT_RAW_METADATA, DIRECT_BODYLESS_OUTPUT,
+                    DIRECT_JSON_RESPONSE -> false;
+            default -> true;
+        };
+    }
+
     public String routeKey() {
         return httpMethod.toUpperCase(Locale.ROOT) + " " + path;
     }
@@ -342,6 +399,8 @@ public final class RouteExecutionPlan {
         return "[reactor-route-plan] " + routeKey()
                 + " handler=" + handlerClass + "#" + methodName
                 + " strategy=" + strategy
+                + " workload=" + workload
+                + (workloadBudget.isBlank() ? "" : " budget=" + workloadBudget)
                 + " optimized=" + optimized()
                 + " invocations=" + invocations
                 + " needs={path=" + needsPathParams
@@ -350,12 +409,17 @@ public final class RouteExecutionPlan {
                 + ",bodyless=" + bodyless + "}"
                 + " compiledInvoker=" + compiledInvoker
                 + " exactInvoker=" + exactInvoker
+                + " benchmarkOnly=" + benchmarkOnly
+                + " heavyJsonObjectGraph=" + heavyJsonObjectGraph()
                 + " directBodylessOutput=" + directBodylessOutput
+                + " directPrimitiveOutput=" + directPrimitiveOutput
                 + " directJsonResponse=" + directJsonResponse
                 + " nativeStaticResponse=" + (nativeStaticResponseId > 0)
                 + " nativeStaticFile=" + (nativeStaticFileResponseId > 0)
                 + " admission={maxConcurrent=" + admissionMaxConcurrent
                 + ",queueTimeoutMs=" + admissionQueueTimeoutMs + "}"
+                + " jniAdmission={maxPending=" + jniAdmissionMaxPending
+                + ",queueTimeoutMs=" + jniAdmissionQueueTimeoutMs + "}"
                 + " reason=" + reason;
     }
 
@@ -368,8 +432,13 @@ public final class RouteExecutionPlan {
                 .append("\"handler\":").append(json(handlerClass + "#" + methodName)).append(',')
                 .append("\"request_type\":").append(json(requestType)).append(',')
                 .append("\"response_type\":").append(json(responseType)).append(',')
+                .append("\"workload\":").append(json(workload)).append(',')
+                .append("\"workload_budget\":").append(json(workloadBudget)).append(',')
                 .append("\"strategy\":").append(json(strategy.name())).append(',')
                 .append("\"optimized\":").append(optimized()).append(',')
+                .append("\"benchmark_only\":").append(benchmarkOnly).append(',')
+                .append("\"production_route\":").append(productionRoute()).append(',')
+                .append("\"heavy_json_object_graph\":").append(heavyJsonObjectGraph()).append(',')
                 .append("\"reason\":").append(json(reason)).append(',')
                 .append("\"invocations\":").append(invocations).append(',')
                 .append("\"bodyless\":").append(bodyless).append(',')
@@ -389,6 +458,7 @@ public final class RouteExecutionPlan {
                 .append("\"direct_path_short\":").append(directPathShort).append(',')
                 .append("\"direct_buffer\":").append(directBuffer).append(',')
                 .append("\"direct_bodyless_output\":").append(directBodylessOutput).append(',')
+                .append("\"direct_primitive_output\":").append(directPrimitiveOutput).append(',')
                 .append("\"direct_json_response\":").append(directJsonResponse).append(',')
                 .append("\"native_static_response\":").append(nativeStaticResponseId > 0).append(',')
                 .append("\"native_static_response_id\":").append(nativeStaticResponseId).append(',')
@@ -397,6 +467,9 @@ public final class RouteExecutionPlan {
                 .append("\"route_admission_enabled\":").append(admissionMaxConcurrent > 0).append(',')
                 .append("\"route_admission_max_concurrent\":").append(admissionMaxConcurrent).append(',')
                 .append("\"route_admission_queue_timeout_ms\":").append(admissionQueueTimeoutMs).append(',')
+                .append("\"jni_admission_enabled\":").append(jniAdmissionMaxPending > 0).append(',')
+                .append("\"jni_admission_max_pending\":").append(jniAdmissionMaxPending).append(',')
+                .append("\"jni_admission_queue_timeout_ms\":").append(jniAdmissionQueueTimeoutMs).append(',')
                 .append("\"legacy_v4\":").append(legacyV4).append(',')
                 .append("\"compiled_invoker\":").append(compiledInvoker).append(',')
                 .append("\"exact_invoker\":").append(exactInvoker)
@@ -406,18 +479,22 @@ public final class RouteExecutionPlan {
 
     private static boolean returnsDirectJsonResponse(Method method) {
         if (DirectJsonResponse.class.isAssignableFrom(method.getReturnType())
-                || JsonProducerResponse.class.isAssignableFrom(method.getReturnType())) {
+                || JsonProducerResponse.class.isAssignableFrom(method.getReturnType())
+                || JsonBodyProducer.class.isAssignableFrom(method.getReturnType())) {
             return true;
         }
         Type genericReturnType = method.getGenericReturnType();
         if (genericReturnType instanceof ParameterizedType parameterizedType) {
             for (Type argument : parameterizedType.getActualTypeArguments()) {
-                if (argument == DirectJsonResponse.class || argument == JsonProducerResponse.class) {
+                if (argument == DirectJsonResponse.class
+                        || argument == JsonProducerResponse.class
+                        || argument == JsonBodyProducer.class) {
                     return true;
                 }
                 if (argument instanceof ParameterizedType nested
                         && (nested.getRawType() == DirectJsonResponse.class
-                        || nested.getRawType() == JsonProducerResponse.class)) {
+                        || nested.getRawType() == JsonProducerResponse.class
+                        || nested.getRawType() == JsonBodyProducer.class)) {
                     return true;
                 }
             }

@@ -38,6 +38,7 @@ public final class RuntimeFootprintGate {
         boolean componentIndexEnabled = PropertiesLoader.getBoolean("reactor.startup.component-index.enabled", true);
         boolean componentIndexPresent = componentIndexEnabled && StartupIndex.componentClasses("").present();
         boolean scanFallbackEnabled = PropertiesLoader.getBoolean("reactor.startup.scan.fallback-enabled", true);
+        boolean nativeTrimEnabled = PropertiesLoader.getBoolean("reactor.rust.native-trim.enabled", false);
         List<String> warnings = new ArrayList<>();
         List<String> violations = new ArrayList<>();
 
@@ -62,6 +63,41 @@ public final class RuntimeFootprintGate {
             }
             if (PropertiesLoader.getBoolean("reactor.static-files.enabled", true)) {
                 warnings.add("reactor.static-files.enabled=true; static file scanner may run");
+            }
+            if (!hasJvmArgument("-XX:-TransparentHugePage")) {
+                warnings.add("-XX:-TransparentHugePage is not set; Linux transparent huge pages can inflate "
+                        + "anonymous RSS for memory-first profiles");
+            }
+            if (!hasJvmArgument("-XX:ActiveProcessorCount=1")
+                    && ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors() > 1) {
+                warnings.add("-XX:ActiveProcessorCount=1 is not set; OpenJ9 may size internal runtime work "
+                        + "for more CPU than the small-pod memory budget expects");
+            }
+            if (!hasJvmArgument("-Xgc:threads=1")) {
+                warnings.add("-Xgc:threads=1 is not set; GC helper threads can increase native/thread RSS");
+            }
+            if (!hasJvmArgumentPrefix("-Xss")) {
+                warnings.add("-Xss is not set; default Java thread stacks can inflate anonymous RSS");
+            }
+        }
+
+        if (nativeTrimEnabled) {
+            add("native idle trim is enabled; this is an explicit low-traffic/idle-service RSS policy, "
+                            + "not a default " + profile + " behavior. Run endpoint p99/503 gate before production",
+                    "reactor.rust.native-trim.enabled", warnings, violations);
+            checkMinLong("reactor.rust.native-trim.initial-delay-ms", 30_000,
+                    "native trim initial delay is below the conservative production recipe",
+                    warnings, violations);
+            checkMinLong("reactor.rust.native-trim.interval-ms", 60_000,
+                    "native trim interval is below the conservative production recipe",
+                    warnings, violations);
+            checkMinLong("reactor.rust.native-trim.min-idle-ms", 10_000,
+                    "native trim minimum idle window is below the conservative production recipe",
+                    warnings, violations);
+            if (!memoryProfile) {
+                add("native idle trim is enabled outside a memory-first profile; high-throughput pods need "
+                                + "route-level p99/503 evidence before enabling allocator trim",
+                        "reactor.rust.native-trim.enabled", warnings, violations);
             }
         }
 
@@ -158,12 +194,43 @@ public final class RuntimeFootprintGate {
         }
     }
 
+    private static void checkMinLong(
+            String key,
+            long min,
+            String message,
+            List<String> warnings,
+            List<String> violations
+    ) {
+        long actual = PropertiesLoader.getLong(key, Long.MAX_VALUE);
+        if (actual < min) {
+            add(message + " (" + key + "=" + actual + ", min=" + min + ")", key, warnings, violations);
+        }
+    }
+
     private static void add(String message, String key, List<String> warnings, List<String> violations) {
         if (PropertiesLoader.getBoolean("reactor.runtime.low-rss-gate.strict." + key, false)) {
             violations.add(message);
         } else {
             warnings.add(message);
         }
+    }
+
+    private static boolean hasJvmArgument(String expected) {
+        for (String argument : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (expected.equals(argument)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasJvmArgumentPrefix(String expectedPrefix) {
+        for (String argument : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+            if (argument.startsWith(expectedPrefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record Report(

@@ -22,6 +22,7 @@ import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DirectJsonWriter;
+import com.reactor.rust.json.JsonBodyProducer;
 import com.reactor.rust.json.JsonBufferWriter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -286,6 +287,8 @@ class HandlerRegistryNativeFrameTest {
     }
 
     static class JsonProducerResponseHandler {
+        private static final byte[] ITEM_PREFIX = "item-".getBytes(StandardCharsets.US_ASCII);
+
         public JsonProducerResponse city() {
             return JsonProducerResponse.ok((out, offset) -> JsonBufferWriter.reusable(out, offset)
                             .beginObject()
@@ -317,6 +320,73 @@ class HandlerRegistryNativeFrameTest {
                     .fieldInt("items", items)
                     .endObject()
                     .result());
+        }
+
+        public JsonBodyProducer bodyProducerCity() {
+            return (out, offset) -> JsonBufferWriter.reusable(out, offset)
+                    .beginObject()
+                    .fieldString("city", "İstanbul")
+                    .comma()
+                    .fieldInt("plate", 34)
+                    .endObject()
+                    .result();
+        }
+
+        public ResponseEntity<JsonBodyProducer> entityBodyProducerCity() {
+            JsonBodyProducer producer = (out, offset) -> JsonBufferWriter.reusable(out, offset)
+                    .beginObject()
+                    .fieldString("city", "Ankara")
+                    .comma()
+                    .fieldInt("plate", 6)
+                    .endObject()
+                    .result();
+            return ResponseEntity
+                    .accepted(producer)
+                    .header("X-Entity", "1");
+        }
+
+        @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+        public JsonBodyProducer directProducerItems(int items) {
+            return (out, offset) -> JsonBufferWriter.reusable(out, offset)
+                    .beginObject()
+                    .fieldInt("items", items)
+                    .endObject()
+                    .result();
+        }
+
+        @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+        public RawResponse directRawItems(int items) {
+            return RawResponse.json(("{\"items\":" + items + "}").getBytes(StandardCharsets.UTF_8));
+        }
+
+        @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 20_000)
+        public CompletableFuture<JsonBodyProducer> asyncDirectProducerItems(int items) {
+            JsonBodyProducer producer = (out, offset) -> JsonBufferWriter.reusable(out, offset)
+                    .beginObject()
+                    .fieldInt("items", items)
+                    .endObject()
+                    .result();
+            return CompletableFuture.completedFuture(producer);
+        }
+
+        @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 20_000)
+        public CompletableFuture<JsonBodyProducer> asyncLargeDirectProducerItems(int items) {
+            JsonBodyProducer producer = (out, offset) -> {
+                JsonBufferWriter writer = JsonBufferWriter.reusable(out, offset);
+                writer.beginObject().fieldName("rows").beginArray();
+                for (int i = 0; i < items; i++) {
+                    if (i > 0) {
+                        writer.comma();
+                    }
+                    writer.beginObject()
+                            .fieldInt("id", i)
+                            .comma()
+                            .fieldStringAsciiPrefixInt("name", ITEM_PREFIX, i)
+                            .endObject();
+                }
+                return writer.endArray().endObject().result();
+            };
+            return CompletableFuture.completedFuture(producer);
         }
     }
 
@@ -484,7 +554,7 @@ class HandlerRegistryNativeFrameTest {
     }
 
     @Test
-    void asyncResponseFrameUsesDirectBufferForSuccessPath() throws Exception {
+    void asyncResponseFrameUsesHeapBufferByDefaultForLowRss() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
         ModernHandler handler = new ModernHandler();
         Method method = ModernHandler.class.getDeclaredMethod("asyncCreated");
@@ -495,7 +565,7 @@ class HandlerRegistryNativeFrameTest {
                 .invokeAsyncFrame(handlerId, new byte[0], "", "", "")
                 .join();
 
-        assertTrue(responseFrame.buffer().isDirect());
+        assertTrue(!responseFrame.buffer().isDirect());
         byte[] frameBytes = responseFrame.toByteArray();
 
         assertArrayEquals(FRAME_MAGIC, Arrays.copyOfRange(frameBytes, 0, 8));
@@ -1242,6 +1312,25 @@ class HandlerRegistryNativeFrameTest {
     }
 
     @Test
+    void directJsonResponseSupportsLazyHeadersAndMutableGetHeaders() {
+        DirectJsonResponse<DirectCity> response =
+                DirectJsonResponse.ok(new DirectCity("İstanbul", 34), DirectCityJsonWriter.INSTANCE);
+
+        byte[] first = response.getEncodedHeadersWithDefaultJson();
+        byte[] second = response.getEncodedHeadersWithDefaultJson();
+        assertTrue(first == second);
+        assertEquals("Content-Type: application/json; charset=utf-8\n",
+                new String(first, StandardCharsets.UTF_8));
+
+        response.getHeaders().put("X-Lazy", "1");
+        byte[] third = response.getEncodedHeadersWithDefaultJson();
+        assertTrue(first != third);
+        String changedHeaders = new String(third, StandardCharsets.UTF_8);
+        assertTrue(changedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertTrue(changedHeaders.contains("X-Lazy: 1"));
+    }
+
+    @Test
     void responseEntityCanWrapDirectJsonResponseAndMergeHeaders() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
         DirectJsonResponseHandler handler = new DirectJsonResponseHandler();
@@ -1301,6 +1390,86 @@ class HandlerRegistryNativeFrameTest {
     }
 
     @Test
+    void jsonBodyProducerWritesFrameWithoutResponseWrapper() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        JsonProducerResponseHandler handler = new JsonProducerResponseHandler();
+        Method method = JsonProducerResponseHandler.class.getDeclaredMethod("bodyProducerCity");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, JsonBodyProducer.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(200, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedHeaders = new String(frameBytes, 18, headersLen, StandardCharsets.UTF_8);
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertTrue(encodedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertEquals("{\"city\":\"İstanbul\",\"plate\":34}", encodedBody);
+    }
+
+    @Test
+    void responseEntityCanWrapJsonBodyProducerAndMergeHeaders() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        JsonProducerResponseHandler handler = new JsonProducerResponseHandler();
+        Method method = JsonProducerResponseHandler.class.getDeclaredMethod("entityBodyProducerCity");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        byte[] frameBytes = new byte[written];
+        out.position(0);
+        out.get(frameBytes);
+
+        ByteBuffer frame = ByteBuffer.wrap(frameBytes);
+        frame.position(8);
+        assertEquals(202, frame.getShort() & 0xFFFF);
+
+        int headersLen = frame.getInt();
+        int bodyLen = frame.getInt();
+        String encodedHeaders = new String(frameBytes, 18, headersLen, StandardCharsets.UTF_8);
+        String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
+
+        assertTrue(encodedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertTrue(encodedHeaders.contains("X-Entity: 1"));
+        assertEquals("{\"city\":\"Ankara\",\"plate\":6}", encodedBody);
+    }
+
+    @Test
+    void jsonProducerResponseSupportsLazyHeadersAndMutableGetHeaders() {
+        JsonProducerResponse response =
+                JsonProducerResponse.ok((out, offset) -> JsonBufferWriter.reusable(out, offset)
+                        .beginObject()
+                        .fieldString("status", "ok")
+                        .endObject()
+                        .result());
+
+        byte[] first = response.getEncodedHeadersWithDefaultJson();
+        byte[] second = response.getEncodedHeadersWithDefaultJson();
+        assertTrue(first == second);
+        assertEquals("Content-Type: application/json; charset=utf-8\n",
+                new String(first, StandardCharsets.UTF_8));
+
+        response.getHeaders().put("X-Lazy", "1");
+        byte[] third = response.getEncodedHeadersWithDefaultJson();
+        assertTrue(first != third);
+        String changedHeaders = new String(third, StandardCharsets.UTF_8);
+        assertTrue(changedHeaders.contains("Content-Type: application/json; charset=utf-8"));
+        assertTrue(changedHeaders.contains("X-Lazy: 1"));
+    }
+
+    @Test
     void responseEntityCanWrapJsonProducerResponseAndMergeHeaders() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
         JsonProducerResponseHandler handler = new JsonProducerResponseHandler();
@@ -1342,6 +1511,62 @@ class HandlerRegistryNativeFrameTest {
         int written = registry.invokeBufferedQueryInt(handlerId, out, 0, 42);
 
         assertEquals("{\"items\":42}", frameBody(out, written));
+    }
+
+    @Test
+    void jsonBodyProducerSupportsDirectQueryIntScalarSignature() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        JsonProducerResponseHandler handler = new JsonProducerResponseHandler();
+        Method method = JsonProducerResponseHandler.class.getDeclaredMethod("directProducerItems", int.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, JsonBodyProducer.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBufferedQueryInt(handlerId, out, 0, 42);
+
+        assertEquals("{\"items\":42}", frameBody(out, written));
+    }
+
+    @Test
+    void rawResponseSupportsDirectQueryIntScalarSignature() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        JsonProducerResponseHandler handler = new JsonProducerResponseHandler();
+        Method method = JsonProducerResponseHandler.class.getDeclaredMethod("directRawItems", int.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, RawResponse.class);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+
+        int written = registry.invokeBufferedQueryInt(handlerId, out, 0, 42);
+
+        assertEquals("{\"items\":42}", frameBody(out, written));
+    }
+
+    @Test
+    void asyncJsonBodyProducerSupportsDirectQueryIntScalarSignature() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        JsonProducerResponseHandler handler = new JsonProducerResponseHandler();
+        Method method = JsonProducerResponseHandler.class.getDeclaredMethod("asyncDirectProducerItems", int.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, JsonBodyProducer.class);
+
+        HandlerRegistry.AsyncResponseFrame frame = registry.invokeAsyncFrameQueryInt(handlerId, 42).join();
+
+        assertEquals("{\"items\":42}", frameBody(frame.buffer(), frame.length()));
+    }
+
+    @Test
+    void asyncJsonBodyProducerRetriesWhenFrameExceedsInitialBuffer() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        JsonProducerResponseHandler handler = new JsonProducerResponseHandler();
+        Method method = JsonProducerResponseHandler.class.getDeclaredMethod("asyncLargeDirectProducerItems", int.class);
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, JsonBodyProducer.class);
+
+        HandlerRegistry.AsyncResponseFrame frame = registry.invokeAsyncFrameQueryInt(handlerId, 10_000).join();
+        String body = frameBody(frame.buffer(), frame.length());
+
+        assertTrue(frame.length() > 64 * 1024);
+        assertTrue(body.contains("\"name\":\"item-9999\""));
     }
 
     @Test

@@ -103,6 +103,9 @@ public final class Metrics {
     public void recordRequest(String method, String path, int status, long durationMs) {
         // Total requests
         increment("http_requests_total");
+        if (isUserTrafficPath(path)) {
+            increment("http_user_requests_total");
+        }
 
         // Requests by method
         increment("http_requests_" + method.toLowerCase(java.util.Locale.ROOT) + "_total");
@@ -114,6 +117,16 @@ public final class Metrics {
         recordTiming("http_request_duration_ms", durationMs);
 
         // Active connections (increment at start, decrement at end - handled separately)
+    }
+
+    private static boolean isUserTrafficPath(String path) {
+        if (path == null) {
+            return true;
+        }
+        return !("/health".equals(path)
+                || "/metrics".equals(path)
+                || path.startsWith("/metrics/")
+                || path.startsWith("/diagnostics/"));
     }
 
     /**

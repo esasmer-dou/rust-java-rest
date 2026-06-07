@@ -4,6 +4,7 @@ import com.reactor.rust.logging.FrameworkLogger;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -37,15 +38,23 @@ public final class PropertiesLoader {
         properties.clear();
         explicitPropertyKeys.clear();
 
-        // Try classpath first
-        try (InputStream is = PropertiesLoader.class.getClassLoader().getResourceAsStream(CONFIG_FILE)) {
-            if (is != null) {
+        // Try classpath first. The framework's own bundled properties are defaults, not user
+        // overrides; otherwise runtime profiles such as micro-rest cannot narrow pool/cache values.
+        URL classpathResource = PropertiesLoader.class.getClassLoader().getResource(CONFIG_FILE);
+        if (classpathResource != null) {
+            try (InputStream is = classpathResource.openStream()) {
                 properties.load(is);
-                recordExplicitPropertyKeys();
-                FrameworkLogger.info("[JAVA] Properties loaded from classpath: " + CONFIG_FILE);
+                if (isExternalClasspathConfig(classpathResource)) {
+                    recordExplicitPropertyKeys();
+                    FrameworkLogger.info("[JAVA] Properties loaded from classpath: " + CONFIG_FILE);
+                } else {
+                    FrameworkLogger.info("[JAVA] Framework default properties loaded from classpath: "
+                            + CONFIG_FILE);
+                }
                 return;
+            } catch (IOException ignored) {
             }
-        } catch (IOException ignored) {}
+        }
 
         // Try file system paths
         for (String path : SEARCH_PATHS) {
@@ -120,6 +129,17 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.native-cache.max-entries", "1024");
         properties.setProperty("reactor.rust.native-cache.max-bytes", "16777216");
         properties.setProperty("reactor.rust.native-cache.ttl-ms", "300000");
+        properties.setProperty("reactor.rust.native-trim.enabled", "false");
+        properties.setProperty("reactor.rust.native-trim.initial-delay-ms", "30000");
+        properties.setProperty("reactor.rust.native-trim.interval-ms", "60000");
+        properties.setProperty("reactor.rust.native-trim.min-idle-ms", "10000");
+        properties.setProperty("reactor.rust.native-trim.max-active-connections", "0");
+        properties.setProperty("reactor.rust.native-trim.max-active-requests", "0");
+        properties.setProperty("reactor.rust.native-trim.retain-small", "16");
+        properties.setProperty("reactor.rust.native-trim.retain-medium", "0");
+        properties.setProperty("reactor.rust.native-trim.retain-large", "0");
+        properties.setProperty("reactor.rust.native-trim.retain-huge", "0");
+        properties.setProperty("reactor.rust.native-trim.allocator-trim-enabled", "true");
         properties.setProperty("reactor.rust.runtime.worker-threads", "0");
         properties.setProperty("reactor.rust.runtime.max-blocking-threads", "0");
         properties.setProperty("reactor.rust.runtime.thread-stack-bytes", "0");
@@ -133,6 +153,9 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.route-admission.enabled", "true");
         properties.setProperty("reactor.rust.route-admission.default-max-concurrent", "0");
         properties.setProperty("reactor.rust.route-admission.default-queue-timeout-ms", "0");
+        properties.setProperty("reactor.rust.jni-admission.enabled", "true");
+        properties.setProperty("reactor.rust.jni-admission.default-max-pending", "0");
+        properties.setProperty("reactor.rust.jni-admission.default-queue-timeout-ms", "0");
         properties.setProperty("reactor.dubbo.enabled", "false");
         properties.setProperty("reactor.dubbo.application-name", "rust-java-rest-consumer");
         properties.setProperty("reactor.dubbo.registry-address", "zookeeper://127.0.0.1:2181");
@@ -162,6 +185,8 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.optimizer.fail-on-fallback", "false");
         properties.setProperty("reactor.optimizer.fail-on-legacy", "false");
         properties.setProperty("reactor.optimizer.fail-on-implicit-raw-request-data", "false");
+        properties.setProperty("reactor.optimizer.fail-on-heavy-json-object-graph", "false");
+        properties.setProperty("reactor.optimizer.fail-on-benchmark-only-routes", "false");
         properties.setProperty("reactor.optimizer.required-fast-routes", "");
     }
 
@@ -272,6 +297,19 @@ public final class PropertiesLoader {
 
     private static String toEnvKey(String key) {
         return key.replace('.', '_').replace('-', '_').toUpperCase(Locale.ROOT);
+    }
+
+    private static boolean isExternalClasspathConfig(URL resource) {
+        URL codeSource = PropertiesLoader.class.getProtectionDomain().getCodeSource() == null
+                ? null
+                : PropertiesLoader.class.getProtectionDomain().getCodeSource().getLocation();
+        if (codeSource == null) {
+            return true;
+        }
+        String resourceUrl = resource.toExternalForm();
+        String codeSourceUrl = codeSource.toExternalForm();
+        return !(resourceUrl.startsWith(codeSourceUrl)
+                || resourceUrl.startsWith("jar:" + codeSourceUrl + "!/"));
     }
 
     private static void recordExplicitPropertyKeys() {

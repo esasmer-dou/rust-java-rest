@@ -95,6 +95,12 @@ public final class JsonBufferWriter {
         return this;
     }
 
+    public JsonBufferWriter fieldStringAsciiPrefixInt(String name, byte[] prefix, int value) {
+        fieldName(name);
+        stringAsciiPrefixInt(prefix, value);
+        return this;
+    }
+
     public JsonBufferWriter fieldLong(String name, long value) {
         fieldName(name);
         number(value);
@@ -178,6 +184,14 @@ public final class JsonBufferWriter {
 
     public JsonBufferWriter stringAsciiFragment(byte[] value) {
         rawAscii(value);
+        return this;
+    }
+
+    public JsonBufferWriter stringAsciiPrefixInt(byte[] prefix, int value) {
+        beginString();
+        rawAscii(prefix);
+        stringIntFragment(value);
+        endString();
         return this;
     }
 

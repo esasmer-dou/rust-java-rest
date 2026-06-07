@@ -1,0 +1,13 @@
+# OpenJ9/Semeru micro-RSS JIT-thread experiment for small REST services.
+# Keeps JIT enabled but limits background compilation workers. Use only after p99/RPS gate.
+-Xms8m
+-Xmx48m
+-Xss256k
+-Xquickstart
+-Xtune:virtualized
+-Xshareclasses:none
+-XX:ActiveProcessorCount=1
+-XX:-TransparentHugePage
+-XcompilationThreads1
+-Dfile.encoding=UTF-8
+-Djava.security.egd=file:/dev/./urandom

@@ -99,6 +99,42 @@ an explicit CPU view and small stacks:
 This is represented by `startup/openj9-micro-rss.options` and by the benchmark preset
 `openj9-micro-rss`.
 
+If Linux `anon` memory is still the limiting factor, test the JIT-cap variant:
+
+```bash
+-Xcodecachetotal8m
+```
+
+This is represented by `startup/openj9-micro-rss-jitcap.options`. It keeps JIT enabled, unlike
+`-Xnojit`, but asks OpenJ9 to commit less JIT code-cache memory. Treat it as an A/B option, not the
+default. It is suitable only when your repeat benchmark shows stable p99/RPS for the actual endpoint
+mix.
+
+Latest full local gate, `micro-rest`, c64/c256/c512, sample repeat `3`, minimal smaps repeat `3`,
+showed the exact trade-off:
+
+- Minimal production cgroup RSS improved from `57.358 MiB` to `51.406 MiB`.
+- JIT code committed dropped from `22 MiB` to `10 MiB`.
+- Total cgroup anon barely moved: `45.301 MiB` to `45.024 MiB`.
+- The gate still failed because p99 regressed on several rows, including the legacy
+  `dynamic-dto-json` object graph path at c256/c512.
+
+Use this only when your service is not dominated by hot dynamic DTO graph creation, or after moving
+those hot routes to `JsonProducerResponse` / direct writer and rerunning the gate.
+
+If Linux `anon` is dominated by JVM/JIT/native thread surface rather than Java heap, test the
+JIT-thread variant:
+
+```bash
+-XcompilationThreads1
+```
+
+This is represented by `startup/openj9-micro-rss-jitthreads1.options`. It keeps JIT enabled and
+reduces OpenJ9 background compilation worker count. In the current minimal probe it reduced Linux
+threads from the mid-20s to 17 and lowered the thread-stack budget from about `6 MiB` to `4.25 MiB`.
+Treat it as an A/B option. It should pass your endpoint matrix before production because fewer
+compiler workers can change warmup, p99, and long-running Java-heavy behavior.
+
 For very low traffic services, where the service may receive only a small number of requests per day
 and memory is more important than CPU throughput, there is a stricter option:
 

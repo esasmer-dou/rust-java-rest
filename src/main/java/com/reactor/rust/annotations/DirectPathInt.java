@@ -8,8 +8,10 @@ import java.lang.annotation.Target;
 /**
  * Low-allocation hot-path path-variable int binding for direct response writers.
  *
- * <p>Supported handler signature:
- * {@code int handler(ByteBuffer out, int offset, int value)}.
+ * <p>Supported handler signatures:
+ * {@code int handler(ByteBuffer out, int offset, int value)} or
+ * {@code JsonProducerResponse handler(int value)}, {@code JsonBodyProducer handler(int value)},
+ * or {@code RawResponse handler(int value)}.
  * Rust extracts the selected path variable and passes the primitive int through JNI,
  * avoiding Java path-param String allocation and per-request map lookup.</p>
  */

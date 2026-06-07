@@ -13,6 +13,7 @@ import com.reactor.rust.annotations.DirectQueryInt;
 import com.reactor.rust.annotations.DirectQueryLong;
 import com.reactor.rust.annotations.DirectQueryShort;
 import com.reactor.rust.async.AsyncHandlerExecutor;
+import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.http.DirectJsonResponse;
 import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.JsonProducerResponse;
@@ -20,6 +21,7 @@ import com.reactor.rust.http.MediaType;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
+import com.reactor.rust.json.JsonBodyProducer;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.util.FastMapV2;
 import com.reactor.rust.util.UrlCodec;
@@ -27,6 +29,8 @@ import com.reactor.rust.util.UrlCodec;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -50,9 +54,12 @@ public class HandlerRegistry {
 
     private static final HandlerRegistry INSTANCE = new HandlerRegistry();
 
-    // ThreadLocal direct ByteBuffer pool for async completion. Rust can read it without a Java byte[] frame copy.
+    // ThreadLocal async frame buffer. Heap is the low-RSS default; direct can be enabled only after an RSS gate.
+    private static final boolean ASYNC_DIRECT_BUFFER_ENABLED =
+            PropertiesLoader.getBoolean("reactor.rust.async.direct-buffer.enabled", false);
     private static final ThreadLocal<ByteBuffer> ASYNC_BUFFER_POOL =
-        ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(64 * 1024));
+        ThreadLocal.withInitial(() -> allocateAsyncBuffer(64 * 1024));
+    private static final int MAX_ASYNC_RESPONSE_FRAME_BYTES = 8 * 1024 * 1024 + 64 * 1024;
 
     // ThreadLocal FastMapV2 pools for zero-allocation parameter parsing
     private static final ThreadLocal<FastMapV2> PARAM_MAP_POOL =
@@ -412,7 +419,37 @@ public class HandlerRegistry {
         Class<?>[] parameterTypes = method.getParameterTypes();
         return parameterTypes.length == 1
                 && parameterTypes[0] == int.class
-                && JsonProducerResponse.class.isAssignableFrom(method.getReturnType());
+                && returnsDirectScalarIntResult(method);
+    }
+
+    private static boolean returnsDirectScalarIntResult(Method method) {
+        Class<?> returnType = method.getReturnType();
+        if (JsonProducerResponse.class.isAssignableFrom(returnType)
+                || JsonBodyProducer.class.isAssignableFrom(returnType)
+                || RawResponse.class.isAssignableFrom(returnType)) {
+            return true;
+        }
+        if (!CompletionStage.class.isAssignableFrom(returnType)) {
+            return false;
+        }
+        Type genericReturnType = method.getGenericReturnType();
+        if (!(genericReturnType instanceof ParameterizedType parameterizedType)) {
+            return false;
+        }
+        for (Type argument : parameterizedType.getActualTypeArguments()) {
+            if (argument instanceof Class<?> clazz
+                    && (JsonProducerResponse.class.isAssignableFrom(clazz)
+                    || JsonBodyProducer.class.isAssignableFrom(clazz))) {
+                return true;
+            }
+            if (argument instanceof ParameterizedType nested
+                    && nested.getRawType() instanceof Class<?> raw
+                    && (JsonProducerResponse.class.isAssignableFrom(raw)
+                    || JsonBodyProducer.class.isAssignableFrom(raw))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isDirectLong(Method method) {
@@ -761,6 +798,10 @@ public class HandlerRegistry {
             );
         }
 
+        if (result instanceof JsonBodyProducer producer) {
+            return writeJsonBodyProducer(producer, 200, EMPTY_BYTES, desc.defaultContentTypeHeader, out, offset);
+        }
+
         if (result instanceof ResponseEntity<?> responseEntity) {
             return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
         }
@@ -910,6 +951,10 @@ public class HandlerRegistry {
                     out,
                     offset
             );
+        }
+
+        if (result instanceof JsonBodyProducer producer) {
+            return writeJsonBodyProducer(producer, 200, EMPTY_BYTES, desc.defaultContentTypeHeader, out, offset);
         }
 
         if (result instanceof ResponseEntity<?> responseEntity) {
@@ -1359,6 +1404,10 @@ public class HandlerRegistry {
             return writeJsonProducerResponse(producerResponse, statusCode, headerBytes, out, offset);
         }
 
+        if (body instanceof JsonBodyProducer producer) {
+            return writeJsonBodyProducer(producer, statusCode, headerBytes, descDefaultContentType(defaultContentTypeHeader), out, offset);
+        }
+
         int bodyOffset = offset + frameAndHeadersSize;
         int bodyLen = DslJsonService.writeToBuffer(body, out, bodyOffset);
         if (bodyLen < 0) {
@@ -1478,6 +1527,36 @@ public class HandlerRegistry {
             out.put(producerHeaderBytes);
         }
         return totalSize;
+    }
+
+    private int writeJsonBodyProducer(
+            JsonBodyProducer producer,
+            int statusCode,
+            byte[] headerBytes,
+            byte[] defaultContentTypeHeader,
+            ByteBuffer out,
+            int offset
+    ) {
+        byte[] safeHeaderBytes = headerBytes.length == 0
+                ? defaultContentTypeHeader
+                : headerBytes;
+        int frameAndHeadersSize = RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length;
+        int bodyOffset = offset + frameAndHeadersSize;
+        int bodyLen = producer.write(out, bodyOffset);
+        if (bodyLen < 0) {
+            return -(frameAndHeadersSize + -bodyLen);
+        }
+        int totalSize = frameAndHeadersSize + bodyLen;
+        if (totalSize > out.capacity() - offset) {
+            return -totalSize;
+        }
+
+        writeFrameHeader(statusCode, safeHeaderBytes, bodyLen, out, offset);
+        return totalSize;
+    }
+
+    private byte[] descDefaultContentType(byte[] defaultContentTypeHeader) {
+        return defaultContentTypeHeader != null ? defaultContentTypeHeader : DEFAULT_JSON_CONTENT_TYPE_HEADER;
     }
 
     private int writeFrameWithBytes(
@@ -1715,12 +1794,7 @@ public class HandlerRegistry {
         if (desc.isAsync) {
             try {
                 Object raw = invokeAsyncRaw(desc, inBytes, pathParams, queryString, headers);
-                if (raw instanceof CompletionStage<?> stage) {
-                    return stage.toCompletableFuture()
-                            .thenApply(result -> encodeAsyncResultFrame(desc, result))
-                            .exceptionally(this::encodeAsyncErrorFrame);
-                }
-                return CompletableFuture.completedFuture(encodeAsyncResultFrame(desc, raw));
+                return encodeAsyncRawResult(desc, raw);
             } catch (Throwable e) {
                 return CompletableFuture.completedFuture(encodeAsyncErrorFrame(e));
             }
@@ -1755,6 +1829,41 @@ public class HandlerRegistry {
                 return encodeAsyncErrorFrame(new RuntimeException(errorMsg, e));
             }
         });
+    }
+
+    public CompletableFuture<AsyncResponseFrame> invokeAsyncFrameQueryInt(
+            int handlerId,
+            int queryInt
+    ) {
+        HandlerDescriptor desc = handlers.get(handlerId);
+
+        if (desc == null) {
+            return CompletableFuture.completedFuture(
+                    encodeAsyncErrorFrame(new IllegalArgumentException("Unknown handlerId"))
+            );
+        }
+        if (!desc.isAsync || !desc.usesDirectQueryInt || !desc.usesDirectScalarInt) {
+            return CompletableFuture.completedFuture(
+                    encodeAsyncErrorFrame(new IllegalArgumentException("Handler does not support async direct query int"))
+            );
+        }
+        desc.recordInvocation();
+
+        try {
+            Object raw = desc.handle.invoke(queryInt);
+            return encodeAsyncRawResult(desc, raw);
+        } catch (Throwable e) {
+            return CompletableFuture.completedFuture(encodeAsyncErrorFrame(e));
+        }
+    }
+
+    private CompletableFuture<AsyncResponseFrame> encodeAsyncRawResult(HandlerDescriptor desc, Object raw) {
+        if (raw instanceof CompletionStage<?> stage) {
+            return stage.toCompletableFuture()
+                    .thenApply(result -> encodeAsyncResultFrame(desc, result))
+                    .exceptionally(this::encodeAsyncErrorFrame);
+        }
+        return CompletableFuture.completedFuture(encodeAsyncResultFrame(desc, raw));
     }
 
     private Object invokeAsyncRaw(
@@ -1812,16 +1921,49 @@ public class HandlerRegistry {
 
     private AsyncResponseFrame encodeAsyncResultFrame(HandlerDescriptor desc, Object result) {
         try {
-            ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
+            ByteBuffer buffer = asyncBufferAtLeast(64 * 1024);
             if (result instanceof Integer written) {
+                if (written < 0) {
+                    throw new IllegalStateException("async direct response returned required size without retry: " + -written);
+                }
                 return new AsyncResponseFrame(buffer, written);
             }
-            buffer.clear();
-            int written = processAsyncResult(desc, result, buffer, 0);
-            return new AsyncResponseFrame(buffer, written);
+            for (int attempt = 0; attempt < 3; attempt++) {
+                buffer.clear();
+                int written = processAsyncResult(desc, result, buffer, 0);
+                if (written >= 0) {
+                    return new AsyncResponseFrame(buffer, written);
+                }
+                int required = -written;
+                if (required <= 0 || required > MAX_ASYNC_RESPONSE_FRAME_BYTES) {
+                    throw new IllegalStateException("async response frame too large: " + required);
+                }
+                buffer = asyncBufferAtLeast(required);
+            }
+            throw new IllegalStateException("async response frame retry exceeded");
         } catch (Throwable e) {
             return encodeAsyncErrorFrame(e);
         }
+    }
+
+    private ByteBuffer asyncBufferAtLeast(int requiredCapacity) {
+        ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
+        if (buffer.capacity() >= requiredCapacity) {
+            return buffer;
+        }
+        if (requiredCapacity > MAX_ASYNC_RESPONSE_FRAME_BYTES) {
+            throw new IllegalStateException("async response frame too large: " + requiredCapacity);
+        }
+        int nextCapacity = Math.max(requiredCapacity, Math.min(MAX_ASYNC_RESPONSE_FRAME_BYTES, buffer.capacity() * 2));
+        ByteBuffer next = allocateAsyncBuffer(nextCapacity);
+        ASYNC_BUFFER_POOL.set(next);
+        return next;
+    }
+
+    private static ByteBuffer allocateAsyncBuffer(int capacity) {
+        return ASYNC_DIRECT_BUFFER_ENABLED
+                ? ByteBuffer.allocateDirect(capacity)
+                : ByteBuffer.allocate(capacity);
     }
 
     private AsyncResponseFrame encodeAsyncErrorFrame(Throwable e) {
@@ -1898,6 +2040,10 @@ public class HandlerRegistry {
                     out,
                     offset
             );
+        }
+
+        if (result instanceof JsonBodyProducer producer) {
+            return writeJsonBodyProducer(producer, 200, EMPTY_BYTES, desc.defaultContentTypeHeader, out, offset);
         }
 
         if (result instanceof ResponseEntity<?> responseEntity) {

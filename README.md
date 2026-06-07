@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v3.2.1)
+[![Version](https://img.shields.io/badge/version-3.2.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v3.2.2)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-green.svg)]()
@@ -17,19 +17,23 @@ The model is intentionally simple:
 - The framework is not a Spring Boot clone. It gives you familiar REST annotations with a much
   smaller runtime surface.
 
-## v3.2.1 At A Glance
+## v3.2.2 At A Glance
 
-`v3.2.1` is a stable patch release for the current low-RSS and route-tuning line. It keeps the
-`v3.2.0` programming model and benchmark profile, then tightens production packaging, runtime
-configuration behavior, and benchmark measurement discipline.
+`v3.2.2` is a stable patch release for the current low-RSS and route-tuning line. It keeps the
+same Java programming model and adds stronger production diagnostics, repeatable anon memory
+evidence, and safer heavy JSON route gates.
 
 What changed for users:
 
-- More practical runtime profiles: `micro-rest`, `micro-dubbo`, `low-rss`, `balanced-dubbo`,
-  `throughput`, `fast-start`, and `ready-low-latency`.
-- Route-level admission control with `@RouteAdmission` and property overrides.
+- More practical runtime profiles: `micro-rest`, `micro-rest-plus`, `micro-dubbo`, `low-rss`,
+  `balanced-dubbo`, `throughput`, `fast-start`, and `ready-low-latency`.
+- Route-level admission control with `@RouteAdmission`; advanced JNI queue lanes are available only
+  for explicitly gated services.
 - Direct primitive binding for hot numeric query/path parameters.
 - `JsonProducerResponse` for heavy dynamic JSON without building a Java DTO list graph.
+- Bundled heavy JSON benchmark split: `/api/v1/heavy/dto` now demonstrates the recommended
+  producer-writer replacement for a hot DTO-shaped route, while `/api/v1/heavy/dto/legacy` keeps the
+  real Java DTO graph path for comparison.
 - Direct JSON writer path with `JsonBufferWriter`.
 - `RawResponse` header encoding cache and UTF-8-safe textual response defaults.
 - Native static response and native static file routes.
@@ -38,27 +42,53 @@ What changed for users:
 - Lean production package split: the default jar excludes sample/benchmark classes; sample classes
   are attached as a separate classifier. Benchmark consumer images can now run against
   `core-runtime` so sample classes do not leak into production-like RSS measurements.
+- Optional idle native memory trim policy for memory-first pods. It runs only from a background
+  idle policy, never from request handlers.
 - Runtime profiles no longer overwrite values that users explicitly set in `rust-spring.properties`.
   System properties and environment variables still have the highest priority.
-- Native ABI `20`; use the DLL/SO shipped with this package.
+- Route diagnostics now separate production routes from `@BenchmarkOnlyRoute` comparison routes.
+  The bundled legacy DTO graph route remains measurable but no longer pollutes production heavy JSON
+  counts.
+- `JsonBodyProducer` can be returned directly for default `200 OK` JSON producer routes, reducing
+  one wrapper allocation on hot dynamic JSON paths.
+- `RawResponse handler(int value)` works with direct scalar binding for read-model/cache routes
+  that already have serialized bytes.
+- Minimal production benchmark images now generate component and route indexes during Docker build,
+  keeping low-RSS evidence free of classpath-scan fallback warnings.
+- Anon evidence reports heap, JIT/code, class metadata, direct buffers, Rust-accounted memory,
+  thread-stack budget, and residual anon in one gate report.
+- Conservative idle native trim has measured reclaim evidence for low-traffic pods, but it remains
+  disabled by default.
+- Native ABI `21`; use the DLL/SO shipped with this package.
 
-Measured release-gate signal:
+Current repeat-3 route diagnostics gate:
 
-| Workload at c512 | Rust-Java avg RPS | Rust-Java p99 | Rust-Java avg RSS | Spring avg RPS | Spring p99 | Spring avg RSS | Note |
-|------------------|------------------:|--------------:|------------------:|---------------:|-----------:|---------------:|------|
-| Small JSON | 9153 | 115.83 ms | 68.75 MiB | 3459 | 368.60 ms | 314.33 MiB | Strong default REST path |
-| Raw/precomputed JSON | 9659 | 114.80 ms | 68.56 MiB | 3875 | 623.98 ms | 274.13 MiB | Best read-model path |
-| Dynamic DTO JSON | 3338 | 309.68 ms | 67.82 MiB | 1524 | 776.47 ms | 309.98 MiB | Supported, but object graph cost remains |
-| File/static response | 2035 | 881.50 ms | 54.06 MiB | n/a | n/a | n/a | Use route stream bulkhead |
+| Diagnostic | Result |
+|------------|-------:|
+| Production routes | 45 |
+| Benchmark-only routes | 1 |
+| Production heavy JSON object-graph routes | 0 |
+| Benchmark heavy JSON object-graph routes | 1 |
 
-Memory proof result for the release gate:
+Current `micro-rest-plus` framework-only gate, repeat `3`:
 
-| Metric | Value |
-|--------|------:|
-| Baseline RSS | 66.11 MiB |
-| Peak RSS during mixed load | 91.35 MiB |
-| Final idle RSS after load | 75.59 MiB |
-| Final minus baseline | +9.48 MiB |
+| Class | C | Avg RPS | Avg p99 | Reject % | Avg RSS after |
+|-------|--:|--------:|--------:|---------:|--------------:|
+| Raw/precomputed JSON | 256 | 8345 | 70.63 ms | 0.00% | 82.93 MiB |
+| Raw/precomputed JSON | 512 | 7942 | 148.83 ms | 0.16% | 82.90 MiB |
+| Dynamic producer JSON | 256 | 2319 | 227.06 ms | 0.77% | 82.35 MiB |
+| Dynamic producer JSON | 512 | 3198 | 291.03 ms | 22.74% | 83.43 MiB |
+| Direct JSON writer | 256 | 2293 | 219.08 ms | 0.50% | 82.95 MiB |
+| Direct JSON writer | 512 | 2798 | 376.16 ms | 16.57% | 84.04 MiB |
+
+Minimal production anon gate:
+
+| Case | Current | Anon | Residual anon | Decision |
+|------|--------:|-----:|--------------:|----------|
+| `micro-rest` | 66.71 MiB | 50.18 MiB | 29.34 MiB | Baseline memory-first REST |
+| `micro-rest-plus` | 66.81 MiB | 50.47 MiB | 28.71 MiB | Similar RSS with heavy route budgets |
+| `micro-dubbo` | 70.92 MiB | 50.48 MiB | 30.11 MiB | Dubbo-enabled minimal surface |
+| trim on conservative | 46.97 MiB | 31.87 MiB | 12.02 MiB | Best proven idle reclaim |
 
 Interpretation:
 
@@ -77,7 +107,7 @@ Interpretation:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.1</version>
+  <version>3.2.2</version>
 </dependency>
 ```
 
@@ -121,20 +151,61 @@ Good first JVM options for a small service:
 The package also includes startup option files:
 
 - `src/main/resources/startup/openj9-micro-rss.options`
+- `src/main/resources/startup/openj9-micro-rss-jitcap.options`
+- `src/main/resources/startup/openj9-micro-rss-jitthreads1.options`
 - `src/main/resources/startup/openj9-idle-rss.options`
 - `src/main/resources/startup/openj9-scc-aot.options`
 
 Use `openj9-idle-rss.options` only for very low traffic services. It can reduce RSS, but `-Xnojit`
 trades away JIT-optimized Java execution.
 
+Use `openj9-micro-rss-jitcap.options` only after A/B testing. It keeps JIT enabled but caps OpenJ9
+code-cache commit with `-Xcodecachetotal8m`. This can reduce Linux `anon` memory, but Java-heavy
+routes must be checked for p99 and throughput before production use.
+
+Use `openj9-micro-rss-jitthreads1.options` only after A/B testing. It keeps JIT enabled but limits
+OpenJ9 background compilation workers with `-XcompilationThreads1`. In the current minimal probe it
+reduced Linux thread count and thread-stack budget without making direct-buffer memory grow, but it
+is still an optional service-local preset. Do not make it the default until your endpoint matrix
+passes p99, `503`, and RSS checks.
+
+Latest local full gate result for this option was deliberately conservative: c64/c256/c512,
+sample repeat `3`, minimal smaps repeat `3`, `micro-rest`, and the framework's small/direct/raw/
+producer/legacy dynamic DTO endpoint set. Minimal production RSS improved by about `5.95 MiB`, but
+the gate failed as a common default because the legacy DTO graph regressed at c256/c512 and raw JSON
+also regressed at higher concurrency in that run. The next benchmark gate now uses
+`dynamic-producer-json` for the recommended hot DTO-shaped route and keeps `dynamic-dto-json` as the
+explicit legacy graph comparison. Use JIT-cap only as a service-local tuning candidate after your
+own endpoint matrix passes.
+
 Artifact rule:
 
-- `rust-java-rest-3.2.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-3.2.1-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-3.2.2.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-3.2.2-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `rust-java-rest-3.2.1-sample.jar`: runnable demo and benchmark app only. Do not use this as a
+- `rust-java-rest-3.2.2-sample.jar`: runnable demo and benchmark app only. Do not use this as a
   production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
+
+What this means in practice:
+
+- If your application depends on `com.reactor:rust-java-rest:3.2.2`, it does not receive the
+  framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
+- The `sample` classifier exists only so developers can run the bundled demo and benchmark
+  endpoints from the framework repository.
+- Do not use framework `target/classes` or `rust-java-rest-*-sample.jar` to make production RSS
+  claims. Those paths intentionally contain demo code and can make the memory picture look worse
+  than the real library dependency.
+- For production-like memory checks, run either your real application or the minimal production
+  benchmark image built from `core-runtime` plus only application classes.
+
+Package rule:
+
+- Maven packages are immutable. The existing `3.2.2` package should not be republished with changed
+  bytes under the same version.
+- Documentation and GitHub release notes can be clarified for `3.2.2`.
+- If code, native binaries, or packaged benchmark fixtures must change for consumers, cut a new patch
+  version instead of overwriting `3.2.2`.
 
 ## Quick Start
 
@@ -168,6 +239,9 @@ import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.rust.di.BeanContainer;
+import com.reactor.rust.memory.NativeIdleMemoryTrimmer;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class OrdersApplication {
     public static void main(String[] args) throws InterruptedException {
@@ -186,12 +260,18 @@ public final class OrdersApplication {
         RouteScanner.scanAndRegister();
         NativeBridge.configureRuntimeFromProperties();
 
+        AtomicReference<NativeIdleMemoryTrimmer> nativeIdleTrimmer = new AtomicReference<>();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            NativeIdleMemoryTrimmer trimmer = nativeIdleTrimmer.get();
+            if (trimmer != null) {
+                trimmer.close();
+            }
             NativeBridge.stopHttpServer();
             container.shutdown();
         }));
 
         NativeBridge.startHttpServer(PropertiesLoader.getInt("server.port", 8080));
+        nativeIdleTrimmer.set(NativeIdleMemoryTrimmer.startFromProperties());
         Thread.sleep(Long.MAX_VALUE);
     }
 }
@@ -466,6 +546,7 @@ Start simple. Move one route at a time only when measurements show a problem.
 | Existing JSON from Redis/read model/RPC | `RawResponse.json(byte[])` | Avoids DTO rebuild and JSON serialization |
 | Same JSON repeats many times | `RawResponse.registeredJson(...)` or native dynamic cache | Avoids repeated Java-to-Rust body transfer |
 | Hot fixed-shape dynamic JSON | `JsonProducerResponse` or `JsonBufferWriter` | Avoids Java DTO list/object graph allocation |
+| Hot endpoint currently returning a large DTO graph | Keep DTO route for normal use, add `JsonProducerResponse` hot route | Same response shape with lower allocation/RSS pressure |
 | Large download/export | `FileResponse` | File bytes stay out of Java heap and JNI frame |
 | Immutable static file | `FileResponse` + `@NativeStaticFileRoute` | Rust serves the file route after startup |
 
@@ -516,8 +597,9 @@ Rust and reused.
 
 ```java
 @GetMapping(value = "/catalog/cache", responseType = RawResponse.class)
-public RawResponse catalogCached() {
-    String key = "catalog:v1";
+@DirectQueryInt(value = "version", defaultValue = 1, min = 1, max = 1000)
+public RawResponse catalogCached(int version) {
+    String key = "catalog:v" + version;
     int id = NativeBridge.lookupDynamicResponse(key);
     if (id > 0) {
         return RawResponse.nativeJson(id);
@@ -537,6 +619,11 @@ public RawResponse catalogCached() {
 
 Use this only when cache hits are likely and invalidation is clear. Avoid it for user-specific or
 authorization-sensitive responses unless the key includes the full authorization boundary.
+
+The miss path still matters. If every cache miss builds a large DTO graph and serializes it, the
+first request for every key still creates GC/RSS pressure. Prefer read-model bytes,
+Redis/materialized JSON, or a `JsonBodyProducer`/`JsonBufferWriter` miss producer that writes the
+same response shape without allocating the full DTO list.
 
 ### Direct JSON Writer: Hot Fixed Shape
 
@@ -558,14 +645,16 @@ public record StatsResponse(String status, int limit) {}
 
 Use this for a measured hot route. Keep golden JSON tests because the writer is manual.
 
-### JsonProducerResponse: Heavy Dynamic JSON Without DTO Graph
+### JsonBodyProducer: Heavy Dynamic JSON Without DTO Graph
 
 ```java
-@RustRoute(method = "GET", path = "/reports/heavy", requestType = Void.class, responseType = JsonProducerResponse.class)
+private static final byte[] ITEM_PREFIX = "item-".getBytes(StandardCharsets.US_ASCII);
+
+@RustRoute(method = "GET", path = "/reports/heavy", requestType = Void.class, responseType = JsonBodyProducer.class)
 @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
 @RouteAdmission(maxConcurrent = 80, queueTimeoutMs = 150)
-public JsonProducerResponse heavyReport(int items) {
-    return JsonProducerResponse.ok((out, offset) -> {
+public JsonBodyProducer heavyReport(int items) {
+    return (out, offset) -> {
         JsonBufferWriter writer = JsonBufferWriter.reusable(out, offset);
         writer.beginObject()
                 .fieldString("type", "heavy-report")
@@ -582,16 +671,75 @@ public JsonProducerResponse heavyReport(int items) {
             writer.beginObject()
                     .fieldInt("id", i)
                     .comma()
-                    .fieldString("name", "item-" + i)
+                    .fieldStringAsciiPrefixInt("name", ITEM_PREFIX, i)
                     .endObject();
         }
 
         return writer.endArray().endObject().result();
-    });
+    };
 }
 ```
 
+This is the preferred replacement when an ordinary DTO route becomes hot. The API contract can stay
+the same JSON shape, but the handler writes directly into the response buffer instead of allocating a
+large Java record/list graph per request. `JsonBodyProducer` is the lowest-allocation producer shape
+for normal `200 OK` JSON responses. Use `JsonProducerResponse` instead when the route needs custom
+status or custom response headers.
+
+In the bundled benchmark app this split is visible as:
+
+Avoid string concatenation inside direct writers. A loop such as `"item-" + i` allocates a new
+`String` for every row. Use `fieldStringAsciiPrefixInt(...)`, `stringAsciiPrefixInt(...)`, or raw
+ASCII fragments when the value is a predictable prefix plus a primitive.
+
+- `/api/v1/heavy/dto`: optimized DTO-shaped JSON through `JsonProducerResponse`.
+- `/api/v1/heavy/dto/legacy`: real Java DTO graph + DSL-JSON, kept for comparison.
+
 Use this when the route is dynamic but building a `List<Record>` for every request is the real cost.
+
+### Async JsonBodyProducer: Use Only When It Removes Blocking Pressure
+
+Async producer routes are supported, including direct query-int binding. This is not a universal
+replacement for the sync producer path. Use it when the handler would otherwise block a JNI worker
+on remote I/O, RPC, a bounded executor, or a measured c512 pressure point.
+
+```java
+@RustRoute(method = "GET", path = "/reports/heavy/async", requestType = Void.class, responseType = JsonBodyProducer.class)
+@DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+@RouteAdmission(maxConcurrent = 80, queueTimeoutMs = 150)
+public CompletionStage<JsonBodyProducer> heavyReportAsync(int items) {
+    return AsyncHandlerExecutor.getInstance()
+            .submit(() -> (JsonBodyProducer) new HeavyReportProducer(items));
+}
+```
+
+BEST: keep CPU-bound JSON on the sync `JsonBodyProducer` path unless the benchmark proves that moving
+the work off the JNI worker improves useful `200` RPS and p99 for your route.
+
+ACCEPTABLE: use async producer for blocking RPC/database/read-model calls when the route also has a
+bounded executor, route admission, and timeout.
+
+ANTI-PATTERN: wrapping every CPU-bound route in `CompletionStage` because "async is faster". That can
+increase queueing, retained buffers, and p99.
+
+Async completion buffers are heap-backed by default for low RSS:
+
+```properties
+reactor.rust.async.direct-buffer.enabled=false
+```
+
+Enable direct async buffers only after a Linux RSS/p99 gate:
+
+```properties
+reactor.rust.async.direct-buffer.enabled=true
+```
+
+Direct buffers can reduce one copy in some async response paths, but they can also keep direct/native
+memory warm after bursts. If `direct_buffer_mib` grows in the anon evidence gate, keep this disabled.
+
+Latest short rebuild gate with the heap default, minimal app, `micro-rest`, c256/c512: final RSS was
+about `60 MiB`, anon about `53 MiB`, and async direct-buffer usage stayed near zero. Async producer
+improved some c512 overload rows, but it is still a measured route-local choice, not a global default.
 
 ### FileResponse: Large Export Or Download
 
@@ -644,6 +792,37 @@ reactor.rust.native-cache.max-entries=0
 reactor.rust.native-cache.max-bytes=0
 ```
 
+If this service is truly memory-first and has idle periods between traffic bursts, you can enable
+idle native trim:
+
+```properties
+reactor.rust.native-trim.enabled=true
+reactor.rust.native-trim.initial-delay-ms=30000
+reactor.rust.native-trim.interval-ms=60000
+reactor.rust.native-trim.min-idle-ms=10000
+reactor.rust.native-trim.max-active-connections=0
+reactor.rust.native-trim.max-active-requests=0
+reactor.rust.native-trim.retain-small=16
+reactor.rust.native-trim.retain-medium=0
+reactor.rust.native-trim.retain-large=0
+reactor.rust.native-trim.retain-huge=0
+reactor.rust.native-trim.allocator-trim-enabled=true
+```
+
+Use this only after checking p99. The policy is designed for low-RSS pods: it waits until no request
+activity is observed for `min-idle-ms`, active connections are at or below
+`max-active-connections`, active requests are at or below `max-active-requests`, then calls
+`NativeBridge.releaseNativeMemoryRetaining(...)` from a daemon thread. It does not run from request
+handlers. `retain-small` keeps a tiny warm floor in the small response pool so the next burst does
+not start fully cold; medium/large/huge are normally reclaimed in memory-first services.
+`allocator-trim-enabled=true` asks the platform allocator to return idle native pages to the OS.
+The idle-window request counter is `reactor_native_http_user_requests_total`: `/health`, `/metrics`,
+`/metrics/*`, and `/diagnostics/*` are excluded, so Kubernetes probes and Prometheus scrapes do not
+prevent a genuinely idle pod from trimming.
+The manual `/diagnostics/native/trim` endpoint remains a full diagnostic trim. The old
+`-Drust.native.trim.interval` request-count trim path is deprecated because it can attach allocator
+trim latency to a user request.
+
 `micro-rest` and `micro-dubbo` are memory-first profiles. They disable WebSocket registration and the
 annotation-based static-file scanner unless you explicitly enable them. If your service needs one of
 these features, turn on only that feature:
@@ -679,11 +858,49 @@ reactor.dubbo.max-inflight=32
 Heavy JSON route on a memory-first service:
 
 ```properties
-reactor.runtime.profile=micro-rest
-reactor.rust.http.max-connections=768
+reactor.runtime.profile=micro-rest-plus
 
-reactor.rust.route-admission.get.reports.heavy.max-concurrent=80
-reactor.rust.route-admission.get.reports.heavy.queue-timeout-ms=150
+# Optional route-specific override. Use this only after measuring your own route.
+# reactor.rust.route-admission.get.reports.heavy.max-concurrent=80
+# reactor.rust.route-admission.get.reports.heavy.queue-timeout-ms=150
+```
+
+Use this when the route is expensive and you prefer fewer `503` responses over maximum raw RPS.
+Do not raise `reactor.rust.http.max-connections` first. `micro-rest-plus` keeps the same small
+runtime shape as `micro-rest`, but applies measured route-budget defaults only to routes you mark
+with `@RouteWorkload`.
+
+Hot small direct JSON route:
+
+```java
+private static final RawResponse CANDIDATES_DIRECT =
+        RawResponse.registeredJson(CandidateResponseJsonWriter.INSTANCE.precomputedBytes());
+
+@RustRoute(
+        method = "GET",
+        path = "/api/v1/candidates/direct",
+        requestType = Void.class,
+        responseType = RawResponse.class
+)
+@NativeStaticRoute
+public RawResponse candidatesDirect() {
+    return CANDIDATES_DIRECT;
+}
+```
+
+Use this only when the payload is immutable or intentionally precomputed until restart. Rust serves
+the response from the native registry, so the request does not enter Java/JNI. If the route has
+per-request business logic, user-specific data, query-dependent data, or DB/RPC calls, keep it as a
+direct writer or producer writer instead.
+
+If c256/c512 metrics show queue-full rejections on a dynamic Java route and the business requirement
+prefers fewer `503` over maximum useful RPS, test a route-local JNI lane in your own matrix. Do not
+enable this blindly; the bundled full matrix rejected it as a default because it adds a priority JNI
+worker and changes the pod's scheduling profile.
+
+```properties
+reactor.rust.jni-admission.get.api.v1.candidates.direct.max-pending=512
+reactor.rust.jni-admission.get.api.v1.candidates.direct.queue-timeout-ms=0
 ```
 
 Large file/download service:
@@ -759,10 +976,30 @@ database pools, native cache, WebSocket, heavy JSON, or high concurrency, start 
 ```java
 @RustRoute(method = "GET", path = "/reports/heavy", requestType = Void.class, responseType = JsonProducerResponse.class)
 @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+@RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-direct")
 @RouteAdmission(maxConcurrent = 80, queueTimeoutMs = 150)
 public JsonProducerResponse heavyReport(int items) {
     return JsonProducerResponse.ok(new HeavyReportProducer(items));
 }
+```
+
+`@RouteWorkload` describes what kind of pressure the route creates. The optional `budget` gives the
+profile a named place to apply measured settings without hardcoding every route path. This is useful
+when the same application has a small JSON route, a heavy direct writer, and a producer-writer route
+that each need different overload behavior.
+
+For heavy JSON, direct primitive binding is not enough by itself. `@DirectQueryInt` or `@DirectPathInt`
+only removes scalar parameter parsing and string allocation. If the handler still returns a large
+record/list DTO graph, the JSON object graph cost remains. When
+`reactor.optimizer.fail-on-heavy-json-object-graph=true` is enabled, a route marked
+`@RouteWorkload(HEAVY_JSON)` must use a non-object-graph response path such as `JsonBodyProducer`,
+`JsonProducerResponse`, direct buffer writer, `RawResponse`, `FileResponse`, or native static response.
+
+Budget-level property format:
+
+```properties
+reactor.rust.route-budget.heavy-json-direct.route-admission.max-concurrent=80
+reactor.rust.route-budget.heavy-json-direct.route-admission.queue-timeout-ms=150
 ```
 
 Property override format:
@@ -772,6 +1009,11 @@ reactor.rust.route-admission.get.reports.heavy.max-concurrent=80
 reactor.rust.route-admission.get.reports.heavy.queue-timeout-ms=150
 ```
 
+Precedence is intentionally explicit: annotation defaults < workload defaults < named budget
+defaults < route-specific properties. `micro-rest-plus` currently sets measured budget defaults for
+`heavy-json-direct`, `heavy-json-producer`, and `heavy-json-legacy`. If one real route needs a
+different value, use the route-specific property instead of changing the global profile.
+
 Use route admission when:
 
 - one route builds a heavy payload;
@@ -780,6 +1022,29 @@ Use route admission when:
 - you prefer controlled `503` over unbounded queue growth.
 
 Do not use global worker increases as the first fix. They often hide the problem and increase RSS.
+
+JNI queue admission is an advanced opt-in for a different problem: a very fast bodyless/direct route
+is so hot that it fills the shared JNI queue, while the route itself is not slow or memory-heavy. Use
+it only after a repeat benchmark proves that lower `503` is worth the extra priority JNI worker.
+
+```java
+@RustRoute(method = "GET", path = "/catalog/summary", requestType = Void.class, responseType = SummaryResponse.class)
+public int summary(ByteBuffer out, int offset) {
+    return SummaryJsonWriter.INSTANCE.write(out, offset);
+}
+```
+
+The override format is:
+
+```properties
+reactor.rust.jni-admission.get.catalog.summary.max-pending=512
+reactor.rust.jni-admission.get.catalog.summary.queue-timeout-ms=0
+```
+
+`@JniQueueAdmission` releases its permit when a JNI worker starts the job. `@RouteAdmission` releases
+its permit after the response path completes. Use the first for queue pressure, the second for heavy
+business work. Neither should be used to hide a route that allocates too much or needs a producer
+writer.
 
 ## Body, Response, Timeout, And File Limits
 
@@ -810,7 +1075,7 @@ Rules:
 
 ## UTF-8 Behavior
 
-`v3.2.1` keeps the UTF-8 fixes for:
+`v3.2.2` keeps the UTF-8 fixes for:
 
 - response bodies;
 - `RawResponse.text(...)` and `RawResponse.json(...)` content types;
@@ -832,11 +1097,32 @@ Use:
 - `GET /diagnostics/routes` for route strategy/fallback visibility.
 - `NativeBridge.nativeMemoryDiagnosticsJson()` for native memory diagnostics.
 
+`GET /diagnostics/routes` is also the migration checklist for hot routes. For every route, check:
+
+- `strategy`: whether the route is direct, exact annotated, async, raw/static, or legacy.
+- `workload` and `workload_budget`: which admission recipe is applied.
+- `benchmark_only`: `true` means the route exists only to compare or demonstrate a slower path.
+- `heavy_json_object_graph`: `true` means the route is marked `HEAVY_JSON` but still returns a
+  normal Java object graph or legacy serialization path.
+
+If `heavy_json_object_graph=true`, do not fix it by only adding `@DirectQuery*` or `@DirectPath*`.
+Those annotations only optimize scalar parameter binding. Move the response to `JsonBodyProducer`,
+`JsonProducerResponse`, `DirectJsonResponse`, `RawResponse`, `FileResponse`, or native static/file
+serving depending on the use case.
+
+Summary fields are split for production decisions. Use `production_routes`, `production_legacy`,
+and `heavy_json_object_graph` for production health. Use `benchmark_only`,
+`benchmark_legacy`, and `benchmark_heavy_json_object_graph` only when reading sample/benchmark apps.
+The bundled `/api/v1/heavy/dto/legacy` route is intentionally marked benchmark-only.
+
 Important metrics to watch:
 
 - p50/p95/p99 request latency;
 - JNI queue p95/p99;
 - route admission rejections;
+- `reactor_route_plan_heavy_json_object_graph`;
+- `reactor_route_plan_benchmark_only`;
+- `reactor_route_plan_benchmark_heavy_json_object_graph`;
 - response body bytes and in-flight bytes;
 - native cache size and evictions;
 - file stream active/rejected counters;
@@ -850,12 +1136,14 @@ reactor.rust.java.log.level=warn
 reactor.optimizer.mode=observe
 reactor.optimizer.report.enabled=true
 reactor.optimizer.fail-on-fallback=false
+reactor.optimizer.fail-on-benchmark-only-routes=false
 ```
 
 For a strict production gate, switch to fail-fast only after route diagnostics are clean:
 
 ```properties
 reactor.optimizer.fail-on-fallback=true
+reactor.optimizer.fail-on-benchmark-only-routes=true
 reactor.optimizer.required-fast-routes=get.api.v1.candidates,get.reports.heavy
 ```
 
@@ -902,13 +1190,13 @@ reactor.rust.websocket.send-timeout-ms=5000
 
 ## Benchmark And Release Evidence
 
-Release-gate commands used for `v3.2.1`:
+Release-gate commands used for `v3.2.2`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
   -RuntimeProfile micro-rest-plus `
   -FrameworkJvmPreset current `
-  -EndpointClasses "small-json-legacy,small-json-direct,dynamic-dto-json,producer-json,direct-json-writer,raw-json,native-cache-json,file-static" `
+  -EndpointClasses "small-json-legacy,small-json-direct,dynamic-producer-json,dynamic-dto-json,producer-json,direct-json-writer,raw-json,native-cache-json,file-static" `
   -ConcurrencyLevels "64,256,512,1000" `
   -Duration 20s -Warmup 5s -RepeatCount 3 `
   -RandomSeed 202606061 `
@@ -932,7 +1220,48 @@ More benchmark details:
 
 - [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
+- [docs/release-notes/v3.2.2.md](docs/release-notes/v3.2.2.md)
 - [docs/release-notes/v3.2.1.md](docs/release-notes/v3.2.1.md)
+
+Production-like RSS measurement should now start from the minimal production app, not the framework
+sample app:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode minimal `
+  -RuntimeProfile micro-rest `
+  -ConcurrencyValues 64,256 `
+  -DurationSeconds 4 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 6
+```
+
+Use `-AppMode sample` only when you intentionally want to test the bundled demo routes. Use
+`-AppMode minimal` when the question is "what does a clean production classpath cost before my own
+business code grows it?"
+
+For anonymous-memory attribution, use the evidence gate instead of reading one RSS number:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 `
+  -AppMode minimal `
+  -ConcurrencyValues "64,256,512" `
+  -DurationSeconds 5 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 12 `
+  -TrimFinalIdleSeconds 95 `
+  -TrimFinalIdleSnapshotSeconds "35,95"
+```
+
+This produces one report for `micro-rest`, `micro-rest-plus`, `micro-dubbo`, conservative native
+trim A/B, and OpenJ9 javacore/native evidence. Use it when RSS is above target and you need to know
+whether the next fix is Java heap/object graph, class metadata, JIT/code cache, thread/native pools,
+Rust buffers, allocator retention, or Dubbo runtime surface.
+
+Do not treat this as a tuning preset. Treat it as a decision gate. If heap is already small but
+`anon_residual_mib` is high, lowering `-Xmx` is the wrong lever. If Java-heavy endpoints dominate
+peak anon and p99, move those specific routes toward `JsonProducerResponse`, direct writer,
+raw/read-model, or native serialization.
 
 ## Native Binaries
 
@@ -963,6 +1292,9 @@ Before shipping a service:
 - Keep request/response limits bounded.
 - Run c64/c256/c512 at minimum with p99, `503%`, RSS, and native metrics.
 - Run a post-load idle/soak RSS check before lowering pod memory limits.
+- If testing `openj9-micro-rss-jitcap.options`, require a service-local gate pass before using it
+  in production. Memory gain alone is not enough; p99 regressions on hot DTO routes reject the
+  profile.
 - Keep hot-path logging off.
 
 ## License

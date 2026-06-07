@@ -40,6 +40,19 @@ class JsonBufferWriterTest {
         assertEquals("{\"city\":\"İstanbul\"}".getBytes(StandardCharsets.UTF_8).length, -result);
     }
 
+    @Test
+    void asciiPrefixIntStringAvoidsCallerSideStringConcatenation() {
+        ByteBuffer buffer = ByteBuffer.allocate(64);
+        JsonBufferWriter json = JsonBufferWriter.reusable(buffer, 0);
+
+        int written = json.beginObject()
+                .fieldStringAsciiPrefixInt("sku", "test".getBytes(StandardCharsets.US_ASCII), 42)
+                .endObject()
+                .result();
+
+        assertEquals("{\"sku\":\"test42\"}", read(buffer, written));
+    }
+
     private static String read(ByteBuffer buffer, int length) {
         byte[] bytes = new byte[length];
         buffer.position(0);

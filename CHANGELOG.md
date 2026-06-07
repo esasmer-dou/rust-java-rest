@@ -9,7 +9,203 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet.
+---
+
+## [3.2.2] - 2026-06-07
+
+### Changed
+
+- Made `JsonProducerResponse` and `DirectJsonResponse` header maps lazy. Default no-extra-header
+  producer/direct JSON responses no longer allocate a `LinkedHashMap` before encoding the standard
+  JSON content type; mutable `getHeaders().put(...)` behavior is preserved.
+- Added `JsonBufferWriter.fieldStringAsciiPrefixInt(...)` and
+  `JsonBufferWriter.stringAsciiPrefixInt(...)` so hot direct/producer JSON loops can write
+  predictable prefix-plus-int strings without caller-side `String` concatenation.
+- Added direct `JsonBodyProducer` response support. Hot producer routes can now return
+  `JsonBodyProducer` directly for default `200 OK` JSON, avoiding the per-request
+  `JsonProducerResponse` wrapper allocation. `JsonProducerResponse` remains the API for custom
+  status codes and custom headers.
+- Added opt-in async `JsonBodyProducer` direct query-int support. Routes returning
+  `CompletionStage<JsonBodyProducer>` or `CompletionStage<JsonProducerResponse>` can now use
+  `@DirectQueryInt` scalar invocation without building query/header strings for that hot scalar.
+- Extended direct scalar `int` binding to `RawResponse handler(int value)` for read-model/cache
+  routes that already return serialized bytes or native cached payload ids.
+- Changed async response frame buffers to heap-backed by default via
+  `reactor.rust.async.direct-buffer.enabled=false`. Direct async buffers remain available as an
+  explicit RSS/p99-gated optimization instead of a low-RSS default.
+- Added short rebuild-gate evidence for the heap-backed async default: minimal `micro-rest`
+  c256/c512 ended with `60.285 MiB` cgroup current, `52.625 MiB` cgroup anon, and
+  `0.008 MiB` direct-buffer attribution. Async producer routes reduced some c512 overload rows, but
+  remain opt-in and route-local.
+- Added optional OpenJ9 startup preset `openj9-micro-rss-jitthreads1.options`. It keeps JIT enabled
+  and adds `-XcompilationThreads1` for services where javacore evidence shows JIT compiler thread
+  surface is part of the anonymous memory budget. It is an A/B preset, not a default.
+- Added explicit route workload metadata with `@RouteWorkload`. Heavy JSON routes can now declare a
+  workload class and named budget such as `heavy-json-direct` or `heavy-json-producer`; startup route
+  diagnostics expose the workload and budget for each route.
+- Promoted `micro-rest-plus` from a benchmark-only recipe to a runtime profile. It inherits
+  `micro-rest` sizing and applies measured route-budget defaults for heavy JSON routes without
+  increasing global JNI queue, worker, or connection limits.
+- Added optional production gate `reactor.optimizer.fail-on-heavy-json-object-graph`. When enabled,
+  routes marked `HEAVY_JSON` fail startup if they still use a legacy/exact object-graph serialization
+  path instead of direct writer, `JsonProducerResponse`, `RawResponse`, or native static response.
+- Tightened the heavy JSON production gate so direct query/path primitive bindings no longer hide a
+  DTO object-graph response. Direct scalar binding removes parameter parsing overhead only; heavy
+  JSON routes still need producer/direct/raw/native response paths to pass the gate.
+- Added route diagnostics and startup metric visibility for heavy JSON object-graph routes.
+  `/diagnostics/routes` now exposes `heavy_json_object_graph` at summary and route level, and
+  Prometheus metrics include `reactor_route_plan_heavy_json_object_graph`.
+- Added `@BenchmarkOnlyRoute` for sample/benchmark comparison routes. Benchmark-only routes stay
+  visible in diagnostics, but production route summaries and production gates separate them through
+  `benchmark_only`, `benchmark_legacy`, and `benchmark_heavy_json_object_graph`. The optional
+  `reactor.optimizer.fail-on-benchmark-only-routes=true` gate can reject them in real production
+  services.
+- Replaced stale benchmark/memory helper overrides that still carried the rejected `128/125`
+  direct-heavy route recipe with the new `micro-rest-plus` profile budget source.
+- Split the bundled heavy DTO benchmark route into two explicit paths:
+  - `/api/v1/heavy/dto` now returns the same DTO-shaped JSON through `JsonProducerResponse`, avoiding
+    per-request `HeavyResponse -> HeavyItem -> HeavyMetadata` object graph allocation on the hot path.
+  - `/api/v1/heavy/dto/legacy` keeps the real Java DTO graph + DSL-JSON path for apples-to-apples
+    regression comparison.
+- Added `dynamic-producer-json` as the recommended benchmark endpoint class for hot dynamic JSON.
+  The older `dynamic-dto-json` class now points to the legacy DTO graph path.
+- Updated JIT-cap gate defaults to measure the recommended dynamic producer path by default while
+  still allowing explicit legacy DTO graph testing.
+- Added targeted c256/c512 repeat-3 benchmark evidence for the split: `dynamic-producer-json`
+  improves useful `200` throughput by `1.50x` at c256 and `1.83x` at c512 versus legacy
+  `dynamic-dto-json`, with RSS staying in the same broad band.
+- Tuned the sample optimized DTO-shaped route admission to `maxConcurrent=128`,
+  `queueTimeoutMs=125` after a c256/c512 repeat-3 matrix. Compared with the previous `80/125`
+  setting, c512 useful `200 RPS` improved from `3064.78` to `4120.37` and average `503%` dropped
+  from `13.89%` to `1.46%`.
+- Ran the full dynamic gate with the selected `128/125` recipe across
+  `dynamic-producer-json`, legacy `dynamic-dto-json`, `direct-json-writer`, and `raw-json` at
+  c256/c512/c1000, repeat `3`. The optimized producer path stayed ahead of the legacy DTO graph on
+  useful `200 RPS`: `1.58x` at c256, `1.31x` at c512, and `2.06x` at c1000. c512 still showed one
+  overload outlier, so the recipe remains measured guidance rather than a universal default.
+- Added optional plan-level benchmark pre-warm and extended the route-admission matrix runner to
+  support mixed endpoint sets with per-class aggregate output. This exposed that single-route
+  admission tuning overfit the sample producer route.
+- Moved the bundled `GET /api/v1/candidates/direct` sample route to
+  `RawResponse.registeredJson(...) + @NativeStaticRoute`. This route is intentionally immutable and
+  now demonstrates the correct Rust-served path for hot bodyless/static JSON instead of spending JNI
+  capacity on a precomputed payload.
+- Removed the remaining DTO graph build from the benchmark native-cache miss path. The bundled
+  heavy cache sample now generates miss payload bytes through the direct heavy JSON writer before
+  registering them in the native cache; the legacy DTO graph remains only on
+  `/api/v1/heavy/dto/legacy` for explicit comparison.
+- Re-ran the `micro-rest` small-direct repeat-3 gate after the native static change. Metrics showed
+  `reactor_native_jni_queue_full_total=0` and only the metrics scrape entering JNI; remaining c512
+  `503` came from `reactor_native_http_connections_rejected_total`, not JNI queue pressure.
+- Re-ran the mixed c256/c512 clean-index matrix after the native static change. The rejected
+  priority JNI lane remains opt-in only; native static improves the small static route without adding
+  a global queue or extra priority worker.
+- Rejected broad heavy-route fixes that traded one bottleneck for another:
+  `get.api.v1.heavy=128/125` lowered direct-heavy c512 `503` but regressed RPS/p99 across the mixed
+  matrix; `jni.workers=2, queue=256` helped producer/dynamic routes but hurt raw/small paths and did
+  not fix direct-heavy. The accepted recipe is route-local and explicit: direct-heavy
+  `maxConcurrent=80`, `queueTimeoutMs=150` for services that prefer fewer `503` over maximum RPS.
+- Updated the sample `dynamic-producer-json` route recipe from `128/125` to `96/125` after the mixed
+  c512 matrix. Under the mixed plan, `96/125` produced `3860.72` useful `200 RPS`, `192.91ms` p99,
+  `3.42%` `503`, and `75.77 MiB` RSS, beating `128/125` on useful RPS, p99, and RSS.
+- Revalidated the updated `micro-rest-plus` profile at c512 with the mixed dynamic endpoint set:
+  `dynamic-producer-json` produced `3703.11` useful `200 RPS`, `198.30ms` p99, and `4.29%` `503`.
+  RSS after was higher in this run, so docs now keep route-admission tuning separate from pod memory
+  sizing proof.
+- Ran the current full dynamic gate with `96/125`, `PlanPreWarm`, c256/c512/c1000, repeat `3`.
+  The producer route improved c512 versus the earlier `128/125` full gate: useful `200 RPS`
+  `3311.67 -> 3774.52`, p99 `261.50ms -> 190.73ms`, and `503%` `15.92% -> 4.31%`.
+  c256 and c1000 throughput decreased, which is accepted for the memory-first `micro-rest-plus`
+  recipe.
+- Documentation now distinguishes production package contents from bundled sample/benchmark
+  artifacts more explicitly. The existing `3.2.1` package already excludes sample/benchmark classes
+  from the normal jar, `core-runtime`, sources, and javadocs.
+- Benchmark documentation now recommends the minimal production app as the default RSS attribution
+  target. The bundled sample app remains the correct target only for bundled demo-route behavior.
+- Removed the legacy request-count native trim branch from Java handler entry points. Native memory
+  release is no longer attached to arbitrary user requests.
+- Added optional `reactor.rust.native-trim.*` idle policy. It runs from a daemon thread only after
+  native request activity is stable and active connections/requests are below the configured
+  thresholds, with `reactor_native_trim_*` metrics for attempts, skips, success, errors, and last
+  duration.
+- Changed the background idle trim path to call ABI `21`
+  `NativeBridge.releaseNativeMemoryRetaining(...)`, so memory-first services can keep a tiny
+  response-buffer warm floor (`retain-small` default `2`) while reclaiming larger pools and
+  optionally trimming the platform allocator. The manual `/diagnostics/native/trim` endpoint remains
+  a full diagnostic trim.
+- Rebuilt Windows DLL and Linux SO native resources for ABI `21`, and added a Java native ABI smoke
+  test so stale bundled binaries fail early.
+- Extended `linux_smaps_breakdown.ps1` to capture `/metrics` per phase and include native idle trim
+  attempts/skips/success/duration in the summary CSV and markdown report.
+- Added `idle_trim_ab_gate.ps1` for trim off/on A/B validation across repeat runs. The current
+  minimal `micro-rest` c64/c256/c512 repeat-3 gate showed final cgroup anon improvement
+  `-14.484 MiB`, but average p99 regression `+15.68%`; idle trim remains explicit and disabled by
+  default.
+- Reran a focused retained-floor soft-trim A/B on minimal `micro-rest`, c64/c512, repeat `2`:
+  final cgroup anon improved by `-14.607 MiB`, average p99 regressed by `+10.88%`, and max p99
+  regressed by `+81.08%` on one raw c64 run. The production decision remains conservative opt-in,
+  not a default profile behavior.
+- Added `native_trim_policy_matrix.ps1` and measured retain-small `2/8/16` with allocator trim
+  on/off. Allocator trim off did not reclaim meaningful anon memory; `retain-small=16` with
+  allocator trim on is now the opt-in starting point because the focused matrix showed about
+  `-15.367 MiB` final cgroup anon with lower p99 risk than smaller floors.
+- Completed the full retained-trim A/B gate for `retain-small=16`, minimal `micro-rest`,
+  c64/c256/c512, repeat `3`: final cgroup anon `-14.768 MiB`, final cgroup current `-17.263 MiB`,
+  average p99 `+4.89%`, max p99 `+27.37%`, max `503` delta `+3.021pp`.
+- Completed the conservative production-timing soak with `30s/60s/10s`, final idle `95s`,
+  repeat `1`: final cgroup anon `-20.844 MiB`, final current `-20.687 MiB`, trim fired once in
+  final idle. This remains low-traffic/idle-service evidence, not a throughput default.
+- Extended `linux_smaps_breakdown.ps1` with `-FinalIdleSnapshotSeconds` for same-container long
+  idle soak snapshots. A c512 5-minute/30-minute soak showed trim-on anon stayed flat after reclaim
+  (`27.258 MiB -> 27.273 MiB`), while trim-off stayed high (`44.836 MiB -> 44.836 MiB`).
+- Added `-JvmXss` support to `linux_smaps_breakdown.ps1` and introduced `xss_anon_matrix.ps1` for
+  stack-size A/B evidence across `256k/192k/160k/128k` without duplicate JVM `-Xss` flags.
+- Updated the minimal production benchmark image to generate `META-INF/reactor/components.idx` and
+  `META-INF/reactor/routes.idx` during Docker build. The minimal image now mirrors the strict
+  low-RSS production expectation instead of emitting the classpath-scan fallback warning.
+- Completed the current indexed minimal `micro-rest` c512 stack matrix. No stack/OOM/native-thread
+  failure or 500 was observed. Lowering `-Xss` did not improve final anon in the clean-index run
+  (`256k=43.512 MiB`, `192k=46.113 MiB`, `160k=50.211 MiB`, `128k=49.082 MiB`), so the default
+  remains `256k`; smaller values remain service-specific experiments.
+- Tested `micro-rest` JNI queue capacity `512` as a focused `small-direct` optimization while keeping
+  one JNI worker and `max-connections=512`. The focused indexed minimal-app c256/c512 repeat-3 matrix
+  showed c256 `503` dropping from `19.720%` to `0%`, and c512 `503` from `8.635%` to `0.607%`.
+  Full clean-index endpoint matrix rejected it as the global `micro-rest` default: direct-heavy,
+  producer-heavy, dynamic-producer, and raw-heavy regressed on RPS/p99/503. The default remains
+  `reactor.rust.jni.queue-capacity=128`; queue `512` is documented only as an explicit small/direct
+  JSON tuning recipe.
+- Added opt-in route-local JNI queue admission (`@JniQueueAdmission` / `reactor.rust.jni-admission.*`)
+  backed by a bounded priority JNI lane. The bundled `small-direct` sample keeps it disabled by
+  default because the full clean-index gate reduced `503` but did not pass as a general `micro-rest`
+  default. `@RouteAdmission` remains the right tool for heavy or slow route work.
+- Release documentation now states the package immutability rule: do not overwrite a published Maven
+  version; cut a new patch version if packaged bytes must change.
+- Added optional OpenJ9 JIT code-cache cap evidence flow through `openj9-micro-rss-jitcap.options`,
+  `linux_smaps_breakdown.ps1`, and `container_benchmark.ps1`.
+- Added `jitcap_gate.ps1` to compare `micro-rest` against JIT-capped `micro-rest` with explicit
+  RSS and p99 pass/fail criteria.
+- Extended Linux smaps evidence collection with optional post-measurement OpenJ9 javacore capture.
+- Documented the full local JIT-cap gate result: `-Xcodecachetotal8m` reduced minimal production
+  cgroup RSS by `5.952 MiB`, but failed default candidacy due p99 regressions on mixed endpoint
+  workload, especially the legacy dynamic DTO graph at c256/c512.
+- Added `micro-dubbo` support to `linux_smaps_breakdown.ps1`, using static discovery defaults so
+  the minimal production app can isolate the Dubbo-enabled runtime surface without requiring
+  ZooKeeper.
+- Added `anon_evidence_gate.ps1`, a single evidence entrypoint that runs minimal `micro-rest`,
+  `micro-rest-plus`, `micro-dubbo`, conservative trim off/on A/B, and OpenJ9 javacore/native
+  evidence, then writes final attribution, peak memory, load signal, and all smaps rows to one
+  report folder.
+- Added native `reactor_native_http_user_requests_total` and Java `http_user_requests_total`.
+  `/health`, `/metrics`, `/metrics/*`, and `/diagnostics/*` no longer reset the idle native trim
+  window. This prevents Kubernetes probes, Prometheus scrapes, and benchmark diagnostics from
+  keeping an otherwise idle pod in `skipped_not_idle`.
+- Changed idle native trim scheduling so `skipped_not_idle` and `skipped_active` retry at the next
+  idle boundary instead of blindly waiting the full `interval-ms`. Conservative production settings
+  still avoid request-path trim, but warmed RSS can now be reclaimed sooner after a burst.
+- Rebuilt Windows DLL and Linux SO resources after the native user-request metric change.
+- Documentation now describes anon attribution as a production decision gate: use heap, JIT/code,
+  class metadata, direct buffer, Rust-accounted pools, thread stack budget, and residual anon fields
+  to choose the next code target instead of lowering heap or changing defaults blindly.
 
 ---
 
@@ -396,6 +592,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[3.2.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.1...v3.2.2
 [3.2.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.0.0...v3.1.0

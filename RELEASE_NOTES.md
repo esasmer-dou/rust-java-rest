@@ -1,3 +1,51 @@
+# Rust-Java REST Framework v3.2.2
+
+`v3.2.2` is a stable patch release for production diagnostics, low-RSS evidence, and safer heavy
+JSON tuning. The Java programming model is unchanged: handlers, services, components, records,
+database code, and business logic stay in Java.
+
+## What's New For Users
+
+- Maven dependency version is now `3.2.2`.
+- Route diagnostics separate production routes from benchmark-only comparison routes.
+- Heavy JSON diagnostics correctly recognize direct primitive output writers.
+- `JsonBodyProducer` can be returned directly for default `200 OK` JSON producer routes.
+- Optional route-local JNI admission is available for explicitly gated hot routes.
+- Minimal production benchmark images now generate startup indexes, avoiding classpath-scan noise.
+- Anonymous memory evidence reports heap, JIT/code, class metadata, direct buffers, Rust-accounted
+  memory, thread stack budget, and residual anon.
+- Conservative idle native trim is validated as opt-in reclaim for low-traffic idle pods.
+
+## Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>3.2.2</version>
+</dependency>
+```
+
+## Current Gate Signal
+
+| Signal | Result |
+|--------|-------:|
+| Production heavy JSON object-graph routes | 0 |
+| Benchmark-only heavy JSON object-graph routes | 1 |
+| Conservative trim current delta | -17.543 MiB |
+| Conservative trim anon delta | -18.082 MiB |
+| Conservative trim residual-anon delta | -13.968 MiB |
+
+Read this as production evidence, not a marketing claim. `micro-rest-plus` is a controlled-overload
+profile: raw/precomputed JSON is strong through c512, while hot heavy JSON still needs producer,
+direct, raw, native response paths and route budgets.
+
+Full release notes:
+
+- [docs/release-notes/v3.2.2.md](docs/release-notes/v3.2.2.md)
+
+---
+
 # Rust-Java REST Framework v3.2.1
 
 `v3.2.1` is a stable patch release for production packaging and runtime hardening.
@@ -15,6 +63,8 @@ paths.
 - Default jar, `core-runtime`, sources jar, and javadocs exclude framework sample/benchmark packages.
 - `sample` classifier remains available for demos and benchmark examples only.
 - Runtime profiles no longer overwrite values explicitly configured in `rust-spring.properties`.
+- Benchmark/demo comparison routes can now be marked `@BenchmarkOnlyRoute`; diagnostics separate
+  production route counts from sample comparison routes.
 - README, benchmark docs, and production runtime docs now explain the production artifact rule.
 
 ## Maven Dependency
@@ -33,6 +83,56 @@ Use the normal Maven dependency for applications. Use `rust-java-rest-3.2.1-core
 when a benchmark/container classpath needs one lean framework runtime jar. Do not use
 `rust-java-rest-3.2.1-sample.jar` in production; it intentionally contains demo handlers, DTOs,
 benchmark endpoints, and a sample startup index.
+
+The existing `3.2.1` package already follows this rule:
+
+| Artifact | Contains framework sample/benchmark packages? | Intended use |
+|----------|----------------------------------------------|--------------|
+| `rust-java-rest-3.2.1.jar` | No | Normal Maven dependency |
+| `rust-java-rest-3.2.1-core-runtime.jar` | No | Lean framework runtime classpath |
+| `rust-java-rest-3.2.1-sample.jar` | Yes | Demo and bundled benchmark app only |
+
+Do not overwrite a published Maven package under the same version. If packaged code, native binaries,
+or benchmark fixtures need to change for consumers, publish a new patch version. Documentation and
+release text can be clarified without changing package bytes.
+
+For production-like RSS reporting, prefer the minimal production benchmark mode:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode minimal `
+  -RuntimeProfile micro-rest `
+  -ConcurrencyValues 64,256 `
+  -DurationSeconds 4 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 6
+```
+
+Use the bundled sample app only when you are intentionally testing bundled demo endpoints.
+
+## Optional JIT-Cap Evidence
+
+`openj9-micro-rss-jitcap.options` is available as an experiment for memory-sensitive services. It
+adds `-Xcodecachetotal8m`, which caps OpenJ9 JIT code-cache commitment while keeping JIT enabled.
+
+Full local gate result, `micro-rest`, c64/c256/c512, sample repeat `3`, minimal smaps repeat `3`:
+
+| Gate | Result |
+|------|--------|
+| Optional JIT-cap usable for the common endpoint set | `FAIL` |
+| Default profile candidate | `FAIL` |
+| Minimal production RSS gain | `5.952 MiB` |
+| p99 regression failures | `4` |
+| Legacy dynamic DTO c256/c512 regressions | `2` |
+
+Read this as a production gate, not as a marketing number. The option reduced minimal production
+RSS, but it is not approved as a common default because mixed Java business workloads can regress at
+p99. Use it only after your own endpoint matrix passes; for hot heavy JSON, prefer
+`JsonProducerResponse` or direct writer before lowering the JIT code-cache budget.
+
+Current branch note: the bundled benchmark app now separates optimized DTO-shaped heavy JSON from
+the legacy Java DTO graph. `/api/v1/heavy/dto` uses `JsonProducerResponse`; `/api/v1/heavy/dto/legacy`
+keeps the real object graph path for comparison.
 
 ## Validation
 

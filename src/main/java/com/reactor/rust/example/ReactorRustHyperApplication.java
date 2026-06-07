@@ -17,8 +17,11 @@ import com.reactor.rust.startup.StartupPrewarmer;
 import com.reactor.rust.startup.StartupTimeline;
 import com.reactor.rust.startup.InstantOnCheckpoint;
 import com.reactor.rust.metrics.MetricsHandler;
+import com.reactor.rust.memory.NativeIdleMemoryTrimmer;
 import com.reactor.rust.websocket.WebSocketRegistry;
 import com.reactor.rust.staticfiles.StaticFileScanner;
+
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Main Application - Pure Java with Lightweight DI Container
@@ -115,7 +118,12 @@ public class ReactorRustHyperApplication {
         // 8. Start HTTP server
         int port = PropertiesLoader.getInt("server.port", 8080);
         FrameworkLogger.info("[JAVA] Starting Rust Hyper server on port " + port + "...");
+        AtomicReference<NativeIdleMemoryTrimmer> nativeIdleTrimmer = new AtomicReference<>();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            NativeIdleMemoryTrimmer trimmer = nativeIdleTrimmer.get();
+            if (trimmer != null) {
+                trimmer.close();
+            }
             try {
                 NativeBridge.stopHttpServer();
             } catch (UnsatisfiedLinkError ignored) {
@@ -128,6 +136,7 @@ public class ReactorRustHyperApplication {
             NativeBridge.startHttpServer(port);
         }
         StartupTimeline.ready();
+        nativeIdleTrimmer.set(NativeIdleMemoryTrimmer.startFromProperties());
         FrameworkLogger.info("[JAVA] Startup ready in " + StartupTimeline.readyMillis() + " ms");
 
         // 9. Keep JVM alive - Rust server runs in separate thread

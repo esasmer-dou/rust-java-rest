@@ -7,9 +7,11 @@ import com.reactor.rust.metrics.Metrics;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -66,15 +68,32 @@ public final class RoutePlanRegistry {
 
         long optimized = 0;
         long legacy = 0;
+        long productionOptimized = 0;
+        long productionLegacy = 0;
+        long benchmarkOptimized = 0;
+        long benchmarkLegacy = 0;
         long compiled = 0;
         long exact = 0;
+        long heavyJsonObjectGraph = 0;
+        long benchmarkOnly = 0;
+        long benchmarkHeavyJsonObjectGraph = 0;
         EnumMap<RouteExecutionPlan.Strategy, Integer> byStrategy =
                 new EnumMap<>(RouteExecutionPlan.Strategy.class);
+        Map<String, Integer> byWorkload = new HashMap<>();
         for (RouteExecutionPlan plan : plans) {
             if (plan.optimized()) {
                 optimized++;
             } else {
                 legacy++;
+            }
+            if (plan.productionRoute() && plan.optimized()) {
+                productionOptimized++;
+            } else if (plan.productionRoute()) {
+                productionLegacy++;
+            } else if (plan.optimized()) {
+                benchmarkOptimized++;
+            } else {
+                benchmarkLegacy++;
             }
             if (plan.compiledInvoker) {
                 compiled++;
@@ -82,16 +101,40 @@ public final class RoutePlanRegistry {
             if (plan.exactInvoker) {
                 exact++;
             }
+            if (plan.benchmarkOnly) {
+                benchmarkOnly++;
+            }
+            if (plan.heavyJsonObjectGraph() && plan.productionRoute()) {
+                heavyJsonObjectGraph++;
+            }
+            if (plan.heavyJsonObjectGraph() && plan.benchmarkOnly) {
+                benchmarkHeavyJsonObjectGraph++;
+            }
             byStrategy.merge(plan.strategy, 1, Integer::sum);
+            byWorkload.merge(plan.workload, 1, Integer::sum);
         }
 
         metrics.setGauge("reactor.route.plan.optimized", optimized);
         metrics.setGauge("reactor.route.plan.legacy", legacy);
+        metrics.setGauge("reactor.route.plan.production", plans.size() - benchmarkOnly);
+        metrics.setGauge("reactor.route.plan.production_optimized", productionOptimized);
+        metrics.setGauge("reactor.route.plan.production_legacy", productionLegacy);
+        metrics.setGauge("reactor.route.plan.benchmark_optimized", benchmarkOptimized);
+        metrics.setGauge("reactor.route.plan.benchmark_legacy", benchmarkLegacy);
         metrics.setGauge("reactor.route.plan.compiled_invoker", compiled);
         metrics.setGauge("reactor.route.plan.exact_invoker", exact);
+        metrics.setGauge("reactor.route.plan.heavy_json_object_graph", heavyJsonObjectGraph);
+        metrics.setGauge("reactor.route.plan.benchmark_only", benchmarkOnly);
+        metrics.setGauge("reactor.route.plan.benchmark_heavy_json_object_graph", benchmarkHeavyJsonObjectGraph);
         for (java.util.Map.Entry<RouteExecutionPlan.Strategy, Integer> entry : byStrategy.entrySet()) {
             metrics.setGauge(
                     "reactor.route.plan.strategy." + entry.getKey().name().toLowerCase(Locale.ROOT),
+                    entry.getValue()
+            );
+        }
+        for (Map.Entry<String, Integer> entry : byWorkload.entrySet()) {
+            metrics.setGauge(
+                    "reactor.route.plan.workload." + entry.getKey().toLowerCase(Locale.ROOT),
                     entry.getValue()
             );
         }
@@ -105,13 +148,39 @@ public final class RoutePlanRegistry {
 
         long optimized = plans.stream().filter(RouteExecutionPlan::optimized).count();
         long legacy = plans.size() - optimized;
+        long productionOptimized = plans.stream()
+                .filter(plan -> plan.productionRoute() && plan.optimized())
+                .count();
+        long productionLegacy = plans.stream()
+                .filter(plan -> plan.productionRoute() && !plan.optimized())
+                .count();
+        long benchmarkOptimized = plans.stream()
+                .filter(plan -> plan.benchmarkOnly && plan.optimized())
+                .count();
+        long benchmarkLegacy = plans.stream()
+                .filter(plan -> plan.benchmarkOnly && !plan.optimized())
+                .count();
         long compiled = plans.stream().filter(plan -> plan.compiledInvoker).count();
         long exact = plans.stream().filter(plan -> plan.exactInvoker).count();
+        long benchmarkOnly = plans.stream().filter(plan -> plan.benchmarkOnly).count();
+        long heavyJsonObjectGraph = plans.stream()
+                .filter(plan -> plan.productionRoute() && plan.heavyJsonObjectGraph())
+                .count();
+        long benchmarkHeavyJsonObjectGraph = plans.stream()
+                .filter(plan -> plan.benchmarkOnly && plan.heavyJsonObjectGraph())
+                .count();
         FrameworkLogger.info("[reactor-route-plan] routes=" + plans.size()
                 + " optimized=" + optimized
                 + " legacy=" + legacy
+                + " productionOptimized=" + productionOptimized
+                + " productionLegacy=" + productionLegacy
+                + " benchmarkOptimized=" + benchmarkOptimized
+                + " benchmarkLegacy=" + benchmarkLegacy
                 + " compiledInvoker=" + compiled
                 + " exactInvoker=" + exact
+                + " heavyJsonObjectGraph=" + heavyJsonObjectGraph
+                + " benchmarkOnly=" + benchmarkOnly
+                + " benchmarkHeavyJsonObjectGraph=" + benchmarkHeavyJsonObjectGraph
                 + " runtimeMetrics=" + runtimeMetricsEnabled);
 
         boolean verbose = PropertiesLoader.getBoolean("reactor.optimizer.report.verbose", true);
@@ -133,11 +202,25 @@ public final class RoutePlanRegistry {
                 "reactor.optimizer.fail-on-implicit-raw-request-data",
                 false
         );
+        boolean failOnHeavyJsonObjectGraph = PropertiesLoader.getBoolean(
+                "reactor.optimizer.fail-on-heavy-json-object-graph",
+                false
+        );
+        boolean failOnBenchmarkOnly = PropertiesLoader.getBoolean(
+                "reactor.optimizer.fail-on-benchmark-only-routes",
+                false
+        );
         Set<String> requiredRoutes = parseRequiredRoutes(
                 PropertiesLoader.get("reactor.optimizer.required-fast-routes", "")
         );
 
-        if (!strict && !failOnFallback && !failOnLegacy && !failOnImplicitRaw && requiredRoutes.isEmpty()) {
+        if (!strict
+                && !failOnFallback
+                && !failOnLegacy
+                && !failOnImplicitRaw
+                && !failOnHeavyJsonObjectGraph
+                && !failOnBenchmarkOnly
+                && requiredRoutes.isEmpty()) {
             return;
         }
 
@@ -145,17 +228,28 @@ public final class RoutePlanRegistry {
         for (RouteExecutionPlan plan : plans) {
             String routeKey = normalizeRouteKey(plan.routeKey());
             boolean required = requiredRoutes.contains(routeKey);
+            boolean productionGateRoute = plan.productionRoute() || required;
 
-            if ((strict || failOnFallback || required) && !plan.optimized()) {
+            if (failOnBenchmarkOnly && plan.benchmarkOnly) {
+                violations.add(plan.routeKey()
+                        + " is marked benchmark-only and must not be present in this production gate");
+            }
+            if (productionGateRoute && (strict || failOnFallback || required) && !plan.optimized()) {
                 violations.add(plan.routeKey() + " is not optimized; strategy=" + plan.strategy
                         + " reason=" + plan.reason);
             }
-            if (failOnLegacy && plan.legacyV4) {
+            if (productionGateRoute && failOnLegacy && plan.legacyV4) {
                 violations.add(plan.routeKey() + " uses legacy V4 handler signature");
             }
-            if (failOnImplicitRaw && plan.implicitRawMetadata()) {
+            if (productionGateRoute && failOnImplicitRaw && plan.implicitRawMetadata()) {
                 violations.add(plan.routeKey()
                         + " uses Direct V5 without @RawRequestData; raw path/query/header strings stay enabled");
+            }
+            if (productionGateRoute && failOnHeavyJsonObjectGraph && plan.heavyJsonObjectGraph()) {
+                violations.add(plan.routeKey()
+                        + " is marked HEAVY_JSON but still uses object-graph or legacy serialization path; "
+                        + "strategy=" + plan.strategy + " reason=" + plan.reason
+                        + ". Use direct buffer writer, JsonProducerResponse, RawResponse, or native static response.");
             }
         }
 
@@ -172,13 +266,40 @@ public final class RoutePlanRegistry {
         long optimized = plans.stream().filter(RouteExecutionPlan::optimized).count();
         long compiled = plans.stream().filter(plan -> plan.compiledInvoker).count();
         long exact = plans.stream().filter(plan -> plan.exactInvoker).count();
+        long benchmarkOnly = plans.stream().filter(plan -> plan.benchmarkOnly).count();
+        long productionOptimized = plans.stream()
+                .filter(plan -> plan.productionRoute() && plan.optimized())
+                .count();
+        long productionLegacy = plans.stream()
+                .filter(plan -> plan.productionRoute() && !plan.optimized())
+                .count();
+        long benchmarkOptimized = plans.stream()
+                .filter(plan -> plan.benchmarkOnly && plan.optimized())
+                .count();
+        long benchmarkLegacy = plans.stream()
+                .filter(plan -> plan.benchmarkOnly && !plan.optimized())
+                .count();
+        long heavyJsonObjectGraph = plans.stream()
+                .filter(plan -> plan.productionRoute() && plan.heavyJsonObjectGraph())
+                .count();
+        long benchmarkHeavyJsonObjectGraph = plans.stream()
+                .filter(plan -> plan.benchmarkOnly && plan.heavyJsonObjectGraph())
+                .count();
         json.append('{');
         json.append("\"runtime_metrics_enabled\":").append(runtimeMetricsEnabled).append(',');
         json.append("\"total\":").append(plans.size()).append(',');
+        json.append("\"production_routes\":").append(plans.size() - benchmarkOnly).append(',');
+        json.append("\"benchmark_only\":").append(benchmarkOnly).append(',');
         json.append("\"optimized\":").append(optimized).append(',');
         json.append("\"legacy\":").append(plans.size() - optimized).append(',');
+        json.append("\"production_optimized\":").append(productionOptimized).append(',');
+        json.append("\"production_legacy\":").append(productionLegacy).append(',');
+        json.append("\"benchmark_optimized\":").append(benchmarkOptimized).append(',');
+        json.append("\"benchmark_legacy\":").append(benchmarkLegacy).append(',');
         json.append("\"compiled_invoker\":").append(compiled).append(',');
         json.append("\"exact_invoker\":").append(exact).append(',');
+        json.append("\"heavy_json_object_graph\":").append(heavyJsonObjectGraph).append(',');
+        json.append("\"benchmark_heavy_json_object_graph\":").append(benchmarkHeavyJsonObjectGraph).append(',');
         json.append("\"routes\":[");
         for (int i = 0; i < plans.size(); i++) {
             if (i > 0) {

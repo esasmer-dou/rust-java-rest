@@ -22,7 +22,7 @@ public final class JsonProducerResponse {
             ("Content-Type: " + MediaType.APPLICATION_JSON_UTF8 + "\n").getBytes(StandardCharsets.UTF_8);
 
     private final JsonBodyProducer producer;
-    private final HeaderMap headers = new HeaderMap(this);
+    private HeaderMap headers;
     private int statusCode;
     private volatile byte[] encodedHeaders;
     private volatile byte[] encodedHeadersWithDefaultJson;
@@ -47,7 +47,7 @@ public final class JsonProducerResponse {
 
     public JsonProducerResponse header(String name, String value) {
         if (name != null && !name.isBlank() && value != null) {
-            headers.put(name, value);
+            mutableHeaders().put(name, value);
         }
         return this;
     }
@@ -57,7 +57,7 @@ public final class JsonProducerResponse {
     }
 
     public Map<String, String> getHeaders() {
-        return headers;
+        return mutableHeaders();
     }
 
     public byte[] getEncodedHeaders() {
@@ -87,6 +87,15 @@ public final class JsonProducerResponse {
     private void invalidateEncodedHeaders() {
         encodedHeaders = null;
         encodedHeadersWithDefaultJson = null;
+    }
+
+    private HeaderMap mutableHeaders() {
+        HeaderMap current = headers;
+        if (current == null) {
+            current = new HeaderMap(this);
+            headers = current;
+        }
+        return current;
     }
 
     private static byte[] encodeHeaders(Map<String, String> headers) {

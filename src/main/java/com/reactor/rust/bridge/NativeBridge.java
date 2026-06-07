@@ -11,7 +11,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * JNI bridge between Rust HTTP server and Java handlers.
@@ -24,7 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class NativeBridge {
 
-    static final int EXPECTED_NATIVE_ABI_VERSION = 20;
+    static final int EXPECTED_NATIVE_ABI_VERSION = 21;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;
     private static final long DEFAULT_MAX_IN_FLIGHT_BODY_BYTES = 64L * 1024L * 1024L;
@@ -60,9 +59,6 @@ public class NativeBridge {
     public static final int WS_SEND_TOO_LARGE = -2;
     public static final int WS_SEND_INVALID = -3;
 
-    private static final AtomicLong counter = new AtomicLong();
-    private static final long NATIVE_TRIM_INTERVAL =
-            Long.getLong("rust.native.trim.interval", 0L);
     private static final byte[] RESPONSE_FRAME_MAGIC =
             new byte[] {'R', 'J', 'R', 'S', 'P', 'V', '1', '!'};
     private static final int RESPONSE_FRAME_HEADER_SIZE = 18;
@@ -74,6 +70,14 @@ public class NativeBridge {
     }
 
     public static native void releaseNativeMemory();
+
+    public static native void releaseNativeMemoryRetaining(
+            int retainSmall,
+            int retainMedium,
+            int retainLarge,
+            int retainHuge,
+            boolean trimAllocator
+    );
 
     public static native int nativeAbiVersion();
 
@@ -422,16 +426,6 @@ public class NativeBridge {
             String queryString,
             String headers
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeHandler(handlerId, outBuffer, offset, capacity, inBytes, pathParams, queryString, headers);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeHandler(handlerId, outBuffer, offset, capacity, inBytes, pathParams, queryString, headers);
     }
 
@@ -446,16 +440,6 @@ public class NativeBridge {
             String queryString,
             String headers
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeDirectHandler(handlerId, outBuffer, offset, capacity, inBuffer, inLength, pathParams, queryString, headers);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeDirectHandler(handlerId, outBuffer, offset, capacity, inBuffer, inLength, pathParams, queryString, headers);
     }
 
@@ -468,16 +452,6 @@ public class NativeBridge {
             String queryString,
             String headers
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeHandler(handlerId, outBuffer, offset, capacity, EMPTY_REQUEST_BODY, pathParams, queryString, headers);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeHandler(handlerId, outBuffer, offset, capacity, EMPTY_REQUEST_BODY, pathParams, queryString, headers);
     }
 
@@ -487,16 +461,6 @@ public class NativeBridge {
             int offset,
             int capacity
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeBodylessOutputHandler(handlerId, outBuffer, offset, capacity);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeBodylessOutputHandler(handlerId, outBuffer, offset, capacity);
     }
 
@@ -507,16 +471,6 @@ public class NativeBridge {
             int capacity,
             int queryInt
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeQueryIntHandler(handlerId, outBuffer, offset, capacity, queryInt);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeQueryIntHandler(handlerId, outBuffer, offset, capacity, queryInt);
     }
 
@@ -527,16 +481,6 @@ public class NativeBridge {
             int capacity,
             long queryLong
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeQueryLongHandler(handlerId, outBuffer, offset, capacity, queryLong);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeQueryLongHandler(handlerId, outBuffer, offset, capacity, queryLong);
     }
 
@@ -547,16 +491,6 @@ public class NativeBridge {
             int capacity,
             boolean queryBoolean
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeQueryBooleanHandler(handlerId, outBuffer, offset, capacity, queryBoolean);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeQueryBooleanHandler(handlerId, outBuffer, offset, capacity, queryBoolean);
     }
 
@@ -567,16 +501,6 @@ public class NativeBridge {
             int capacity,
             double queryDouble
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeQueryDoubleHandler(handlerId, outBuffer, offset, capacity, queryDouble);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeQueryDoubleHandler(handlerId, outBuffer, offset, capacity, queryDouble);
     }
 
@@ -587,16 +511,6 @@ public class NativeBridge {
             int capacity,
             short queryShort
     ) {
-        if (NATIVE_TRIM_INTERVAL > 0) {
-            long c = counter.incrementAndGet();
-            if (c % NATIVE_TRIM_INTERVAL != 0) {
-                return invokeQueryShortHandler(handlerId, outBuffer, offset, capacity, queryShort);
-            }
-            try {
-                releaseNativeMemory();
-            } catch (Exception ignored) {}
-        }
-
         return invokeQueryShortHandler(handlerId, outBuffer, offset, capacity, queryShort);
     }
 
@@ -621,6 +535,14 @@ public class NativeBridge {
         return startAsyncHandler(handlerId, requestId, inBytes, pathParams, queryString, headers);
     }
 
+    public static boolean handleRustAsyncQueryIntRequest(
+            int handlerId,
+            long requestId,
+            int queryInt
+    ) {
+        return startAsyncQueryIntHandler(handlerId, requestId, queryInt);
+    }
+
     private static boolean startAsyncHandler(
             int handlerId,
             long requestId,
@@ -632,6 +554,23 @@ public class NativeBridge {
         try {
             HandlerRegistry.getInstance()
                     .invokeAsyncFrame(handlerId, inBytes, pathParams, queryString, headers)
+                    .orTimeout(asyncResponseTimeoutMs, TimeUnit.MILLISECONDS)
+                    .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
+            return true;
+        } catch (Throwable e) {
+            completeAsyncHandler(requestId, (HandlerRegistry.AsyncResponseFrame) null, e);
+            return true;
+        }
+    }
+
+    private static boolean startAsyncQueryIntHandler(
+            int handlerId,
+            long requestId,
+            int queryInt
+    ) {
+        try {
+            HandlerRegistry.getInstance()
+                    .invokeAsyncFrameQueryInt(handlerId, queryInt)
                     .orTimeout(asyncResponseTimeoutMs, TimeUnit.MILLISECONDS)
                     .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
             return true;

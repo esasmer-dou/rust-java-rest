@@ -1,16 +1,18 @@
 package com.reactor.rust.example.handler;
 
 import com.dslplatform.json.CompiledJson;
+import com.reactor.rust.annotations.BenchmarkOnlyRoute;
 import com.reactor.rust.annotations.DirectQueryInt;
 import com.reactor.rust.annotations.NativeStaticFileRoute;
 import com.reactor.rust.annotations.NativeStaticRoute;
 import com.reactor.rust.annotations.RawRequestData;
 import com.reactor.rust.annotations.RouteAdmission;
+import com.reactor.rust.annotations.RouteWorkload;
 import com.reactor.rust.annotations.RustRoute;
+import com.reactor.rust.async.AsyncHandlerExecutor;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.http.FileResponse;
-import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.json.JsonBodyProducer;
@@ -27,6 +29,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Benchmark Handler - Spring Boot ile karşılaştırma için
@@ -51,8 +54,10 @@ public class BenchmarkHandler {
     private static volatile FileResponse sampleExportResponse;
     private static volatile FileResponse largeExportResponse;
     private static volatile RawResponse sampleExportStaticResponse;
+    private static final RawResponse PRECOMPUTED_CANDIDATES_DIRECT =
+            RawResponse.registeredJson(createSampleOrderBytes());
     private static final RawResponse PRECOMPUTED_HEAVY_100 =
-            RawResponse.registeredJson(DslJsonService.toBytes(createHeavyResponse(100)));
+            RawResponse.registeredJson(createHeavyResponseBytes(100, 1_700_000_000_000L, 1_700_000_000_000L));
 
     /**
      * POST /api/v1/echo - Request body'yi geri döner.
@@ -164,10 +169,11 @@ public class BenchmarkHandler {
             method = "GET",
             path = "/api/v1/candidates/direct",
             requestType = Void.class,
-            responseType = BenchmarkOrderRequest.class
+            responseType = RawResponse.class
     )
-    public int candidatesDirect(ByteBuffer out, int offset) {
-        return BenchmarkOrderRequestJsonWriter.INSTANCE.writeSampleOrder(out, offset);
+    @NativeStaticRoute
+    public RawResponse candidatesDirect() {
+        return PRECOMPUTED_CANDIDATES_DIRECT;
     }
 
     /**
@@ -182,6 +188,7 @@ public class BenchmarkHandler {
             responseType = HeavyResponse.class
     )
     @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-direct")
     @RouteAdmission(maxConcurrent = 96, queueTimeoutMs = 75)
     public int heavy(
             ByteBuffer out,
@@ -193,16 +200,72 @@ public class BenchmarkHandler {
     }
 
     /**
-     * GET /api/v1/heavy/dto - legacy DTO graph path kept for regression comparison.
+     * GET /api/v1/heavy/dto - optimized DTO-shaped JSON for hot heavy routes.
+     *
+     * <p>The response contract is still the {@link HeavyResponse} JSON shape, but the route does
+     * not allocate the {@code HeavyResponse -> HeavyItem -> HeavyMetadata} object graph per request.
+     * This is the recommended production shape once a DTO endpoint becomes hot.</p>
      */
     @RustRoute(
             method = "GET",
             path = "/api/v1/heavy/dto",
             requestType = Void.class,
+            responseType = JsonBodyProducer.class
+    )
+    @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-producer")
+    @RouteAdmission(maxConcurrent = 96, queueTimeoutMs = 125)
+    public JsonBodyProducer heavyDto(int itemCount) {
+        return new HeavyJsonProducer(
+                itemCount,
+                System.currentTimeMillis(),
+                System.nanoTime()
+        );
+    }
+
+    /**
+     * GET /api/v1/heavy/dto/async - opt-in async producer path.
+     *
+     * <p>This is not the default CPU-bound JSON recommendation. Use it when the producer waits on
+     * remote/blocking work and the service has measured that freeing JNI workers beats async handoff
+     * overhead.</p>
+     */
+    @RustRoute(
+            method = "GET",
+            path = "/api/v1/heavy/dto/async",
+            requestType = Void.class,
+            responseType = JsonBodyProducer.class
+    )
+    @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-producer")
+    @RouteAdmission(maxConcurrent = 96, queueTimeoutMs = 125)
+    public CompletionStage<JsonBodyProducer> heavyDtoAsync(int itemCount) {
+        long timestamp = System.currentTimeMillis();
+        long nanosBase = System.nanoTime();
+        return AsyncHandlerExecutor.getInstance().submit(() -> (JsonBodyProducer) new HeavyJsonProducer(
+                itemCount,
+                timestamp,
+                nanosBase
+        ));
+    }
+
+    /**
+     * GET /api/v1/heavy/dto/legacy - real DTO graph path kept for apples-to-apples regression
+     * comparison and documentation.
+     *
+     * <p>Use this when the goal is to measure ordinary Java object graph + DSL-JSON behavior. Do
+     * not use it as the hot-route benchmark once the route is known to dominate RSS/p99.</p>
+     */
+    @RustRoute(
+            method = "GET",
+            path = "/api/v1/heavy/dto/legacy",
+            requestType = Void.class,
             responseType = HeavyResponse.class
     )
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-legacy")
     @RouteAdmission(maxConcurrent = 48, queueTimeoutMs = 100)
-    public int heavyDto(
+    @BenchmarkOnlyRoute("legacy DTO graph comparison")
+    public int heavyDtoLegacy(
             ByteBuffer out,
             int offset,
             byte[] body,
@@ -225,15 +288,35 @@ public class BenchmarkHandler {
             method = "GET",
             path = "/api/v1/heavy/producer",
             requestType = Void.class,
-            responseType = JsonProducerResponse.class
+            responseType = JsonBodyProducer.class
     )
     @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-producer-conservative")
     @RouteAdmission(maxConcurrent = 80, queueTimeoutMs = 150)
-    public JsonProducerResponse heavyProducer(int itemCount) {
-        return JsonProducerResponse.ok(new HeavyJsonProducer(
+    public JsonBodyProducer heavyProducer(int itemCount) {
+        return new HeavyJsonProducer(
                 itemCount,
                 System.currentTimeMillis(),
                 System.nanoTime()
+        );
+    }
+
+    @RustRoute(
+            method = "GET",
+            path = "/api/v1/heavy/producer/async",
+            requestType = Void.class,
+            responseType = JsonBodyProducer.class
+    )
+    @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-producer-conservative")
+    @RouteAdmission(maxConcurrent = 80, queueTimeoutMs = 150)
+    public CompletionStage<JsonBodyProducer> heavyProducerAsync(int itemCount) {
+        long timestamp = System.currentTimeMillis();
+        long nanosBase = System.nanoTime();
+        return AsyncHandlerExecutor.getInstance().submit(() -> (JsonBodyProducer) new HeavyJsonProducer(
+                itemCount,
+                timestamp,
+                nanosBase
         ));
     }
 
@@ -247,6 +330,7 @@ public class BenchmarkHandler {
             responseType = HeavyResponse.class
     )
     @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-native")
     public int heavyRust(
             ByteBuffer out,
             int offset,
@@ -264,24 +348,17 @@ public class BenchmarkHandler {
             requestType = Void.class,
             responseType = RawResponse.class
     )
-    @RawRequestData(query = true)
-    public RawResponse heavyCache(
-            ByteBuffer out,
-            int offset,
-            ByteBuffer body,
-            int bodyLen,
-            String pathParams,
-            String query,
-            String headers
-    ) {
-        int itemCount = parseItemCount(query);
+    @DirectQueryInt(value = "items", defaultValue = 100, min = 1, max = 1000)
+    @RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "heavy-json-cache")
+    public RawResponse heavyCache(int itemCount) {
         String cacheKey = "heavy:items=" + itemCount;
         int nativeId = NativeBridge.lookupDynamicResponse(cacheKey);
         if (nativeId > 0) {
             return RawResponse.nativeJson(nativeId);
         }
 
-        byte[] payload = DslJsonService.toBytes(createHeavyResponse(itemCount));
+        long now = System.currentTimeMillis();
+        byte[] payload = createHeavyResponseBytes(itemCount, now, System.nanoTime());
         nativeId = NativeBridge.registerDynamicResponse(
                 cacheKey,
                 payload,
@@ -490,29 +567,39 @@ public class BenchmarkHandler {
         }
     }
 
-    private static HeavyResponse createHeavyResponse(int itemCount) {
-        List<HeavyItem> items = new ArrayList<>(itemCount);
-        for (int i = 0; i < itemCount; i++) {
-            items.add(new HeavyItem(
-                    "ITEM-" + i,
-                    "Detailed description for item number " + i + " with some additional text to increase payload size",
-                    99.99 + (i * 0.01),
-                    i % 5 == 0,
-                    new HeavyMetadata(
-                            "category-" + (i % 10),
-                            "warehouse-" + (i % 3),
-                            1_700_000_000_000L + i
-                    )
-            ));
+    private static byte[] createSampleOrderBytes() {
+        ByteBuffer buffer = ByteBuffer.allocate(16 * 1024);
+        int written = BenchmarkOrderRequestJsonWriter.INSTANCE.writeSampleOrder(buffer, 0);
+        if (written < 0) {
+            int required = -written;
+            buffer = ByteBuffer.allocate(required);
+            written = BenchmarkOrderRequestJsonWriter.INSTANCE.writeSampleOrder(buffer, 0);
         }
+        if (written < 0) {
+            throw new IllegalStateException("Precomputed candidates/direct JSON exceeded buffer: " + -written);
+        }
+        byte[] bytes = new byte[written];
+        buffer.position(0);
+        buffer.get(bytes, 0, written);
+        return bytes;
+    }
 
-        return new HeavyResponse(
-                "HEAVY-PRECOMPUTED-100",
-                "Precomputed heavy payload response with " + itemCount + " items",
-                itemCount,
-                1_700_000_000_000L,
-                items
-        );
+    private static byte[] createHeavyResponseBytes(int itemCount, long timestamp, long nanosBase) {
+        int capacity = Math.max(32 * 1024, itemCount * 256);
+        ByteBuffer buffer = ByteBuffer.allocate(capacity);
+        int written = HeavyResponseDirectWriter.write(buffer, 0, itemCount, timestamp, nanosBase);
+        if (written < 0) {
+            int required = -written;
+            buffer = ByteBuffer.allocate(required);
+            written = HeavyResponseDirectWriter.write(buffer, 0, itemCount, timestamp, nanosBase);
+        }
+        if (written < 0) {
+            throw new IllegalStateException("Heavy JSON exceeded direct byte buffer: " + -written);
+        }
+        byte[] bytes = new byte[written];
+        buffer.position(0);
+        buffer.get(bytes, 0, written);
+        return bytes;
     }
 
     private static HeavyResponse createDynamicHeavyResponse(int itemCount) {

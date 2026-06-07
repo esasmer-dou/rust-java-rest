@@ -1,5 +1,6 @@
 param(
     [string] $EndpointClass = "producer-json",
+    [string] $BenchmarkEndpointClasses = "",
     [string] $RouteAdmissionKey = "get.api.v1.heavy.producer",
     [object] $ConcurrencyLevels = "256,512",
     [object] $MaxConcurrentValues = "64,80,96,128",
@@ -11,6 +12,9 @@ param(
     [string] $FrameworkJvmPreset = "current",
     [int] $RandomSeed = 0,
     [string] $ResultsRoot = "",
+    [switch] $PlanPreWarm,
+    [string] $PlanPreWarmDuration = "3s",
+    [switch] $FrameworkOnly,
     [switch] $SkipBuild
 )
 
@@ -229,22 +233,26 @@ function Write-MatrixMarkdown {
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("# Route Admission Matrix")
     $lines.Add("")
-    $lines.Add(("- Endpoint class: ``{0}``" -f $EndpointClass))
+    $lines.Add(("- Tuned endpoint class: ``{0}``" -f $EndpointClass))
+    $lines.Add(("- Benchmark endpoint classes: ``{0}``" -f $EffectiveEndpointClasses))
     $lines.Add(("- Route admission key: ``{0}``" -f $RouteAdmissionKey))
     $lines.Add(("- Runtime profile: ``{0}``" -f $RuntimeProfile))
     $lines.Add(("- JVM preset: ``{0}``" -f $FrameworkJvmPreset))
+    $lines.Add(("- Framework only: ``{0}``" -f $FrameworkOnly.IsPresent))
     $lines.Add(("- Duration: ``{0}``, warmup: ``{1}``, repeat: ``{2}``" -f $Duration, $Warmup, $RepeatCount))
+    $lines.Add(("- Plan pre-warm: ``{0}``, duration: ``{1}``" -f $PlanPreWarm.IsPresent, $PlanPreWarmDuration))
     $lines.Add("")
     $lines.Add("## Aggregate")
     $lines.Add("")
-    $lines.Add("| maxConcurrent | queueTimeoutMs | C | Runs | Avg Useful 200 RPS | Min Useful 200 RPS | Max Useful 200 RPS | Avg P99 ms | Max P99 ms | Avg 503 % | Avg RSS MiB | Max RSS MiB | Avg Max Mem MiB | Avg Route Rejected | Avg JNI P99 us |")
-    $lines.Add("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    $lines.Add("| maxConcurrent | queueTimeoutMs | Class | C | Runs | Avg Useful 200 RPS | Min Useful 200 RPS | Max Useful 200 RPS | Avg P99 ms | Max P99 ms | Avg 503 % | Avg RSS MiB | Max RSS MiB | Avg Max Mem MiB | Avg Route Rejected | Avg JNI P99 us |")
+    $lines.Add("|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
-    foreach ($row in ($AggregateRows | Sort-Object MaxConcurrent, QueueTimeoutMs, C)) {
+    foreach ($row in ($AggregateRows | Sort-Object MaxConcurrent, QueueTimeoutMs, Class, C)) {
         $lines.Add((
-            "| {0} | {1} | {2} | {3} | {4:N2} | {5:N2} | {6:N2} | {7:N2} | {8:N2} | {9:N2} | {10:N2} | {11:N2} | {12:N2} | {13:N0} | {14:N0} |" -f
+            "| {0} | {1} | {2} | {3} | {4} | {5:N2} | {6:N2} | {7:N2} | {8:N2} | {9:N2} | {10:N2} | {11:N2} | {12:N2} | {13:N2} | {14:N0} | {15:N0} |" -f
             $row.MaxConcurrent,
             $row.QueueTimeoutMs,
+            $row.Class,
             $row.C,
             $row.Runs,
             $row.AvgUseful200RPS,
@@ -296,12 +304,13 @@ function Get-MatrixAggregateRows {
 
     return @(
         $Rows |
-            Group-Object MaxConcurrent, QueueTimeoutMs, C |
+            Group-Object MaxConcurrent, QueueTimeoutMs, Class, C |
             ForEach-Object {
                 $group = @($_.Group)
                 [PSCustomObject]@{
                     MaxConcurrent = [int] $group[0].MaxConcurrent
                     QueueTimeoutMs = [int] $group[0].QueueTimeoutMs
+                    Class = [string] $group[0].Class
                     C = [int] $group[0].C
                     Runs = $group.Count
                     AvgUseful200RPS = [Math]::Round(($group | Measure-Object -Property Useful200RPS -Average).Average, 2)
@@ -324,6 +333,11 @@ function Get-MatrixAggregateRows {
 $concurrencyValues = ConvertTo-IntList -Value $ConcurrencyLevels
 $maxConcurrentList = ConvertTo-IntList -Value $MaxConcurrentValues
 $queueTimeoutList = ConvertTo-IntList -Value $QueueTimeoutMsValues
+$EffectiveEndpointClasses = if ([string]::IsNullOrWhiteSpace($BenchmarkEndpointClasses)) {
+    $EndpointClass
+} else {
+    $BenchmarkEndpointClasses
+}
 
 if ([string]::IsNullOrWhiteSpace($ResultsRoot)) {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -353,7 +367,7 @@ foreach ($maxConcurrent in $maxConcurrentList) {
             "-File", $containerBenchmark,
             "-RuntimeProfile", $RuntimeProfile,
             "-FrameworkJvmPreset", $FrameworkJvmPreset,
-            "-EndpointClasses", $EndpointClass,
+            "-EndpointClasses", $EffectiveEndpointClasses,
             "-ConcurrencyLevels", ($concurrencyValues -join ","),
             "-Duration", $Duration,
             "-Warmup", $Warmup,
@@ -363,6 +377,12 @@ foreach ($maxConcurrent in $maxConcurrentList) {
         )
         if ($seed -gt 0) {
             $arguments += @("-RandomSeed", "$seed")
+        }
+        if ($PlanPreWarm) {
+            $arguments += @("-PlanPreWarm", "-PlanPreWarmDuration", $PlanPreWarmDuration)
+        }
+        if ($FrameworkOnly) {
+            $arguments += "-FrameworkOnly"
         }
         if ($SkipBuild) {
             $arguments += "-SkipBuild"

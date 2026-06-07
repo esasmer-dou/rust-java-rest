@@ -7,6 +7,7 @@ import java.lang.reflect.Field;
 import java.util.Properties;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +19,14 @@ class RuntimeProfilesTest {
         explicitKeys().clear();
         System.clearProperty("reactor.runtime.profile");
         System.clearProperty("reactor.websocket.enabled");
+        System.clearProperty("reactor.rust.native-trim.enabled");
+        System.clearProperty("reactor.rust.native-trim.initial-delay-ms");
+        System.clearProperty("reactor.rust.native-trim.interval-ms");
+        System.clearProperty("reactor.rust.native-trim.min-idle-ms");
+        System.clearProperty("reactor.rust.route-budget.heavy-json-direct.route-admission.max-concurrent");
+        System.clearProperty("reactor.rust.route-budget.heavy-json-direct.route-admission.queue-timeout-ms");
+        System.clearProperty("reactor.runtime.low-rss-gate.mode");
+        System.clearProperty("reactor.runtime.low-rss-gate.strict.reactor.rust.native-trim.enabled");
     }
 
     @Test
@@ -40,6 +49,59 @@ class RuntimeProfilesTest {
         RuntimeProfiles.apply();
 
         assertTrue(PropertiesLoader.getBoolean("reactor.websocket.enabled", false));
+    }
+
+    @Test
+    void bundledClasspathDefaultsDoNotBlockProfileDefaults() {
+        PropertiesLoader.load();
+
+        RuntimeProfiles.apply();
+
+        assertFalse(PropertiesLoader.getBoolean("reactor.websocket.enabled", true));
+        assertFalse(PropertiesLoader.getBoolean("reactor.static-files.enabled", true));
+        assertEquals(1, PropertiesLoader.getInt("reactor.rust.jni.workers", 0));
+        assertEquals(128, PropertiesLoader.getInt("reactor.rust.jni.queue-capacity", 0));
+        assertEquals(2, PropertiesLoader.getInt("reactor.rust.response-pool.medium-capacity", 0));
+        assertEquals(0, PropertiesLoader.getInt("reactor.rust.native-cache.max-bytes", -1));
+    }
+
+    @Test
+    void nativeTrimEnabledIsVisibleInRuntimeFootprintGate() throws Exception {
+        properties().setProperty("reactor.runtime.profile", RuntimeProfiles.PROFILE_MICRO_REST);
+        properties().setProperty("reactor.rust.native-trim.enabled", "true");
+        properties().setProperty("reactor.rust.native-trim.initial-delay-ms", "1000");
+        properties().setProperty("reactor.rust.native-trim.interval-ms", "1000");
+        properties().setProperty("reactor.rust.native-trim.min-idle-ms", "1000");
+
+        RuntimeFootprintGate.validate();
+
+        String report = RuntimeFootprintGate.lastReportJson();
+        assertTrue(report.contains("native idle trim is enabled"));
+        assertTrue(report.contains("p99/503 gate"));
+    }
+
+    @Test
+    void microRestPlusAppliesRouteBudgetDefaults() throws Exception {
+        properties().setProperty("reactor.runtime.profile", RuntimeProfiles.PROFILE_MICRO_REST_PLUS);
+
+        RuntimeProfiles.apply();
+
+        assertEquals(80, PropertiesLoader.getInt(
+                "reactor.rust.route-budget.heavy-json-direct.route-admission.max-concurrent",
+                0
+        ));
+        assertEquals(150, PropertiesLoader.getInt(
+                "reactor.rust.route-budget.heavy-json-direct.route-admission.queue-timeout-ms",
+                0
+        ));
+        assertEquals(96, PropertiesLoader.getInt(
+                "reactor.rust.route-budget.heavy-json-producer.route-admission.max-concurrent",
+                0
+        ));
+        assertEquals(125, PropertiesLoader.getInt(
+                "reactor.rust.route-budget.heavy-json-producer.route-admission.queue-timeout-ms",
+                0
+        ));
     }
 
     @SuppressWarnings("unchecked")

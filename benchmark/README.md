@@ -1,5 +1,56 @@
 # Benchmark Package
 
+## v3.2.2 Release Gate Snapshot
+
+Latest release-gate artefacts:
+
+- Route matrix: `benchmark/results/release_gate_routes_20260607_151500`
+- Anon evidence: `benchmark/results/anon_gate_minimal_20260607_154000`
+
+Route matrix command shape:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
+  -RuntimeProfile micro-rest-plus `
+  -FrameworkJvmPreset cpu1 `
+  -FrameworkOnly `
+  -SkipBuild `
+  -PlanPreWarm `
+  -Duration 10s `
+  -Warmup 3s `
+  -ConcurrencyLevels "64,256,512,1000" `
+  -RepeatCount 3 `
+  -EndpointClasses "dynamic-producer-json,dynamic-dto-json,direct-json-writer,native-cache-json,raw-json"
+```
+
+Anon evidence command shape:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 `
+  -AppMode minimal `
+  -Profiles "micro-rest,micro-rest-plus,micro-dubbo" `
+  -ConcurrencyValues "64,256,512" `
+  -DurationSeconds 5 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 12 `
+  -TrimFinalIdleSeconds 95 `
+  -TrimFinalIdleSnapshotSeconds "35,95"
+```
+
+Current gate decision:
+
+| Signal | Result |
+|--------|-------:|
+| Production heavy JSON object-graph routes | 0 |
+| Benchmark-only heavy JSON object-graph routes | 1 |
+| `micro-rest` final current / anon | 66.71 MiB / 50.18 MiB |
+| `micro-rest-plus` final current / anon | 66.81 MiB / 50.47 MiB |
+| Conservative trim current / anon | 46.97 MiB / 31.87 MiB |
+
+Use these as release evidence for route isolation and memory attribution. Do not read them as a
+universal 200-only c1000 throughput claim. Heavy JSON still needs producer/direct/raw/native response
+paths and route budgets; low-memory profiles are allowed to return bounded `503` under overload.
+
 Primary path in this workspace is the container harness:
 
 ```powershell
@@ -17,7 +68,8 @@ Default comparison:
 - Spring Boot memory limit: `512m`
 - Endpoint classes:
   - `small-json`: common Rust-Java and Spring Boot endpoints, `GET /api/v1/candidates` and `POST /api/v1/echo`.
-  - `dynamic-dto-json`: common dynamic object graph endpoint, Rust-Java `GET /api/v1/heavy/dto?items=100` vs Spring Boot `GET /api/v1/heavy?items=100`.
+  - `dynamic-producer-json`: optimized DTO-shaped heavy JSON, Rust-Java `GET /api/v1/heavy/dto?items=100`. This is the recommended hot-route replacement once a DTO graph becomes too expensive.
+  - `dynamic-dto-json`: benchmark-only legacy Java DTO graph endpoint, Rust-Java `GET /api/v1/heavy/dto/legacy?items=100` vs Spring Boot `GET /api/v1/heavy?items=100`. Use it only to quantify object-graph cost.
   - `direct-json-writer`: Rust-Java direct JSON writer endpoint, `GET /api/v1/heavy?items=100`. No Spring Boot ratio is calculated because this is a framework-specific zero-DTO path.
   - `rust-json-writer`: Rust-Java native Rust serializer endpoint, `GET /api/v1/heavy/rust?items=100`. No Spring Boot ratio is calculated.
   - `raw-json`: common precomputed response endpoint, `GET /api/v1/heavy/raw`.
@@ -55,6 +107,112 @@ Use `micro-rest` when the service is memory-first and controlled overload is acc
 HTTP status contains `503`, the reported RPS includes rejected requests; use the `200=` count and p99
 together when judging useful throughput.
 
+Latest JNI queue tuning, indexed minimal app, `small-direct`, c256/c512, repeat `3`:
+
+| Case | Workers | Queue | Max Conn | c256 503 | c256 p99 | c512 503 | c512 p99 | Final current avg |
+|------|--------:|------:|---------:|---------:|---------:|---------:|---------:|------------------:|
+| Default `micro-rest` | 1 | 128 | 512 | 19.720% | 90.67 ms | 8.635% | 163.22 ms | 52.807 MiB |
+| Candidate | 1 | 256 | 512 | 0.000% | 159.90 ms | 1.349% | 186.28 ms | 52.529 MiB |
+| Small-direct recipe | 1 | 512 | 512 | 0.000% | 85.37 ms | 0.607% | 171.45 ms | 54.738 MiB |
+
+Decision: `micro-rest` keeps one JNI worker, `queue-capacity=128`, and `max-connections=512`.
+Queue `512` is a measured small/direct JSON recipe, not the default. It removes the c256 queue-full
+rejection in the focused gate and materially reduces c512 503, with roughly a 2 MiB final
+cgroup-current cost in that run. The full clean-index endpoint matrix rejected it as a global default:
+direct-heavy, producer-heavy, dynamic-producer, and raw-heavy lost RPS and regressed p99/503.
+
+Full clean-index gate signal, queue `512` versus default queue `128` at c512:
+
+| Endpoint class | RPS change | p99 change | 503 change | Decision |
+|----------------|-----------:|-----------:|-----------:|----------|
+| `small-direct` | `-22.46%` | `+40.39%` | `9.51% -> 0.39%` | Useful only when 503 removal is worth the p99/RPS trade-off |
+| `raw-heavy` | `-24.45%` | `+80.66%` | `0.36% -> 0.60%` | Reject as default |
+| `direct-heavy` | `-15.05%` | `+20.80%` | `18.32% -> 27.65%` | Reject as default |
+| `producer-heavy` | `-27.58%` | `+73.25%` | `7.84% -> 14.29%` | Reject as default |
+| `dynamic-producer` | `-25.34%` | `+48.06%` | `8.29% -> 30.00%` | Reject as default |
+
+Native static route alternative for immutable small-direct pressure:
+
+```java
+private static final RawResponse CANDIDATES_DIRECT =
+        RawResponse.registeredJson(precomputedCandidateBytes());
+
+@RustRoute(method = "GET", path = "/api/v1/candidates/direct",
+        requestType = Void.class, responseType = RawResponse.class)
+@NativeStaticRoute
+public RawResponse candidatesDirect() {
+    return CANDIDATES_DIRECT;
+}
+```
+
+This is the correct path when the response is truly immutable or precomputed until restart. The route
+is registered once at startup and served by Rust without Java handler invocation or JNI queue work.
+For dynamic Java business logic, keep the direct writer/producer writer route and treat the JNI lane
+as an explicit service-specific experiment only.
+
+Focused JNI-admission matrix, `micro-rest`, global queue `128`, `small-json-direct`, c256/c512,
+repeat `2`:
+
+| maxConcurrent | queueTimeoutMs | c256 useful 200 RPS | c256 p99 | c256 503 | c512 useful 200 RPS | c512 p99 | c512 503 | JNI queue full |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `96` | `75` | `12490.74` | `58.02 ms` | `0.00%` | `8336.34` | `203.74 ms` | `0.64%` | `0` |
+| `96` | `125` | `5739.70` | `141.31 ms` | `0.00%` | `5767.07` | `385.05 ms` | `0.86%` | `0` |
+| `128` | `75` | `4033.92` | `177.98 ms` | `0.00%` | `3906.23` | `477.40 ms` | `3.73%` | `0` |
+| `160` | `125` | `11061.64` | `56.10 ms` | `2.86%` | `5850.02` | `301.33 ms` | `2.22%` | non-zero |
+
+Decision: do not make a local JNI lane the `micro-rest` default. It can reduce `small-direct` 503, but
+the full endpoint matrix must be run for each service because the extra priority JNI worker changes
+the pod scheduling profile. The bundled sample keeps the route bodyless/direct and leaves the lane
+off by default.
+Remaining c512 `503` is controlled overload, not a stale-DLL or JNI worker failure signal.
+
+Follow-up `max-connections` check, same endpoint and repeat count:
+
+| Case | Workers | Queue | Max Conn | c256 RPS | c256 p99 | c512 503 | c512 p99 | Final current avg |
+|------|--------:|------:|---------:|---------:|---------:|---------:|---------:|------------------:|
+| Small-direct recipe | 1 | 512 | 512 | 12070.24 | 73.51 ms | 0.662% | 153.50 ms | 54.174 MiB |
+| Higher connection cap | 1 | 512 | 768 | 9020.22 | 98.21 ms | 0.072% | 142.77 ms | 56.939 MiB |
+
+Decision: keep `max-connections=512` for `micro-rest`. Raising it to `768` helps c512 rejection, but
+costs RSS and worsens the c256 operating point. Use `768` only as an explicit recipe when the pod is
+sized for the extra memory and c512/c1000 productive throughput matters more than the smaller-pod
+default.
+
+JVM thread stack A/B:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\xss_anon_matrix.ps1 `
+  -RuntimeProfile micro-rest `
+  -AppMode minimal `
+  -XssValues "256k,192k,160k,128k" `
+  -ConcurrencyValues "512" `
+  -DurationSeconds 5 `
+  -IdleSeconds 2 `
+  -FinalIdleSeconds 20 `
+  -SkipBuild
+```
+
+Use this only for production-like stack sizing decisions. It runs the minimal app through the same
+route smoke/load plan for each `-Xss` value, records Linux cgroup anon/current memory, checks logs
+for `StackOverflowError`/OOM/native-thread failures, and treats `503` as route-admission overload
+rather than a stack failure.
+
+Latest local `micro-rest`, indexed minimal app, c512 run:
+
+| Xss | Status | Baseline anon | Final anon | Peak anon | Final current | Peak current | Stack budget | Avg RPS | Avg p99 | Max p99 | 503 rate | 500 |
+|-----|--------|--------------:|-----------:|----------:|--------------:|-------------:|-------------:|--------:|--------:|--------:|---------:|----:|
+| `256k` | WARN | 26.379 MiB | 43.512 MiB | 43.512 MiB | 66.777 MiB | 74.500 MiB | 5.500 MiB | 9155.03 | 144.99 ms | 214.58 ms | 8.352% | 0 |
+| `192k` | WARN | 26.379 MiB | 46.113 MiB | 46.117 MiB | 66.523 MiB | 68.695 MiB | 4.125 MiB | 10435.12 | 132.34 ms | 168.26 ms | 9.195% | 0 |
+| `160k` | WARN | 26.574 MiB | 50.211 MiB | 50.211 MiB | 65.660 MiB | 66.105 MiB | 3.438 MiB | 10354.90 | 140.58 ms | 191.99 ms | 9.311% | 0 |
+| `128k` | WARN | 26.430 MiB | 49.082 MiB | 49.094 MiB | 57.219 MiB | 57.484 MiB | 2.750 MiB | 10540.19 | 140.96 ms | 186.66 ms | 8.064% | 0 |
+
+Interpretation: no `StackOverflowError`, OOM, native-thread error, or 500 was observed in this run.
+All rows are `WARN` only because c512 intentionally reaches route admission and returns some `503`.
+Lowering `-Xss` reduces theoretical stack budget, but it did not produce a stable dramatic anon
+drop; in the indexed run, `256k` had the lowest final anon. Keep `-Xss256k` as the default. Treat
+`192k` or `128k` as service-specific experiments only after the real service's deepest
+route/RPC/JDBC call stack passes the same smoke test.
+
 Framework-only JVM A/B test:
 
 ```powershell
@@ -62,7 +220,7 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
   -FrameworkOnly `
   -RuntimeProfile micro-rest `
   -FrameworkJvmPreset cpu1 `
-  -EndpointClasses "small-json-direct,dynamic-dto-json,direct-json-writer,producer-json,raw-json,native-cache-json" `
+  -EndpointClasses "small-json-direct,dynamic-producer-json,dynamic-dto-json,direct-json-writer,producer-json,raw-json,native-cache-json" `
   -ConcurrencyLevels "64,256" `
   -Duration 5s `
   -Warmup 2s `
@@ -102,6 +260,417 @@ correctness gate: production-like runs should not include sample/example classes
 actually uses them. RSS can stay close because unloaded classes do not always become live RSS, but
 classpath size, accidental startup-index pollution, and user-facing artifact surface are cleaner.
 
+## Minimal Production RSS Attribution
+
+For release/package documentation and pod-sizing decisions, the default RSS benchmark should be the
+minimal production app, not the bundled framework sample app.
+
+Use sample mode when you want to test framework demo routes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode sample `
+  -RuntimeProfile micro-rest `
+  -ConcurrencyValues 64,256 `
+  -DurationSeconds 4 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 6
+```
+
+Use minimal mode when you want to measure a clean production classpath:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode minimal `
+  -RuntimeProfile micro-rest `
+  -ConcurrencyValues 64,256 `
+  -DurationSeconds 4 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 6
+```
+
+The minimal production benchmark image now builds the same startup index shape expected from a real
+small application. Its Docker build compiles the user app, then runs `StartupIndexGenerator` for
+`com.reactor.benchmark.minimal`, producing:
+
+- `/app/classes/META-INF/reactor/components.idx`
+- `/app/classes/META-INF/reactor/routes.idx`
+
+Latest smoke build produced `components=1`, `routes=6`, `reactor_startup_route_index_routes=6`, and
+the runtime log no longer emitted the strict low-RSS classpath-scan fallback warning. This matters
+for measurement hygiene: the benchmark should not pay or warn for a startup fallback that production
+apps are expected to avoid.
+
+## Anon Evidence Gate
+
+Use this gate when the question is not "what is the RSS number?" but "where does the anonymous
+memory come from, and what should we attack next?" It runs the minimal production app through the
+same Linux smaps attribution flow for the memory-first profiles, then runs a conservative native
+trim A/B and captures optional OpenJ9 javacore/native evidence.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 `
+  -AppMode minimal `
+  -ConcurrencyValues "64,256" `
+  -DurationSeconds 5 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 12
+```
+
+Fuller gate with c512:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 `
+  -AppMode minimal `
+  -ConcurrencyValues "64,256,512" `
+  -DurationSeconds 5 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 12 `
+  -TrimFinalIdleSeconds 95 `
+  -TrimFinalIdleSnapshotSeconds "35,95"
+```
+
+Fast pipeline smoke:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 -Quick
+```
+
+The report is written to `benchmark/results/anon_evidence_gate_<mode>_<timestamp>/` and contains:
+
+- `anon_evidence_gate_report.md`: human-readable profile, trim, peak, and load signal.
+- `anon_evidence_memory.csv`: final idle attribution.
+- `anon_evidence_peaks.csv`: peak current/anon/RSS by run.
+- `anon_evidence_load.csv`: RPS, p99, and `503%` by endpoint and concurrency.
+- `anon_evidence_memory_all_rows.csv`: every smaps phase row for deeper analysis.
+- `openj9_evidence/` inside the javacore run when `-SkipJavacore` is not used.
+
+Interpretation rules:
+
+- If `heap_used_mib` is small but `anon_residual_mib` is high, heap flags are not the primary fix.
+  Look at thread/native pool sizing, allocator retention, classpath surface, and JVM runtime state.
+- If `class_metadata_used_mib` or `non_heap_other_used_mib` grows with sample mode but not minimal
+  mode, the production package/classpath is the target, not request handling.
+- If conservative trim reduces final anon/current but p99 or `503%` worsens, keep trim as an
+  opt-in policy for low-traffic idle pods.
+- If Java-heavy endpoints push peak anon and p99, move those routes to `JsonProducerResponse`,
+  direct writer, raw/read-model, or native serialization. Route admission can bound overload; it
+  cannot remove object graph allocation.
+- Native idle trim reads `reactor_native_http_user_requests_total`, not the raw request total.
+  `/health`, `/metrics`, `/metrics/*`, and `/diagnostics/*` are excluded so the benchmark's own
+  snapshots, Kubernetes probes, and Prometheus scrapes do not reset the idle window.
+
+`micro-dubbo` in this minimal gate uses static discovery defaults so the framework can measure the
+Dubbo-enabled runtime surface without requiring ZooKeeper. For real Kubernetes ZooKeeper-discovery
+overhead, run the separate sample consumer benchmark because that includes the actual discovery
+client, provider list behavior, and RPC route usage.
+
+Use the idle native trim policy when you need to prove whether warmed native anonymous memory is
+releasable without putting trim cost on request handlers:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode minimal `
+  -RuntimeProfile micro-rest `
+  -ConcurrencyValues 64,256,512 `
+  -DurationSeconds 4 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 20 `
+  -ExtraJavaOpts "-Dreactor.rust.native-trim.enabled=true -Dreactor.rust.native-trim.initial-delay-ms=1000 -Dreactor.rust.native-trim.interval-ms=2000 -Dreactor.rust.native-trim.min-idle-ms=1000 -Dreactor.rust.native-trim.max-active-requests=0 -Dreactor.rust.native-trim.retain-small=16 -Dreactor.rust.native-trim.allocator-trim-enabled=true"
+```
+
+Report the trim metrics with RSS/anon:
+
+- `reactor_native_trim_success_total`
+- `reactor_native_trim_skipped_active_total`
+- `reactor_native_trim_skipped_not_idle_total`
+- `reactor_native_trim_last_duration_ms`
+
+Local smoke evidence after switching the policy to native activity counters:
+
+| Run | Result |
+|-----|--------|
+| Command shape | minimal app, `micro-rest`, c64, idle trim enabled, final idle `8s` |
+| Active traffic behavior | `reactor_native_trim_skipped_active_total=53` |
+| Final idle behavior | `reactor_native_trim_success_total=1`, duration `1ms` |
+| Rust accounted retained | `0.109 MiB -> 0 MiB` after final idle trim |
+| cgroup anon | `32.93 MiB after raw-heavy -> 29.88 MiB final idle` |
+
+This is a smoke proof, not a release-grade benchmark. Run the normal c64/c256/c512 matrix before
+enabling the policy in a production profile.
+
+Current background trim uses a soft native path: it can keep a small response-pool floor while
+reclaiming larger buckets. The manual `/diagnostics/native/trim` endpoint is still intentionally
+full-trim for diagnostics.
+
+Retain-floor/allocator policy matrix:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\native_trim_policy_matrix.ps1 `
+  -RuntimeProfile micro-rest `
+  -AppMode minimal `
+  -RetainSmallValues "2,8,16" `
+  -AllocatorTrimValues "true,false" `
+  -ConcurrencyValues "64,512" `
+  -EndpointSpecs "small-direct|/api/v1/candidates/direct,producer-heavy|/api/v1/heavy/producer?items=100,raw-heavy|/api/v1/heavy/raw" `
+  -RepeatCount 1
+```
+
+Focused matrix signal: `allocator-trim-enabled=false` did not reclaim meaningful anon memory.
+`retain-small=16` plus allocator trim gave the best current balance in the focused run: about
+`-15.367 MiB` final cgroup anon, average p99 `-2.06%`, max p99 `+21.05%`, and max `503` delta
+`0pp` versus trim-off.
+
+Release-grade A/B gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\idle_trim_ab_gate.ps1 `
+  -SkipInitialBuild `
+  -RuntimeProfile micro-rest `
+  -AppMode minimal `
+  -ConcurrencyValues "64,256,512" `
+  -RepeatCount 3 `
+  -DurationSeconds 5 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 12 `
+  -ResultsDir "benchmark\results\idle_trim_ab_micro_rest_minimal_r3_20260606"
+```
+
+Result:
+
+| Metric | Trim on - trim off |
+|--------|-------------------:|
+| Final cgroup current | `-14.543 MiB` |
+| Final cgroup anon | `-14.484 MiB` |
+| Average p99 | `+15.68%` |
+| Max p99 | `+70.19%` |
+| Max 503 | `+4.514 pp` |
+
+Decision: keep idle trim disabled by default. The aggressive `1s` benchmark policy proved native
+anon is reclaimable, and the retained-floor soft trim path preserves the same memory direction, but
+short benchmark phases still show p99 trade-offs after idle. Use it only for low-call-rate or bursty
+services with meaningful idle windows, and prefer conservative production intervals such as
+`initial-delay-ms=30000`, `interval-ms=60000`, `min-idle-ms=10000`.
+
+Focused soft-trim A/B after adding retained pool floors:
+
+| Metric | Trim on - trim off |
+|--------|-------------------:|
+| Final cgroup current | `-14.404 MiB` |
+| Final cgroup anon | `-14.607 MiB` |
+| Average p99 | `+10.88%` |
+| Max p99 | `+81.08%` |
+| Max 503 | `+1.86 pp` |
+
+This focused run used minimal app, `micro-rest`, c64/c512, repeat `2`, and endpoint set
+`small-direct`, `producer-heavy`, `raw-heavy`.
+
+Full endpoint repeat gate with `retain-small=16`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\idle_trim_ab_gate.ps1 `
+  -RuntimeProfile micro-rest `
+  -AppMode minimal `
+  -ConcurrencyValues "64,256,512" `
+  -RepeatCount 3 `
+  -DurationSeconds 5 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 12 `
+  -ResultsDir "benchmark\results\retain16_allocon_full_ab_micro_rest_minimal_r3_20260606"
+```
+
+Result:
+
+| Metric | Trim on - trim off |
+|--------|-------------------:|
+| Final cgroup current | `-17.263 MiB` |
+| Final cgroup anon | `-14.768 MiB` |
+| Average p99 | `+4.89%` |
+| Max p99 | `+27.37%` |
+| Max 503 | `+3.021 pp` |
+
+Conservative production-timing soak with `retain-small=16`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\idle_trim_ab_gate.ps1 `
+  -RuntimeProfile micro-rest `
+  -AppMode minimal `
+  -ConcurrencyValues "64,256,512" `
+  -RepeatCount 1 `
+  -DurationSeconds 5 `
+  -IdleSeconds 3 `
+  -FinalIdleSeconds 95 `
+  -TrimOnJavaOpts "-Dreactor.rust.native-trim.enabled=true -Dreactor.rust.native-trim.initial-delay-ms=30000 -Dreactor.rust.native-trim.interval-ms=60000 -Dreactor.rust.native-trim.min-idle-ms=10000 -Dreactor.rust.native-trim.max-active-connections=0 -Dreactor.rust.native-trim.max-active-requests=0 -Dreactor.rust.native-trim.retain-small=16 -Dreactor.rust.native-trim.retain-medium=0 -Dreactor.rust.native-trim.retain-large=0 -Dreactor.rust.native-trim.retain-huge=0 -Dreactor.rust.native-trim.allocator-trim-enabled=true"
+```
+
+Result:
+
+| Metric | Trim on - trim off |
+|--------|-------------------:|
+| Final cgroup current | `-20.687 MiB` |
+| Final cgroup anon | `-20.844 MiB` |
+| Average p99 | `-0.65%` |
+| Max p99 | `+77.90%` |
+| Max 503 | `+15.185 pp` |
+
+Read this carefully: the conservative soak proves idle reclaim works under production timing
+(`trim_success=1` only in final idle), but the single-run c512 rows are noisy. It is not a
+high-throughput approval gate.
+
+Long idle leak/retention soak:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -RuntimeProfile micro-rest `
+  -AppMode minimal `
+  -ConcurrencyValues "512" `
+  -EndpointSpecs "small-direct|/api/v1/candidates/direct,direct-heavy|/api/v1/heavy?items=100,producer-heavy|/api/v1/heavy/producer?items=100,dynamic-producer|/api/v1/heavy/dto?items=100,raw-heavy|/api/v1/heavy/raw" `
+  -DurationSeconds 5 `
+  -IdleSeconds 2 `
+  -FinalIdleSnapshotSeconds "300,1800"
+```
+
+Result, same c512 pressure, same container per variant:
+
+| Phase | Trim on anon | Trim off anon | Delta |
+|-------|-------------:|--------------:|------:|
+| Baseline | `26.426 MiB` | `26.449 MiB` | `-0.02 MiB` |
+| After load idle | `46.781 MiB` | `47.723 MiB` | `-0.94 MiB` |
+| 5 min idle | `27.258 MiB` | `44.836 MiB` | `-17.58 MiB` |
+| 30 min idle | `27.273 MiB` | `44.836 MiB` | `-17.56 MiB` |
+
+Interpretation: after retained idle trim, anon did not grow back between 5 minutes and 30 minutes.
+With trim disabled, idle alone did not release the retained anon. This points to allocator retention,
+not an obvious leak in the framework response/native path.
+
+When residual anon remains unclear, collect OpenJ9 evidence after the final idle phase:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode minimal `
+  -RuntimeProfile micro-rest `
+  -ConcurrencyValues 64,256 `
+  -CollectJavacore
+```
+
+This writes an `openj9_evidence` folder with javacore files, thread snapshots, process limits, and
+basic `jcmd` availability output. It is collected after RSS phases finish, so javacore generation
+does not pollute the measured phase rows.
+
+What each mode means:
+
+| Mode | Classpath shape | Best for | Not for |
+|------|-----------------|----------|---------|
+| `sample` | `rust-java-rest-*-sample.jar` with demo handlers and benchmark routes | Exercising bundled endpoints and route examples | Production RSS claims |
+| `minimal` | `core-runtime` plus a tiny user application fixture | Production-like baseline RSS and anon attribution | Claiming every sample endpoint has identical behavior |
+
+Optional JVM anon experiments:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode minimal `
+  -RuntimeProfile micro-rest `
+  -CodeCacheMaxRAMPercentage 10
+
+powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
+  -AppMode minimal `
+  -RuntimeProfile micro-rest `
+  -CodeCacheTotal 8m
+```
+
+These options are for A/B measurement, not default deployment. They target OpenJ9 JIT code-cache
+commit, which appears inside Linux anon. Keep them out of production profiles until repeat latency
+and p99 runs show no unacceptable regression for the service workload.
+
+For repeat latency/p99 checks, use `container_benchmark.ps1` with the explicit parameter. Avoid
+passing `-X...` values through generic shell quoting unless the summary proves the option reached
+`JAVA_OPTS`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
+  -RuntimeProfile micro-rest `
+  -FrameworkCodeCacheTotal 8m `
+  -EndpointClasses "small-json-direct,dynamic-producer-json,direct-json-writer,producer-json,raw-json" `
+  -ConcurrencyLevels "64,256" `
+  -Duration 6s -Warmup 2s -RepeatCount 3 `
+  -FrameworkOnly
+```
+
+Latest full local gate, `micro-rest`, c64/c256/c512, sample repeat `3`, minimal smaps repeat `3`,
+duration `6s` for sample rows:
+
+| Gate | Result |
+|------|--------|
+| Optional JIT-cap usable for the common endpoint set | `FAIL` |
+| Default profile candidate | `FAIL` |
+| Minimal production RSS gain | `5.952 MiB` |
+| p99 regression failures | `4` |
+| Legacy dynamic DTO c256/c512 regressions | `2` |
+
+Minimal production RSS/anon summary from the same gate:
+
+| Metric | Default | `-Xcodecachetotal8m` | Delta |
+|--------|--------:|---------------------:|------:|
+| cgroup current | `57.358 MiB` | `51.406 MiB` | `-5.952 MiB` |
+| cgroup anon | `45.301 MiB` | `45.024 MiB` | `-0.277 MiB` |
+| non-heap committed | `36.109 MiB` | `24.453 MiB` | `-11.656 MiB` |
+| JIT code committed | `22.000 MiB` | `10.000 MiB` | `-12.000 MiB` |
+| anon residual | `23.568 MiB` | `23.767 MiB` | `+0.199 MiB` |
+| Linux threads | `22` | `19` | `-3` |
+
+Interpretation: `-Xcodecachetotal8m` reduced the cgroup RSS and JIT/code-cache commitment, but it
+did not materially reduce total anon in this run. It also introduced p99 risk for some routes:
+the legacy `dynamic-dto-json` path regressed at c256/c512, and `raw-json` regressed at c256/c512.
+Direct writer, producer JSON, and small direct JSON mostly improved. The current gate default now
+uses `dynamic-producer-json` for the recommended hot DTO-shaped route and keeps `dynamic-dto-json`
+available for explicit legacy graph comparison.
+
+Use the gate runner when deciding whether a service may use the JIT-cap option:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\jitcap_gate.ps1 `
+  -RuntimeProfile micro-rest `
+  -FrameworkCodeCacheTotal 8m `
+  -ConcurrencyLevels "64,256,512" `
+  -EndpointClasses "small-json-direct,dynamic-producer-json,direct-json-writer,producer-json,raw-json" `
+  -RepeatCount 3 `
+  -MinimalRepeatCount 3
+```
+
+Gate policy:
+
+- `Optional jitcap usable` requires measured RSS gain and no endpoint p99 regression above the
+  configured threshold.
+- `Default profile candidate` is stricter: if the dynamic heavy JSON path regresses at c256/c512,
+  the gate keeps `jitcap` optional even when most other routes improve.
+- If the gate fails because of Java-heavy DTO routes, keep JIT-cap out of the default profile and
+  move the hot heavy route to `JsonProducerResponse` or direct writer before retesting.
+- If a read-mostly/raw service passes its own gate, JIT-cap can still be a local deployment choice.
+  Do not generalize that result to mixed Java business workloads.
+
+Latest local Linux smaps comparison, `micro-rest`, same host:
+
+| Phase | Sample app RSS | Minimal app RSS | Delta | What changed |
+|-------|---------------:|----------------:|------:|--------------|
+| Baseline cgroup RSS | `42.863 MiB` | `30.164 MiB` | `-12.699 MiB` | Fewer app/sample classes before traffic |
+| Baseline anon | `28.492 MiB` | `24.359 MiB` | `-4.133 MiB` | Lower runtime anon pressure |
+| Baseline loaded classes | `2505` | `1965` | `-540` | Sample surface removed |
+| Baseline class metadata | `10.480 MiB` | `8.499 MiB` | `-1.981 MiB` | Less class metadata |
+| Final idle cgroup RSS | `58.723 MiB` | `45.219 MiB` | `-13.504 MiB` | Cleaner production-like classpath |
+| Final idle anon | `43.852 MiB` | `38.789 MiB` | `-5.063 MiB` | Lower anon after warmup/load/idle |
+| Final heap used | `9.490 MiB` | `2.720 MiB` | `-6.770 MiB` | Less sample object/runtime residue |
+
+Interpretation:
+
+- The main published library and `core-runtime` already exclude framework sample and benchmark
+  packages. The cleanup is about how we measure and explain RSS.
+- Sample/benchmark surface really was polluting production-like RSS measurement when the sample jar
+  or framework `target/classes` was used as the benchmark application.
+- The minimal app's `heavy/dto` fixture is intentionally small and direct-shaped; do not use it as
+  an apples-to-apples replacement for the bundled sample's full dynamic DTO graph benchmark.
+- For product claims, report both route latency and classpath mode. A good benchmark label includes
+  `AppMode`, `RuntimeProfile`, JVM preset, concurrency, repeat count, and endpoint class.
+
 Latest framework-only `cpu1` vs `cpu1-nojit` result, `micro-rest`, repeat `3`, duration `5s`,
 concurrency `64/256`:
 
@@ -126,17 +695,26 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
   -Duration 20s `
   -Warmup 5s `
   -ConcurrencyLevels "256,512" `
-  -EndpointClasses "direct-json-writer,dynamic-dto-json" `
+  -EndpointClasses "direct-json-writer,dynamic-producer-json,dynamic-dto-json" `
   -RepeatCount 3 `
   -RandomSeed 20260603
 ```
 
 Use `micro-rest-plus` as a benchmark/deployment recipe when `micro-rest` protects RSS but rejects too
-much traffic on known heavy JSON routes. It keeps the Java runtime profile as `micro-rest`, raises
-native `max-connections` to `768`, and applies measured route admission to the sample heavy routes:
-direct writer `maxConcurrent=128, timeout=125ms`; dynamic DTO `maxConcurrent=64, timeout=125ms`.
-Do not copy these route keys blindly into another application. Map them to your real route keys and
-validate `p99`, `503%`, useful `200 RPS`, and RSS together.
+much traffic on known heavy JSON routes. It is now a first-class runtime profile built on
+`micro-rest`: same small runtime shape, conservative native connection cap, and measured
+route-budget defaults for routes marked with `@RouteWorkload`.
+
+Measured sample budgets:
+
+| Budget key | Intended route shape | Profile default |
+|---|---|---|
+| `heavy-json-direct` | direct `ByteBuffer` writer with primitive binding | `maxConcurrent=80`, `timeout=150ms` |
+| `heavy-json-producer` | optimized DTO-shaped `JsonProducerResponse` / producer-writer | `maxConcurrent=96`, `timeout=125ms` |
+| `heavy-json-legacy` | legacy Java DTO graph comparison route | `maxConcurrent=48`, `timeout=100ms` |
+
+Do not copy sample route keys blindly into another application. Mark your route with the closest
+workload/budget, then validate `p99`, `503%`, useful `200 RPS`, and RSS together.
 
 Route admission matrix for one heavy route:
 
@@ -152,6 +730,9 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\route_admission_matrix.ps1 
   -Warmup 5s `
   -RepeatCount 3 `
   -RandomSeed 20260603 `
+  -FrameworkOnly `
+  -PlanPreWarm `
+  -PlanPreWarmDuration 3s `
   -SkipBuild
 ```
 
@@ -163,24 +744,189 @@ that reaches the useful `200 RPS` target with acceptable `p99` and RSS. Raising
 `maxConcurrent` only to hide `503` is usually an anti-pattern because it can push the
 same pressure into latency, heap churn, or downstream services.
 
-Current measured sample recipe for `producer-json` at c256/c512 is
-`maxConcurrent=80, queueTimeoutMs=150`. In the local release-gate matrix this kept c512
-useful `200 RPS` high while reducing `503%` below 1% with RSS still around the
-micro-rest-plus budget. Treat it as a starting point for the sample endpoint, not as a
-universal default for every service.
+Current measured sample recipe for `direct-json-writer` at c256/c512 is the
+`heavy-json-direct` budget: `maxConcurrent=80, queueTimeoutMs=150`. In the local repeat-3 gate this reduced direct-heavy c512
+`503` from `28.83%` to `2.43%`, but it also reduced raw RPS and increased direct-heavy p99. Treat it
+as a lower-reject route recipe, not as a faster route recipe.
+
+Current measured sample recipe for `producer-json` remains conservative. The discovery matrix showed
+candidate settings can move p99/503 in opposite directions depending on neighboring workloads, so do
+not change producer route admission without a mixed endpoint gate.
+
+Current measured sample recipe for `dynamic-producer-json` is
+`maxConcurrent=96, queueTimeoutMs=125`. A single-route matrix favored `128/125`, but a later mixed
+workload matrix showed that `96/125` is the safer production recipe for the sample app because it
+keeps useful `200` RPS high while lowering p99 and RSS when neighboring heavy routes are active.
 
 Compare DTO graph vs producer/direct writer paths:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
   -RuntimeProfile micro-rest-plus `
-  -EndpointClasses "dynamic-dto-json,producer-json,direct-json-writer" `
+  -EndpointClasses "dynamic-producer-json,dynamic-dto-json,producer-json,direct-json-writer" `
   -ConcurrencyLevels "256,512" `
   -Duration 20s `
   -Warmup 5s `
   -RepeatCount 3 `
   -RandomSeed 20260603
 ```
+
+Latest targeted dynamic-producer gate, `micro-rest-plus`, c256/c512, repeat `3`, duration `20s`:
+
+| Class | C | Avg RPS | Avg useful 200 RPS | Avg p99 | Avg 503 % | Avg RSS after |
+|-------|--:|--------:|-------------------:|--------:|----------:|--------------:|
+| `dynamic-producer-json` | 256 | `2646.57` | `2633.17` | `176.84 ms` | `0.64%` | `82.40 MiB` |
+| `dynamic-dto-json` legacy | 256 | `2148.17` | `1760.12` | `177.98 ms` | `18.18%` | `81.00 MiB` |
+| `dynamic-producer-json` | 512 | `3432.30` | `2774.99` | `221.68 ms` | `19.44%` | `84.50 MiB` |
+| `dynamic-dto-json` legacy | 512 | `4251.85` | `1515.68` | `207.06 ms` | `64.40%` | `84.00 MiB` |
+
+Interpretation: the producer path is the correct hot-route direction because it increases useful
+`200` throughput by `1.50x` at c256 and `1.83x` at c512 while keeping RSS broadly in the same band.
+Do not read the legacy DTO graph's higher raw RPS at c512 as better throughput; most of that row is
+fast `503`. The remaining work is route-admission tuning for producer c512 so the `503%` drops
+without pushing p99/RSS outside the pod budget.
+
+Single-route follow-up route-admission matrix for `dynamic-producer-json`, route key
+`get.api.v1.heavy.dto`, c256/c512, repeat `3`, initially selected `128/125` before the mixed
+workload check:
+
+| C | Previous `80/125` useful 200 RPS | New `128/125` useful 200 RPS | p99 delta | 503 delta | RSS delta |
+|---:|---:|---:|---:|---:|---:|
+| 256 | `3313.37` | `4195.97` | `159.50ms -> 119.45ms` | `0.08% -> 0.00%` | `-0.03 MiB` |
+| 512 | `3064.78` | `4120.37` | `213.70ms -> 194.07ms` | `13.89% -> 1.46%` | `+0.24 MiB` |
+
+Full dynamic gate with the initial `128/125` recipe:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
+  -FrameworkOnly `
+  -RuntimeProfile micro-rest-plus `
+  -EndpointClasses "dynamic-producer-json,dynamic-dto-json,direct-json-writer,raw-json" `
+  -ConcurrencyLevels "256,512,1000" `
+  -Duration 20s `
+  -Warmup 5s `
+  -RepeatCount 3 `
+  -RandomizeOrder:$true `
+  -RandomSeed 20260606 `
+  -ResultsDir "benchmark\results\full_dynamic_gate_20260606"
+```
+
+Latest full dynamic gate result, `micro-rest-plus`, repeat `3`, duration `20s`:
+
+| Class | C | Avg useful 200 RPS | Min useful 200 RPS | Avg p99 | Max p99 | Avg 503 % | Avg RSS after |
+|-------|--:|-------------------:|-------------------:|--------:|--------:|----------:|--------------:|
+| `dynamic-producer-json` | 256 | `3955.80` | `2670.65` | `130.85 ms` | `184.80 ms` | `0.03%` | `65.34 MiB` |
+| `dynamic-dto-json` legacy | 256 | `2501.84` | `1918.73` | `145.75 ms` | `167.22 ms` | `5.01%` | `62.70 MiB` |
+| `dynamic-producer-json` | 512 | `3311.67` | `1501.15` | `261.50 ms` | `405.86 ms` | `15.92%` | `66.01 MiB` |
+| `dynamic-dto-json` legacy | 512 | `2529.80` | `2495.28` | `153.09 ms` | `160.48 ms` | `43.92%` | `65.07 MiB` |
+| `dynamic-producer-json` | 1000 | `3089.42` | `3015.73` | `543.44 ms` | `577.56 ms` | `48.48%` | `68.91 MiB` |
+| `dynamic-dto-json` legacy | 1000 | `1498.08` | `1470.64` | `591.86 ms` | `680.56 ms` | `74.34%` | `66.90 MiB` |
+| `direct-json-writer` | 256 | `4669.37` | `4436.40` | `96.99 ms` | `102.55 ms` | `0.00%` | `65.51 MiB` |
+| `direct-json-writer` | 512 | `4362.36` | `4152.90` | `195.09 ms` | `209.59 ms` | `1.27%` | `65.31 MiB` |
+| `direct-json-writer` | 1000 | `2621.43` | `1500.05` | `740.05 ms` | `1210.00 ms` | `50.28%` | `68.11 MiB` |
+| `raw-json` | 256 | `12922.75` | `12426.19` | `36.32 ms` | `39.59 ms` | `0.00%` | `67.13 MiB` |
+| `raw-json` | 512 | `12131.33` | `10604.24` | `125.41 ms` | `207.74 ms` | `0.01%` | `65.08 MiB` |
+| `raw-json` | 1000 | `9273.39` | `8655.77` | `660.10 ms` | `730.33 ms` | `1.82%` | `65.79 MiB` |
+
+Interpretation: the `128/125` producer route is a better hot dynamic JSON path than the legacy DTO
+graph at every tested concurrency when judged by useful `200` RPS. At c256 it is clean: higher useful
+throughput, lower p99, and almost no `503`. At c512 it still has one outlier run, so treat this as a
+measured recipe, not a universal default. At c1000 the system correctly enters controlled overload;
+the target is bounded p99/RSS and higher useful throughput, not zero `503` at any concurrency.
+
+Mixed workload route-admission matrix for `dynamic-producer-json`, route key
+`get.api.v1.heavy.dto`, c512, repeat `3`, with `dynamic-producer-json`, legacy `dynamic-dto-json`,
+`direct-json-writer`, and `raw-json` active in the same plan:
+
+| maxConcurrent | queueTimeoutMs | Producer useful 200 RPS | Producer p99 | Producer 503 % | Avg RSS after | Decision |
+|---:|---:|---:|---:|---:|---:|---|
+| 96 | 125 | `3860.72` | `192.91 ms` | `3.42%` | `75.77 MiB` | Selected sample recipe |
+| 112 | 125 | `3822.25` | `205.19 ms` | `2.98%` | `82.28 MiB` | Higher RSS, lower producer RPS |
+| 128 | 125 | `3629.62` | `216.95 ms` | `3.60%` | `84.76 MiB` | Worse p99/RSS under mixed load |
+
+Interpretation: single-route tuning can overfit. The mixed plan is closer to a real pod where
+several heavy routes share the same JVM, Rust runtime, worker queues, and memory budget. For
+`micro-rest-plus`, the sample optimized DTO-shaped route now uses `96/125`.
+
+Command shape for the mixed route-admission matrix:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\route_admission_matrix.ps1 `
+  -EndpointClass "dynamic-producer-json" `
+  -BenchmarkEndpointClasses "dynamic-producer-json,dynamic-dto-json,direct-json-writer,raw-json" `
+  -RouteAdmissionKey "get.api.v1.heavy.dto" `
+  -ConcurrencyLevels "512" `
+  -MaxConcurrentValues "96,112,128" `
+  -QueueTimeoutMsValues "125" `
+  -RuntimeProfile micro-rest-plus `
+  -Duration 20s `
+  -Warmup 5s `
+  -RepeatCount 3 `
+  -FrameworkOnly `
+  -PlanPreWarm `
+  -PlanPreWarmDuration 3s `
+  -SkipBuild
+```
+
+Follow-up c512 profile validation after changing `micro-rest-plus` to `96/125`:
+
+| Class | Avg useful 200 RPS | Avg p99 | Avg 503 % | Avg RSS after |
+|-------|-------------------:|--------:|----------:|--------------:|
+| `dynamic-producer-json` | `3703.11` | `198.30 ms` | `4.29%` | `85.67 MiB` |
+| `dynamic-dto-json` legacy | `2077.79` | `180.69 ms` | `53.08%` | `85.34 MiB` |
+| `direct-json-writer` | `3672.09` | `217.25 ms` | `3.23%` | `86.29 MiB` |
+| `raw-json` | `10478.25` | `120.08 ms` | `0.00%` | `85.83 MiB` |
+
+Interpretation: the profile validation kept the producer route stable enough for the memory-first
+`micro-rest-plus` recipe, but RSS after depends on warmed state and run order. Use Linux smaps/cgroup
+memory proof for pod sizing; do not infer a hard pod limit from one route-admission matrix.
+
+Current full dynamic gate after changing `micro-rest-plus` to `96/125`, with `PlanPreWarm`,
+`FrameworkOnly`, c256/c512/c1000, repeat `3`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
+  -FrameworkOnly `
+  -RuntimeProfile micro-rest-plus `
+  -EndpointClasses "dynamic-producer-json,dynamic-dto-json,direct-json-writer,raw-json" `
+  -ConcurrencyLevels "256,512,1000" `
+  -Duration 20s `
+  -Warmup 5s `
+  -RepeatCount 3 `
+  -RandomSeed 20260610 `
+  -PlanPreWarm `
+  -PlanPreWarmDuration 3s `
+  -ResultsDir "benchmark\results\full_dynamic_gate_profile96_prewarm_20260606"
+```
+
+| Class | C | Avg useful 200 RPS | Min useful 200 RPS | Avg p99 | Max p99 | Avg 503 % | Avg RSS after |
+|-------|--:|-------------------:|-------------------:|--------:|--------:|----------:|--------------:|
+| `dynamic-producer-json` | 256 | `3420.95` | `2094.27` | `149.09 ms` | `208.62 ms` | `0.14%` | `60.48 MiB` |
+| `dynamic-producer-json` | 512 | `3774.52` | `3299.77` | `190.73 ms` | `204.87 ms` | `4.31%` | `63.10 MiB` |
+| `dynamic-producer-json` | 1000 | `2399.13` | `2019.07` | `723.28 ms` | `981.59 ms` | `50.78%` | `64.72 MiB` |
+| `dynamic-dto-json` legacy | 256 | `2288.17` | `2199.84` | `159.30 ms` | `160.35 ms` | `5.86%` | `61.05 MiB` |
+| `dynamic-dto-json` legacy | 512 | `2247.21` | `2051.24` | `161.25 ms` | `171.46 ms` | `49.75%` | `60.41 MiB` |
+| `dynamic-dto-json` legacy | 1000 | `1414.63` | `1361.43` | `630.10 ms` | `670.93 ms` | `74.82%` | `61.63 MiB` |
+| `direct-json-writer` | 256 | `3911.24` | `3639.85` | `151.67 ms` | `160.22 ms` | `0.00%` | `60.19 MiB` |
+| `direct-json-writer` | 512 | `3738.20` | `3216.71` | `210.66 ms` | `229.60 ms` | `3.66%` | `62.97 MiB` |
+| `direct-json-writer` | 1000 | `2674.44` | `2576.28` | `659.72 ms` | `823.17 ms` | `48.47%` | `62.86 MiB` |
+| `raw-json` | 256 | `11983.44` | `11669.94` | `49.80 ms` | `53.79 ms` | `0.00%` | `60.41 MiB` |
+| `raw-json` | 512 | `10957.54` | `10491.07` | `103.09 ms` | `109.01 ms` | `0.00%` | `64.01 MiB` |
+| `raw-json` | 1000 | `8711.00` | `8436.15` | `695.56 ms` | `790.06 ms` | `1.70%` | `60.36 MiB` |
+
+Producer comparison against the earlier `128/125` full gate:
+
+| C | `96/125` useful 200 RPS | `128/125` useful 200 RPS | Useful delta | `96/125` p99 | `128/125` p99 | 503 delta |
+|---:|------------------------:|-------------------------:|-------------:|-------------:|--------------:|----------:|
+| 256 | `3420.95` | `3955.80` | `-13.52%` | `149.09 ms` | `130.85 ms` | `0.14% vs 0.03%` |
+| 512 | `3774.52` | `3311.67` | `+13.98%` | `190.73 ms` | `261.50 ms` | `4.31% vs 15.92%` |
+| 1000 | `2399.13` | `3089.42` | `-22.34%` | `723.28 ms` | `543.44 ms` | `50.78% vs 48.48%` |
+
+Decision: keep `96/125` as the sample `micro-rest-plus` recipe. It sacrifices some c256 headroom and
+c1000 overload throughput, but materially stabilizes c512, which is the useful operating point for
+this memory-first profile. If c1000 must stay productive, `micro-rest-plus` is the wrong profile;
+use a larger route budget, a throughput profile, or split the hot route to direct/raw/read-model
+serving.
 
 Low-RSS with explicit small-pod OpenJ9 worker sizing:
 
@@ -254,7 +1000,7 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 -Ru
 Run only selected endpoint classes:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 -RuntimeProfile low-rss -Duration 20s -Warmup 5s -ConcurrencyLevels "64,256,512,1000" -RepeatCount 3 -EndpointClasses "dynamic-dto-json,direct-json-writer,raw-json"
+powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 -RuntimeProfile low-rss -Duration 20s -Warmup 5s -ConcurrencyLevels "64,256,512,1000" -RepeatCount 3 -EndpointClasses "dynamic-producer-json,dynamic-dto-json,direct-json-writer,raw-json"
 ```
 
 Use this when validating a specific optimization. Do not compare `direct-json-writer`, `rust-json-writer`, `native-cache-json`, or `file-static` as if they were generic Spring Boot equivalents; these are explicit optimized paths with different application contracts.
@@ -355,7 +1101,7 @@ Run id: `container_20260530_154237`
 Command:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 -RuntimeProfile low-rss -Duration 10s -Warmup 2s -ConcurrencyLevels "64,256,512,1000" -RepeatCount 3 -RandomSeed 20260530 -EndpointClasses "small-json,dynamic-dto-json,direct-json-writer,raw-json,file-static"
+powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 -RuntimeProfile low-rss -Duration 10s -Warmup 2s -ConcurrencyLevels "64,256,512,1000" -RepeatCount 3 -RandomSeed 20260530 -EndpointClasses "small-json,dynamic-producer-json,dynamic-dto-json,direct-json-writer,raw-json,file-static"
 ```
 
 Average c=1000 comparable endpoints:
