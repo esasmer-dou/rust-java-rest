@@ -10,6 +10,8 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 
 /**
@@ -45,14 +47,8 @@ public final class DslJsonService {
                 classLoader = ClassLoader.getSystemClassLoader();
             }
 
-            // Create DslJson with settings that use our ClassLoader
-            json = new DslJson<>(new DslJson.Settings().includeServiceLoader(classLoader));
-
-            // Additional manual configuration loading for our generated converters
-            ServiceLoader<Configuration> loader = ServiceLoader.load(Configuration.class, classLoader);
-            for (Configuration config : loader) {
-                config.configure(json);
-            }
+            json = new DslJson<>(new DslJson.Settings());
+            configureFromServiceLoader(json, classLoader);
 
         } catch (Throwable e) {
             // Fallback to basic instance without ServiceLoader
@@ -64,6 +60,23 @@ public final class DslJsonService {
         }
 
         DSL_JSON = json;
+    }
+
+    private static void configureFromServiceLoader(DslJson<Object> json, ClassLoader classLoader) {
+        ServiceLoader<Configuration> loader = ServiceLoader.load(Configuration.class, classLoader);
+        Iterator<Configuration> iterator = loader.iterator();
+        while (true) {
+            Configuration config;
+            try {
+                if (!iterator.hasNext()) {
+                    return;
+                }
+                config = iterator.next();
+            } catch (ServiceConfigurationError | LinkageError ignored) {
+                continue;
+            }
+            config.configure(json);
+        }
     }
 
     private static final int WRITER_INITIAL_BYTES = Math.max(
