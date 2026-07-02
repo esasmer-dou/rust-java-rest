@@ -1,9 +1,9 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v3.2.2)
+[![Version](https://img.shields.io/badge/version-3.2.3-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
-[![Status](https://img.shields.io/badge/status-stable-green.svg)]()
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -17,9 +17,29 @@ The model is intentionally simple:
 - The framework is not a Spring Boot clone. It gives you familiar REST annotations with a much
   smaller runtime surface.
 
-## v3.2.2 At A Glance
+## Current Stable Line
 
-`v3.2.2` keeps the same Java programming model: handlers, services, records, database calls, and
+`3.2.3` adds Redis native ABI version `2`, used by `java-rust-cache:0.2.0` for Redis Sentinel and Redis Cluster support. If your application uses both `rust-java-rest` and `java-rust-cache`, keep these versions aligned:
+
+```xml
+<dependency>
+  <groupId>com.reactor</groupId>
+  <artifactId>rust-java-rest</artifactId>
+  <version>3.2.3</version>
+</dependency>
+
+<dependency>
+  <groupId>com.reactor</groupId>
+  <artifactId>java-rust-cache</artifactId>
+  <version>0.2.0</version>
+</dependency>
+```
+
+Do not mix `java-rust-cache:0.2.0` Cluster/Sentinel mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, but Cluster/Sentinel requires Redis native ABI version `2`.
+
+## v3.2.3 At A Glance
+
+`v3.2.3` keeps the same Java programming model: handlers, services, records, database calls, and
 business rules stay in Java. The release is about choosing the right runtime profile and response
 path so Rust can remove I/O, buffering, file, and selected serialization overhead without changing
 your application structure.
@@ -133,7 +153,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.2</version>
+  <version>3.2.3</version>
 </dependency>
 ```
 

@@ -877,9 +877,10 @@ Rust-Java-only optimized paths at c512:
 | heavy100 native cache | `native-cache-json` | 14,970 | 102ms | 79 MiB |
 | export file stream | `file-stream` | 1,987 | 1.09s | 95 MiB |
 
-Read these tables as RC evidence, not a universal marketing claim. The framework is strongest when
-Java stays business-focused and Rust owns I/O, buffering, native response paths, and selected
-serialization-heavy paths. Repeat `3` plus idle/soak memory proof is required before a stable release.
+Read these tables as benchmark evidence for the tested profiles, not as a universal marketing claim.
+The framework is strongest when Java stays business-focused and Rust owns I/O, buffering, native
+response paths, and selected serialization-heavy paths. For a new workload, run repeat `3` plus
+idle/soak memory proof before treating the numbers as production capacity.
 
 ## Large File Stream Matrix
 
