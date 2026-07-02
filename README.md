@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.3-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.2.4-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -19,27 +19,27 @@ The model is intentionally simple:
 
 ## Current Stable Line
 
-`3.2.3` adds Redis native ABI version `2`, used by `java-rust-cache:0.2.0` for Redis Sentinel and Redis Cluster support. If your application uses both `rust-java-rest` and `java-rust-cache`, keep these versions aligned:
+`3.2.4` carries Redis native ABI version `3`, used by `java-rust-cache:0.2.1` for Redis Cluster routing and Sentinel master failover refresh. If your application uses both `rust-java-rest` and `java-rust-cache`, keep these versions aligned:
 
 ```xml
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.3</version>
+  <version>3.2.4</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.2.0</version>
+  <version>0.2.1</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.2.0` Cluster/Sentinel mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, but Cluster/Sentinel requires Redis native ABI version `2`.
+Do not mix `java-rust-cache:0.2.1` Sentinel mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, and Sentinel master failover refresh needs ABI version `3`.
 
-## v3.2.3 At A Glance
+## v3.2.4 At A Glance
 
-`v3.2.3` keeps the same Java programming model: handlers, services, records, database calls, and
+`v3.2.4` keeps the same Java programming model: handlers, services, records, database calls, and
 business rules stay in Java. The release is about choosing the right runtime profile and response
 path so Rust can remove I/O, buffering, file, and selected serialization overhead without changing
 your application structure.
@@ -153,7 +153,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.3</version>
+  <version>3.2.4</version>
 </dependency>
 ```
 
@@ -1266,6 +1266,8 @@ More benchmark details:
 
 - [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
+- [docs/release-notes/v3.2.4.md](docs/release-notes/v3.2.4.md)
+- [docs/release-notes/v3.2.3.md](docs/release-notes/v3.2.3.md)
 - [docs/release-notes/v3.2.2.md](docs/release-notes/v3.2.2.md)
 - [docs/release-notes/v3.2.1.md](docs/release-notes/v3.2.1.md)
 
