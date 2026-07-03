@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2.5] - 2026-07-03
+
+### Changed
+
+- Refreshed packaged Windows and Linux native resources for the current REST, Redis cache, and Dubbo
+  companion library line.
+- Documented the supported version set: `rust-java-rest:3.2.5`, `java-rust-cache:0.2.1`, and
+  `java-rust-dubbo:0.2.0`.
+- Clarified that Dubbo native response handles require the current native resource package and must
+  not be published over an older Maven version.
+
+---
+
 ## [3.2.2] - 2026-06-07
 
 ### Changed
@@ -592,6 +605,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[3.2.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.4...v3.2.5
 [3.2.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.1...v3.2.2
 [3.2.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.1.0...v3.2.0

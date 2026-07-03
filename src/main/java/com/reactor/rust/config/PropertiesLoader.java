@@ -171,8 +171,10 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.dubbo.max-inflight", "32");
         properties.setProperty("reactor.dubbo.max-response-bytes", "8388608");
         properties.setProperty("reactor.dubbo.native-connections-per-endpoint", "1");
+        properties.setProperty("reactor.dubbo.native-max-idle-connections-per-endpoint", "1");
         properties.setProperty("reactor.dubbo.native-async-workers", "1");
         properties.setProperty("reactor.dubbo.native-async-queue-capacity", "32");
+        properties.setProperty("reactor.dubbo.native-async-transport", "blocking");
         properties.setProperty("reactor.dubbo.runtime-profile", "micro-dubbo");
         properties.setProperty("reactor.dubbo.transport", "native");
         properties.setProperty("reactor.dubbo.cluster", "failfast");

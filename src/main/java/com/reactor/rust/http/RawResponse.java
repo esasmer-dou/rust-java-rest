@@ -93,9 +93,13 @@ public final class RawResponse {
     }
 
     public static RawResponse nativeJson(int nativeId) {
-        RawResponse response = new RawResponse(new byte[0], new HashMap<>(), nativeId);
+        RawResponse response = nativeResponse(nativeId);
         response.header("Content-Type", MediaType.APPLICATION_JSON_UTF8);
         return response;
+    }
+
+    public static RawResponse nativeResponse(int nativeId) {
+        return new RawResponse(new byte[0], new HashMap<>(), nativeId);
     }
 
     public byte[] getBody() {

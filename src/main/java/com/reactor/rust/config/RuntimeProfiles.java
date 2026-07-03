@@ -96,8 +96,10 @@ public final class RuntimeProfiles {
         set("reactor.dubbo.refer-thread-num", "1");
         set("reactor.dubbo.max-inflight", "32");
         set("reactor.dubbo.native-connections-per-endpoint", "1");
+        set("reactor.dubbo.native-max-idle-connections-per-endpoint", "1");
         set("reactor.dubbo.native-async-workers", "1");
         set("reactor.dubbo.native-async-queue-capacity", "32");
+        set("reactor.dubbo.native-async-transport", "blocking");
         set("reactor.dubbo.catalog.adaptive-enabled", "true");
         set("reactor.dubbo.catalog.min-inflight", "1");
         set("reactor.dubbo.catalog.initial-inflight", "2");
@@ -158,8 +160,10 @@ public final class RuntimeProfiles {
         set("reactor.rust.async.response-timeout-ms", "2000");
         set("reactor.dubbo.transport", "native");
         set("reactor.dubbo.native-connections-per-endpoint", "2");
+        set("reactor.dubbo.native-max-idle-connections-per-endpoint", "1");
         set("reactor.dubbo.native-async-workers", "2");
         set("reactor.dubbo.native-async-queue-capacity", "128");
+        set("reactor.dubbo.native-async-transport", "blocking");
         set("reactor.dubbo.max-inflight", "64");
         set("reactor.dubbo.catalog.adaptive-enabled", "true");
         set("reactor.dubbo.catalog.min-inflight", "2");
@@ -198,8 +202,10 @@ public final class RuntimeProfiles {
         set("reactor.rust.async.response-timeout-ms", "2000");
         set("reactor.dubbo.transport", "native");
         set("reactor.dubbo.native-connections-per-endpoint", "16");
+        set("reactor.dubbo.native-max-idle-connections-per-endpoint", "4");
         set("reactor.dubbo.native-async-workers", "8");
         set("reactor.dubbo.native-async-queue-capacity", "1024");
+        set("reactor.dubbo.native-async-transport", "tokio-demux");
         set("reactor.dubbo.max-inflight", "512");
         set("reactor.dubbo.catalog.adaptive-enabled", "true");
         set("reactor.dubbo.catalog.min-inflight", "16");
@@ -238,8 +244,10 @@ public final class RuntimeProfiles {
         set("reactor.rust.async.response-timeout-ms", "3000");
         set("reactor.dubbo.transport", "native");
         set("reactor.dubbo.native-connections-per-endpoint", "32");
+        set("reactor.dubbo.native-max-idle-connections-per-endpoint", "8");
         set("reactor.dubbo.native-async-workers", "16");
         set("reactor.dubbo.native-async-queue-capacity", "4096");
+        set("reactor.dubbo.native-async-transport", "tokio-demux");
         set("reactor.dubbo.max-inflight", "1024");
         set("reactor.dubbo.catalog.adaptive-enabled", "true");
         set("reactor.dubbo.catalog.min-inflight", "16");

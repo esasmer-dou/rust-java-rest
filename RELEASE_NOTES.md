@@ -1,3 +1,40 @@
+# Rust-Java REST Framework v3.2.5
+
+`v3.2.5` is a stable patch release for the current native runtime package used by the REST framework,
+`java-rust-cache:0.2.1`, and `java-rust-dubbo:0.2.0`. The Java programming model is unchanged:
+handlers, services, components, records, database code, and business logic stay in Java.
+
+## What's New For Users
+
+- Maven dependency version is now `3.2.5`.
+- Native resources are refreshed for `java-rust-dubbo:0.2.0` native response handle usage.
+- Redis native ABI version `3` remains available for `java-rust-cache:0.2.1` Cluster and Sentinel
+  scenarios.
+- Existing REST annotations and Java handler/service code remain source-compatible.
+- Production artifact rules from the `3.2.x` line still apply: normal dependency for applications,
+  sample classifier only for demos/benchmarks.
+
+## Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>3.2.5</version>
+</dependency>
+```
+
+## Current Compatibility Rule
+
+Use `rust-java-rest:3.2.5` with `java-rust-dubbo:0.2.0` when the consumer uses native response
+handles. Do not republish or reuse the old `3.2.4` package with changed native binaries.
+
+Full release notes:
+
+- [docs/release-notes/v3.2.5.md](docs/release-notes/v3.2.5.md)
+
+---
+
 # Rust-Java REST Framework v3.2.2
 
 `v3.2.2` is a stable patch release for production diagnostics, low-RSS evidence, and safer heavy

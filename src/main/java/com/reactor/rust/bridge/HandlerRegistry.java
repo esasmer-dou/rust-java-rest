@@ -1584,8 +1584,15 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
-        if (rawResponse.getNativeId() > 0 && entityHeaderBytes.length == 0) {
-            return writeStaticResponseFrame(rawResponse.getNativeId(), out, offset);
+        if (rawResponse.getNativeId() > 0) {
+            return writeStaticResponseFrame(
+                    rawResponse.getNativeId(),
+                    statusCode,
+                    entityHeaderBytes,
+                    rawResponse.getEncodedHeaders(),
+                    out,
+                    offset
+            );
         }
 
         byte[] rawHeaderBytes = rawResponse.getEncodedHeaders();
@@ -1613,17 +1620,32 @@ public class HandlerRegistry {
         return totalSize;
     }
 
-    private int writeStaticResponseFrame(int nativeId, ByteBuffer out, int offset) {
-        if (RESPONSE_FRAME_HEADER_SIZE > out.capacity() - offset) {
-            return -RESPONSE_FRAME_HEADER_SIZE;
+    private int writeStaticResponseFrame(
+            int nativeId,
+            int statusCode,
+            byte[] entityHeaderBytes,
+            byte[] rawHeaderBytes,
+            ByteBuffer out,
+            int offset
+    ) {
+        int headersLen = entityHeaderBytes.length + rawHeaderBytes.length;
+        int totalSize = RESPONSE_FRAME_HEADER_SIZE + headersLen;
+        if (totalSize > out.capacity() - offset) {
+            return -totalSize;
         }
 
         out.position(offset);
         out.put(STATIC_RESPONSE_FRAME_MAGIC);
-        out.putShort((short) 0);
-        out.putInt(0);
+        out.putShort((short) statusCode);
+        out.putInt(headersLen);
         out.putInt(nativeId);
-        return RESPONSE_FRAME_HEADER_SIZE;
+        if (entityHeaderBytes.length > 0) {
+            out.put(entityHeaderBytes);
+        }
+        if (rawHeaderBytes.length > 0) {
+            out.put(rawHeaderBytes);
+        }
+        return totalSize;
     }
 
     private int writeFileResponse(

@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.4-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.2.5-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -19,13 +19,16 @@ The model is intentionally simple:
 
 ## Current Stable Line
 
-`3.2.4` carries Redis native ABI version `3`, used by `java-rust-cache:0.2.1` for Redis Cluster routing and Sentinel master failover refresh. If your application uses both `rust-java-rest` and `java-rust-cache`, keep these versions aligned:
+`3.2.5` carries the current native runtime line used by `java-rust-cache:0.2.1` and
+`java-rust-dubbo:0.2.0`. It keeps Redis native ABI version `3` for Redis Cluster routing and
+Sentinel master failover refresh, and it includes the native runtime updates needed by the Dubbo
+native response handle path. If your application combines these libraries, keep the versions aligned:
 
 ```xml
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.4</version>
+  <version>3.2.5</version>
 </dependency>
 
 <dependency>
@@ -33,13 +36,19 @@ The model is intentionally simple:
   <artifactId>java-rust-cache</artifactId>
   <version>0.2.1</version>
 </dependency>
+
+<dependency>
+  <groupId>com.reactor</groupId>
+  <artifactId>java-rust-dubbo</artifactId>
+  <version>0.2.0</version>
+</dependency>
 ```
 
-Do not mix `java-rust-cache:0.2.1` Sentinel mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, and Sentinel master failover refresh needs ABI version `3`.
+Do not mix `java-rust-cache:0.2.1` Sentinel mode or `java-rust-dubbo:0.2.0` native handle mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, Sentinel master failover refresh needs ABI version `3`, and Dubbo native response handles need the current native resource package.
 
-## v3.2.4 At A Glance
+## v3.2.5 At A Glance
 
-`v3.2.4` keeps the same Java programming model: handlers, services, records, database calls, and
+`v3.2.5` keeps the same Java programming model: handlers, services, records, database calls, and
 business rules stay in Java. The release is about choosing the right runtime profile and response
 path so Rust can remove I/O, buffering, file, and selected serialization overhead without changing
 your application structure.
@@ -50,9 +59,9 @@ your own endpoint matrix before tightening memory limits.
 | Service shape | Start with this profile | Use this response/API path | What you get | Watch point |
 |---------------|-------------------------|----------------------------|--------------|-------------|
 | Small CRUD REST, normal JSON | `micro-rest` | Java records, normal `@GetMapping` / `@PostMapping` | Small runtime surface, simple code, bounded queues | Do not over-optimize before measuring |
-| Read-heavy or precomputed JSON | `micro-rest` | `RawResponse.json(bytes)` or `@NativeStaticRoute` | Avoids DTO serialization and repeated body build | Only cache/register data with a clear invalidation rule |
+| Read-heavy or precomputed JSON | `micro-rest` | `RawResponse.nativeResponse(nativeId)`, `RawResponse.json(bytes)`, or `@NativeStaticRoute` | Avoids DTO serialization and repeated body build | Use native handles only when the body already lives in Rust |
 | Hot dynamic JSON with large DTO shape | `micro-rest-plus` | `JsonBodyProducer` / `JsonProducerResponse` + `@DirectQuery*` where useful | Avoids large Java object graph allocation on hot routes | Route can still reject under overload; tune route budgets |
-| Dubbo consumer service | `micro-dubbo` | Provider returns UTF-8 JSON bytes, consumer returns `RawResponse.json(bytes)` | Keeps REST narrow while Dubbo is explicit and bounded | ZooKeeper/discovery adds its own client/runtime cost |
+| Dubbo consumer service | `micro-dubbo` | Provider returns UTF-8 JSON bytes; consumer returns `RawResponse.nativeResponse(handle.nativeId())` when using native handles | Keeps REST narrow while Dubbo is explicit and bounded | Use `RawResponse.json(bytes)` only when Java must inspect the response |
 | Static JSON or immutable file | `micro-rest` or `low-rss` | `@NativeStaticRoute`, `FileResponse`, `@NativeStaticFileRoute` | Rust serves response/file path without moving bytes through Java heap | Size file stream concurrency deliberately |
 | Low-traffic pod with long idle windows | `micro-rest` + opt-in idle trim | Background `reactor.rust.native-trim.*` policy | Reclaims warmed native anonymous memory after idle | Never trim on request path; run p99/503 gate first |
 | High throughput, fewer rejects required | `balanced` or `throughput` | Same Java APIs, larger runtime headroom | Smoother overload behavior than memory-first profiles | Higher RSS; do not use as the default for tiny pods |
@@ -153,7 +162,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.4</version>
+  <version>3.2.5</version>
 </dependency>
 ```
 
@@ -226,16 +235,16 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-3.2.2.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-3.2.2-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-3.2.5.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-3.2.5-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `rust-java-rest-3.2.2-sample.jar`: runnable demo and benchmark app only. Do not use this as a
+- `rust-java-rest-3.2.5-sample.jar`: runnable demo and benchmark app only. Do not use this as a
   production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:3.2.2`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:3.2.5`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` classifier exists only so developers can run the bundled demo and benchmark
   endpoints from the framework repository.
@@ -247,11 +256,11 @@ What this means in practice:
 
 Package rule:
 
-- Maven packages are immutable. The existing `3.2.2` package should not be republished with changed
+- Maven packages are immutable. The existing `3.2.5` package should not be republished with changed
   bytes under the same version.
-- Documentation and GitHub release notes can be clarified for `3.2.2`.
+- Documentation and GitHub release notes can be clarified for `3.2.5`.
 - If code, native binaries, or packaged benchmark fixtures must change for consumers, cut a new patch
-  version instead of overwriting `3.2.2`.
+  version instead of overwriting `3.2.5`.
 
 ## Quick Start
 
@@ -590,6 +599,7 @@ Start simple. Move one route at a time only when measurements show a problem.
 |----------|----------|-----|
 | Normal CRUD or business API | Record DTO + `@GetMapping`, `@PostMapping`, etc. | Simple and maintainable |
 | Existing JSON from Redis/read model/RPC | `RawResponse.json(byte[])` | Avoids DTO rebuild and JSON serialization |
+| Provider/RPC response already lives in Rust native memory | `RawResponse.nativeResponse(nativeId)` | Java passes a small response id; the body does not materialize as a Java heap `byte[]` |
 | Same JSON repeats many times | `RawResponse.registeredJson(...)` or native dynamic cache | Avoids repeated Java-to-Rust body transfer |
 | Hot fixed-shape dynamic JSON | `JsonProducerResponse` or `JsonBufferWriter` | Avoids Java DTO list/object graph allocation |
 | Hot endpoint currently returning a large DTO graph | Keep DTO route for normal use, add `JsonProducerResponse` hot route | Same response shape with lower allocation/RSS pressure |
@@ -622,6 +632,27 @@ public RawResponse catalogRaw() {
 
 Use this when the payload is already serialized. Do not parse JSON into a record just to serialize it
 again.
+
+### Native Response Handle: Provider JSON Already Lives In Rust
+
+```java
+@GetMapping(value = "/catalog/native", responseType = RawResponse.class)
+public CompletionStage<ResponseEntity<RawResponse>> catalogNative() {
+    return catalogClient.nestedCatalogNativeJsonAsync()
+            .thenApply(handle -> ResponseEntity.ok(RawResponse.nativeResponse(handle.nativeId())));
+}
+```
+
+Use this when an integration such as `java-rust-dubbo` returns a native response handle instead of a
+Java `byte[]`. The HTTP body stays in Rust native memory and Java only carries the small response id.
+
+BEST: use this for pass-through provider JSON that the REST handler does not need to inspect.
+ACCEPTABLE: use `RawResponse.json(bytes)` when Java already has the bytes because it must validate,
+transform, audit, or log the response. ANTI-PATTERN: convert a native response handle back into a
+Java DTO and then serialize it again on a hot route.
+
+Treat `nativeId` as a response-scoped handle. Do not cache it, store it in a DTO, or reuse it across
+requests.
 
 ### Native Static JSON: Immutable Until Restart
 
@@ -1121,7 +1152,7 @@ Rules:
 
 ## UTF-8 Behavior
 
-`v3.2.2` keeps the UTF-8 fixes for:
+`v3.2.5` keeps the UTF-8 fixes for:
 
 - response bodies;
 - `RawResponse.text(...)` and `RawResponse.json(...)` content types;
@@ -1236,7 +1267,7 @@ reactor.rust.websocket.send-timeout-ms=5000
 
 ## Benchmark And Release Evidence
 
-Release-gate commands used for `v3.2.2`:
+Release-gate commands used for the current stable line:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
@@ -1266,7 +1297,7 @@ More benchmark details:
 
 - [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
-- [docs/release-notes/v3.2.4.md](docs/release-notes/v3.2.4.md)
+- [docs/release-notes/v3.2.5.md](docs/release-notes/v3.2.5.md)
 - [docs/release-notes/v3.2.3.md](docs/release-notes/v3.2.3.md)
 - [docs/release-notes/v3.2.2.md](docs/release-notes/v3.2.2.md)
 - [docs/release-notes/v3.2.1.md](docs/release-notes/v3.2.1.md)
