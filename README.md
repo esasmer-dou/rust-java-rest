@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.6-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.2.7-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -19,8 +19,8 @@ The model is intentionally simple:
 
 ## Current Stable Line
 
-`3.2.6` carries the current native runtime line used by `java-rust-cache:0.2.2` and
-`java-rust-dubbo:0.2.1`. It keeps Redis native ABI version `3` for Redis Cluster routing and
+`3.2.7` carries the current native runtime line used by `java-rust-cache:0.2.4` and
+`java-rust-dubbo:0.2.3`. It keeps Redis native ABI version `3` for Redis Cluster routing and
 Sentinel master failover refresh, and it includes the native runtime updates needed by the Dubbo
 native response handle path. If your application combines these libraries, keep the versions aligned:
 
@@ -28,30 +28,56 @@ native response handle path. If your application combines these libraries, keep 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.6</version>
+  <version>3.2.7</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.2.2</version>
+  <version>0.2.4</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.2.1</version>
+  <version>0.2.3</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.2.2` Sentinel mode or `java-rust-dubbo:0.2.1` native handle mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, Sentinel master failover refresh needs ABI version `3`, and Dubbo native response handles need the current native resource package.
+Do not mix `java-rust-cache:0.2.4` Sentinel mode or `java-rust-dubbo:0.2.3` native handle mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, Sentinel master failover refresh needs ABI version `3`, and Dubbo native response handles need the current native resource package.
 
-## v3.2.6 At A Glance
+## v3.2.7 At A Glance
 
-`v3.2.5` keeps the same Java programming model: handlers, services, records, database calls, and
+`v3.2.7` keeps the same Java programming model: handlers, services, records, database calls, and
 business rules stay in Java. The release is about choosing the right runtime profile and response
 path so Rust can remove I/O, buffering, file, and selected serialization overhead without changing
 your application structure.
+
+### Property Layers
+
+Applications can keep a small `rust-spring.properties` in the classpath and apply production
+overrides from an external file:
+
+```powershell
+java "-Dreactor.config.file=config/production.properties" -jar app.jar
+```
+
+Multiple overlays can be applied in order:
+
+```powershell
+java "-Dreactor.config.file=config/production.properties;config/advanced-tuning.properties" -jar app.jar
+```
+
+The same setting can be passed as an environment variable:
+
+```bash
+export REACTOR_CONFIG_FILE=/app/config/production.properties
+```
+
+BEST: keep the packaged file minimal, put Kubernetes/production values in `production.properties`,
+and keep route admission, native trim, pool and backpressure experiments in `advanced-tuning.properties`.
+ANTI-PATTERN: exposing every internal knob in the starter file and forcing new users to understand all
+of them before the service can run.
 
 Use this table first. Pick the row closest to your service, copy the starting properties, then run
 your own endpoint matrix before tightening memory limits.

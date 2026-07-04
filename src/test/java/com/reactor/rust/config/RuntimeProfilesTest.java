@@ -2,8 +2,11 @@ package com.reactor.rust.config;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Properties;
 import java.util.Set;
 
@@ -13,10 +16,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RuntimeProfilesTest {
 
+    @TempDir
+    Path tempDir;
+
     @AfterEach
     void resetProperties() throws Exception {
         properties().clear();
         explicitKeys().clear();
+        System.clearProperty("reactor.config.file");
         System.clearProperty("reactor.runtime.profile");
         System.clearProperty("reactor.websocket.enabled");
         System.clearProperty("reactor.rust.native-trim.enabled");
@@ -63,6 +70,24 @@ class RuntimeProfilesTest {
         assertEquals(128, PropertiesLoader.getInt("reactor.rust.jni.queue-capacity", 0));
         assertEquals(2, PropertiesLoader.getInt("reactor.rust.response-pool.medium-capacity", 0));
         assertEquals(0, PropertiesLoader.getInt("reactor.rust.native-cache.max-bytes", -1));
+    }
+
+    @Test
+    void configuredOverlayIsExplicitAndNotOverwrittenByRuntimeProfile() throws Exception {
+        Path overlay = tempDir.resolve("production.properties");
+        Files.writeString(overlay, String.join(System.lineSeparator(),
+                "reactor.runtime.profile=micro-rest",
+                "reactor.websocket.enabled=true",
+                "reactor.rust.jni.queue-capacity=777"));
+        System.setProperty("reactor.config.file", overlay.toString());
+
+        PropertiesLoader.load();
+        RuntimeProfiles.apply();
+
+        assertTrue(PropertiesLoader.getBoolean("reactor.websocket.enabled", false));
+        assertEquals(777, PropertiesLoader.getInt("reactor.rust.jni.queue-capacity", 0));
+        assertTrue(explicitKeys().contains("reactor.websocket.enabled"));
+        assertTrue(explicitKeys().contains("reactor.rust.jni.queue-capacity"));
     }
 
     @Test

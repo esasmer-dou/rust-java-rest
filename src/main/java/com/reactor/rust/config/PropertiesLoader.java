@@ -37,6 +37,7 @@ public final class PropertiesLoader {
     public static void load() {
         properties.clear();
         explicitPropertyKeys.clear();
+        boolean loaded = false;
 
         // Try classpath first. The framework's own bundled properties are defaults, not user
         // overrides; otherwise runtime profiles such as micro-rest cannot narrow pool/cache values.
@@ -51,27 +52,34 @@ public final class PropertiesLoader {
                     FrameworkLogger.info("[JAVA] Framework default properties loaded from classpath: "
                             + CONFIG_FILE);
                 }
-                return;
+                loaded = true;
             } catch (IOException ignored) {
             }
         }
 
         // Try file system paths
-        for (String path : SEARCH_PATHS) {
-            Path filePath = Paths.get(path);
-            if (Files.exists(filePath)) {
-                try (InputStream is = Files.newInputStream(filePath)) {
-                    properties.load(is);
-                    recordExplicitPropertyKeys();
-                    FrameworkLogger.info("[JAVA] Properties loaded from file: " + filePath.toAbsolutePath());
-                    return;
-                } catch (IOException ignored) {}
+        if (!loaded) {
+            for (String path : SEARCH_PATHS) {
+                Path filePath = Paths.get(path);
+                if (Files.exists(filePath)) {
+                    try (InputStream is = Files.newInputStream(filePath)) {
+                        properties.load(is);
+                        recordExplicitPropertyKeys();
+                        FrameworkLogger.info("[JAVA] Properties loaded from file: " + filePath.toAbsolutePath());
+                        loaded = true;
+                        break;
+                    } catch (IOException ignored) {}
+                }
             }
         }
 
         // Load defaults
-        loadDefaults();
-        FrameworkLogger.info("[JAVA] Using default properties");
+        if (!loaded) {
+            loadDefaults();
+            FrameworkLogger.info("[JAVA] Using default properties");
+        }
+
+        loadConfiguredOverlays();
     }
 
     /**
@@ -299,6 +307,37 @@ public final class PropertiesLoader {
 
     private static String toEnvKey(String key) {
         return key.replace('.', '_').replace('-', '_').toUpperCase(Locale.ROOT);
+    }
+
+    private static void loadConfiguredOverlays() {
+        String configured = System.getProperty("reactor.config.file");
+        if (configured == null || configured.isBlank()) {
+            configured = System.getenv("REACTOR_CONFIG_FILE");
+        }
+        if (configured == null || configured.isBlank()) {
+            return;
+        }
+        for (String rawPath : configured.split("[,;]")) {
+            String trimmed = rawPath.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            Path filePath = Paths.get(trimmed);
+            if (!Files.exists(filePath)) {
+                throw new IllegalStateException("Configured reactor.config.file does not exist: "
+                        + filePath.toAbsolutePath());
+            }
+            Properties overlay = new Properties();
+            try (InputStream input = Files.newInputStream(filePath)) {
+                overlay.load(input);
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to load reactor.config.file: "
+                        + filePath.toAbsolutePath(), e);
+            }
+            properties.putAll(overlay);
+            explicitPropertyKeys.addAll(overlay.stringPropertyNames());
+            FrameworkLogger.info("[JAVA] Properties overlay loaded from: " + filePath.toAbsolutePath());
+        }
     }
 
     private static boolean isExternalClasspathConfig(URL resource) {
