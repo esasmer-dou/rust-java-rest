@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.5-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.2.6-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -19,8 +19,8 @@ The model is intentionally simple:
 
 ## Current Stable Line
 
-`3.2.5` carries the current native runtime line used by `java-rust-cache:0.2.1` and
-`java-rust-dubbo:0.2.0`. It keeps Redis native ABI version `3` for Redis Cluster routing and
+`3.2.6` carries the current native runtime line used by `java-rust-cache:0.2.2` and
+`java-rust-dubbo:0.2.1`. It keeps Redis native ABI version `3` for Redis Cluster routing and
 Sentinel master failover refresh, and it includes the native runtime updates needed by the Dubbo
 native response handle path. If your application combines these libraries, keep the versions aligned:
 
@@ -28,25 +28,25 @@ native response handle path. If your application combines these libraries, keep 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.5</version>
+  <version>3.2.6</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.2.1</version>
+  <version>0.2.2</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.2.0</version>
+  <version>0.2.1</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.2.1` Sentinel mode or `java-rust-dubbo:0.2.0` native handle mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, Sentinel master failover refresh needs ABI version `3`, and Dubbo native response handles need the current native resource package.
+Do not mix `java-rust-cache:0.2.2` Sentinel mode or `java-rust-dubbo:0.2.1` native handle mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, Sentinel master failover refresh needs ABI version `3`, and Dubbo native response handles need the current native resource package.
 
-## v3.2.5 At A Glance
+## v3.2.6 At A Glance
 
 `v3.2.5` keeps the same Java programming model: handlers, services, records, database calls, and
 business rules stay in Java. The release is about choosing the right runtime profile and response
@@ -65,6 +65,42 @@ your own endpoint matrix before tightening memory limits.
 | Static JSON or immutable file | `micro-rest` or `low-rss` | `@NativeStaticRoute`, `FileResponse`, `@NativeStaticFileRoute` | Rust serves response/file path without moving bytes through Java heap | Size file stream concurrency deliberately |
 | Low-traffic pod with long idle windows | `micro-rest` + opt-in idle trim | Background `reactor.rust.native-trim.*` policy | Reclaims warmed native anonymous memory after idle | Never trim on request path; run p99/503 gate first |
 | High throughput, fewer rejects required | `balanced` or `throughput` | Same Java APIs, larger runtime headroom | Smoother overload behavior than memory-first profiles | Higher RSS; do not use as the default for tiny pods |
+
+### Minimal Application Bootstrap
+
+`RestApplication` removes repeated sample bootstrap code, but it does not hide the active surface.
+You still decide which package is scanned and which handler classes are registered:
+
+```java
+public final class OrdersApplication {
+    public static void main(String[] args) {
+        RestApplication.builder()
+                .scan("com.example.orders")
+                .handlers(HealthHandler.class, OrderHandler.class, CustomerHandler.class)
+                .shutdownThreadName("orders-shutdown")
+                .start();
+    }
+}
+```
+
+For very small applications, pass explicit handler instances and close owned resources yourself:
+
+```java
+public final class CatalogApplication {
+    public static void main(String[] args) {
+        CatalogClient client = CatalogClient.open();
+        RestApplication.builder()
+                .handlerInstances(new HealthHandler(), new CatalogHandler(client))
+                .closeable(client)
+                .disableRouteIndexValidationIfNotExplicit(true)
+                .start();
+    }
+}
+```
+
+BEST: use this for predictable startup and less boilerplate. ACCEPTABLE: keep manual
+`NativeBridge.startHttpServer(...)` when you need custom lifecycle wiring. ANTI-PATTERN: classpath
+scanning the whole application and letting hidden components become active by accident.
 
 ### Copy-Paste Starting Profiles
 
