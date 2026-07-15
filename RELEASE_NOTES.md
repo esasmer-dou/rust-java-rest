@@ -1,3 +1,34 @@
+# Rust-Java REST Framework v3.3.1
+
+`v3.3.1` adds a smaller application bootstrap while preserving explicit Java business composition.
+Normal applications select one named module with `RestApplication.run(...)`; the existing builder
+remains available for advanced lifecycle customization.
+
+## What's New For Users
+
+- Use `RestApplication.run(Module...)` for the minimal lifecycle.
+- Use `RestApplication.runStandard(Module...)` when the property-controlled production feature set
+  is required.
+- Keep handlers and managed resources in a named module instead of nesting builder code in `main`.
+- Existing REST annotations, handlers, services, and builder startup remain compatible.
+- Native ABI and packaged DLL/SO files are unchanged.
+
+## Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>3.3.1</version>
+</dependency>
+```
+
+Full release notes:
+
+- [docs/release-notes/v3.3.1.md](docs/release-notes/v3.3.1.md)
+
+---
+
 # Rust-Java REST Framework v3.2.5
 
 `v3.2.5` is a stable patch release for the current native runtime package used by the REST framework,

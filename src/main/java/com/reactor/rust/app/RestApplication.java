@@ -31,6 +31,29 @@ public final class RestApplication {
         return new Builder();
     }
 
+    /**
+     * Runs an application assembled from explicit modules using the minimal runtime lifecycle.
+     * The builder remains available for advanced startup customization.
+     */
+    public static void run(Module... modules) {
+        configureModules(builder(), modules).start();
+    }
+
+    /**
+     * Runs an application with the framework-owned production feature lifecycle enabled.
+     */
+    public static void runStandard(Module... modules) {
+        configureModules(builder().standardRuntimeFeatures(), modules).start();
+    }
+
+    public static RunningApplication startAsync(Module... modules) {
+        return configureModules(builder(), modules).startAsync();
+    }
+
+    public static RunningApplication startStandardAsync(Module... modules) {
+        return configureModules(builder().standardRuntimeFeatures(), modules).startAsync();
+    }
+
     @FunctionalInterface
     public interface Module {
         void configure(ModuleContext context);
@@ -97,6 +120,17 @@ public final class RestApplication {
         if (!PropertiesLoader.hasExternalOverride("reactor.startup.route-index.required")) {
             System.setProperty("reactor.startup.route-index.required", "false");
         }
+    }
+
+    private static Builder configureModules(Builder builder, Module... modules) {
+        Objects.requireNonNull(modules, "modules");
+        if (modules.length == 0) {
+            throw new IllegalArgumentException("At least one application module is required");
+        }
+        for (Module module : modules) {
+            builder.module(Objects.requireNonNull(module, "module"));
+        }
+        return builder;
     }
 
     /** @deprecated Use {@link Builder#start()} or {@link Builder#startAsync()} for owned shutdown. */

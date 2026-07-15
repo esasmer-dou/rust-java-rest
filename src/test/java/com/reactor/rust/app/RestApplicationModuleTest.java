@@ -37,4 +37,21 @@ class RestApplicationModuleTest {
         assertThrows(IllegalStateException.class, builder::startAsync);
         assertThrows(IllegalStateException.class, builder::startAsync);
     }
+
+    @Test
+    void simpleLauncherKeepsModuleResourceOwnership() {
+        AtomicBoolean closed = new AtomicBoolean();
+
+        assertThrows(IllegalStateException.class, () -> RestApplication.startAsync(context -> {
+            context.manage(() -> closed.set(true));
+            throw new IllegalStateException("configuration failed");
+        }));
+
+        assertTrue(closed.get());
+    }
+
+    @Test
+    void simpleLauncherRequiresAnExplicitModule() {
+        assertThrows(IllegalArgumentException.class, RestApplication::startAsync);
+    }
 }

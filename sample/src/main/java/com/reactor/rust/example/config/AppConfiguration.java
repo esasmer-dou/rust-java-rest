@@ -1,5 +1,6 @@
 package com.reactor.rust.example.config;
 
+import com.reactor.rust.example.ApplicationVersion;
 import com.reactor.rust.cors.CorsConfig;
 import com.reactor.rust.di.annotation.Bean;
 import com.reactor.rust.di.annotation.Configuration;
@@ -29,7 +30,7 @@ public class AppConfiguration {
      */
     @Bean("appMetadata")
     public AppMetadata appMetadata() {
-        return new AppMetadata("rust-java-rest", "2.0.0");
+        return new AppMetadata("rust-java-rest", ApplicationVersion.current());
     }
 
     /**

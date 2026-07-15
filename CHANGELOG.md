@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.3.1] - 2026-07-15
+
+### Added
+
+- Added `RestApplication.run(...)`, `runStandard(...)`, and async launcher overloads for explicit
+  named modules without exposing the advanced builder in normal application entry points.
+
+### Changed
+
+- Reduced the bundled sample entry point to one module-selection call while keeping handler and
+  resource composition explicit in `ReactorRustHyperModule`.
+- Registered the nested feature sample records with DSL-JSON code generation so the documented
+  feature endpoints return JSON instead of a missing-serializer `500` response.
+- Kept the existing builder API source-compatible for custom ports, containers, tests, and unusual
+  lifecycle wiring.
+- Native REST, Dubbo, and Redis ABI versions are unchanged; this is a Java API and documentation
+  release.
+
+---
+
 ## [3.2.5] - 2026-07-03
 
 ### Changed

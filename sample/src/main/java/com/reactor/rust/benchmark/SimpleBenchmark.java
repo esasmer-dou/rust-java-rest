@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Simple Load Test for Rust-Java REST Framework.
- * Run with: java -cp target/rust-java-rest-2.0.0.jar com.reactor.rust.benchmark.SimpleBenchmark
+ * Run with: java -cp target/rust-java-rest-&lt;version&gt;-sample.jar com.reactor.rust.benchmark.SimpleBenchmark
  */
 public class SimpleBenchmark {
 

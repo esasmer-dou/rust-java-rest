@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.2.7-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.3.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -19,8 +19,8 @@ The model is intentionally simple:
 
 ## Current Stable Line
 
-`3.2.7` carries the current native runtime line used by `java-rust-cache:0.2.4` and
-`java-rust-dubbo:0.2.3`. The packaged native runtime reports REST ABI `23`, Dubbo ABI `5`, and Redis
+`3.3.1` carries the current native runtime line used by `java-rust-cache:0.3.1` and
+`java-rust-dubbo:0.3.1`. The packaged native runtime reports REST ABI `23`, Dubbo ABI `5`, and Redis
 ABI `5`. It includes the native runtime updates needed by the Dubbo
 native response handle path. If your application combines these libraries, keep the versions aligned:
 
@@ -28,30 +28,30 @@ native response handle path. If your application combines these libraries, keep 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.7</version>
+  <version>3.3.1</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.2.4</version>
+  <version>0.3.1</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.2.3</version>
+  <version>0.3.1</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.2.4` or `java-rust-dubbo:0.2.3` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.3.1` or `java-rust-dubbo:0.3.1` native mode with a DLL/SO copied from
 an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
 
-## v3.2.7 At A Glance
+## v3.3.1 At A Glance
 
-`v3.2.7` keeps the same Java programming model: handlers, services, records, database calls, and
+`v3.3.1` keeps the same Java programming model: handlers, services, records, database calls, and
 business rules stay in Java. The release is about choosing the right runtime profile and response
 path so Rust can remove I/O, buffering, file, and selected serialization overhead without changing
 your application structure.
@@ -97,17 +97,25 @@ your own endpoint matrix before tightening memory limits.
 
 ### Minimal Application Bootstrap
 
-`RestApplication` removes repeated sample bootstrap code, but it does not hide the active surface.
-You still decide which package is scanned and which handler classes are registered:
+`RestApplication.run(...)` is the normal entry point. The `main` class selects one explicit module;
+the module declares the active package and handlers:
 
 ```java
 public final class OrdersApplication {
     public static void main(String[] args) {
-        RestApplication.builder()
-                .scan("com.example.orders")
-                .handlers(HealthHandler.class, OrderHandler.class, CustomerHandler.class)
-                .shutdownThreadName("orders-shutdown")
-                .start();
+        RestApplication.run(OrdersModule.INSTANCE);
+    }
+}
+
+public final class OrdersModule implements RestApplication.Module {
+    public static final OrdersModule INSTANCE = new OrdersModule();
+
+    private OrdersModule() {}
+
+    @Override
+    public void configure(RestApplication.ModuleContext context) {
+        context.scan("com.example.orders")
+                .handlerTypes(HealthHandler.class, OrderHandler.class, CustomerHandler.class);
     }
 }
 ```
@@ -119,24 +127,23 @@ every resource registered with `context.manage(...)`:
 ```java
 public final class CatalogApplication {
     public static void main(String[] args) {
-        RestApplication.builder()
-                .module(context -> {
-                    CatalogClient client = context.manage(
-                            CatalogClient.open(context.properties()));
-                    context.handlers(new HealthHandler(), new CatalogHandler(client));
-                })
-                .disableRouteIndexValidationIfNotExplicit(true)
-                .start();
+        RestApplication.run(CatalogModule.INSTANCE);
     }
 }
 ```
 
+`CatalogModule` creates the client with `context.manage(...)` and registers the two handlers. This
+keeps lifecycle code out of `main` without hiding which resources and handlers are active.
+
 If module configuration or HTTP startup fails, managed resources are closed in reverse order. A
 builder can start only once. This keeps startup failure behavior deterministic.
 
-Use `.standardRuntimeFeatures()` only when the application needs the complete property-controlled
+Use `RestApplication.runStandard(...)` only when the application needs the complete property-controlled
 startup set: low-RSS gate, WebSocket registration, static files, prewarm, InstantOn checkpoint, and
 idle native trim. Small explicit applications do not enable that surface automatically.
+
+The builder remains the advanced API for custom ports, embedded tests, custom containers, or unusual
+lifecycle wiring. Do not make the builder the default copy-paste path for a normal service.
 
 For small typed responses, use `JsonResponses.body(record)` or the primitive field helpers. For hot
 large responses, keep using `JsonBodyProducer`, a direct writer, raw/native response, or file
@@ -242,7 +249,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.7</version>
+  <version>3.3.1</version>
 </dependency>
 ```
 
@@ -315,16 +322,16 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-3.2.7.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-3.2.7-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-3.3.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-3.3.1-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-3.2.7-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-3.3.1-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:3.2.7`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:3.3.1`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -346,7 +353,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-3.2.7-sample.jar
+java -jar sample/target/rust-java-rest-3.3.1-sample.jar
 ```
 
 ## Quick Start

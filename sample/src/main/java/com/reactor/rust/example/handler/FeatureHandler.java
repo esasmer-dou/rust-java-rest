@@ -1,7 +1,9 @@
 package com.reactor.rust.example.handler;
 
+import com.dslplatform.json.CompiledJson;
 import com.reactor.rust.annotations.*;
 import com.reactor.rust.di.annotation.Component;
+import com.reactor.rust.example.ApplicationVersion;
 import com.reactor.rust.http.*;
 
 import java.nio.charset.StandardCharsets;
@@ -67,7 +69,7 @@ public class FeatureHandler {
     public ResponseEntity<FeatureInfo> getInfo() {
         return ResponseEntity.ok(new FeatureInfo(
             "Rust-Java REST Framework",
-            "2.0.0",
+            ApplicationVersion.current(),
             "HTTP features demo"
         ));
     }
@@ -161,10 +163,16 @@ public class FeatureHandler {
     }
 
     // DTOs
+    @CompiledJson
     public record FeatureInfo(String name, String version, String description) {}
+    @CompiledJson
     public record EtagResponse(String content, String etag) {}
+    @CompiledJson
     public record CompressRequest(String data) {}
+    @CompiledJson
     public record CompressResponse(int originalSize, int compressedSize, String encoding, double ratio) {}
+    @CompiledJson
     public record StatusResponse(int code, String message) {}
+    @CompiledJson
     public record CorsTestResponse(String message, String detectedOrigin) {}
 }
