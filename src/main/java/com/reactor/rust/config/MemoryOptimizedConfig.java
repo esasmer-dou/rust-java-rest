@@ -22,8 +22,8 @@ public class MemoryOptimizedConfig {
     public static final int MAX_BLOCKING_THREADS = 16;
 
     /**
-     * Thread-local buffer for zero-allocation JSON processing.
-     * Each thread gets its own 4KB buffer.
+     * Reusable thread-local buffer for small JSON operations.
+     * Each participating thread retains its own 4KB buffer.
      */
     public static final ThreadLocal<byte[]> THREAD_LOCAL_BUFFER =
         ThreadLocal.withInitial(() -> new byte[BUFFER_SIZE]);

@@ -9,8 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Cached metadata for handler methods.
  * Pre-computed at startup to avoid runtime reflection overhead.
- *
- * Performance: Reduces annotation lookup from ~200ns to ~5ns per request.
+ * Startup analysis is cached so request handling does not repeat annotation lookup.
  */
 public final class MethodMetadata {
 

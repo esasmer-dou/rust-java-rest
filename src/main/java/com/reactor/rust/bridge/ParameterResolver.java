@@ -18,9 +18,8 @@ import java.nio.ByteBuffer;
  * Resolves method parameters from HTTP request data.
  * Supports @PathVariable, @RequestParam, @HeaderParam, @RequestBody annotations.
  *
- * OPTIMIZED: Uses ThreadLocal FastMap pool for zero-allocation parameter parsing.
- * Before: 4 HashMap allocations per request (~2KB, ~50μs)
- * After: 0 allocations (reuses ThreadLocal FastMap instances)
+ * Uses thread-local FastMap instances to reduce repeated map allocation. Request strings,
+ * resolved arguments, decoded values, and capacity growth can still allocate.
  */
 public final class ParameterResolver {
 
@@ -51,7 +50,7 @@ public final class ParameterResolver {
 
     /**
      * Resolve parameters for annotated handler method.
-     * Uses ThreadLocal FastMap pools for zero-allocation.
+     * Reuses thread-local FastMap instances where possible.
      *
      * @param method     Handler method
      * @param body       Request body bytes
@@ -70,7 +69,7 @@ public final class ParameterResolver {
         Parameter[] params = method.getParameters();
         Object[] args = new Object[params.length];
 
-        // Use ThreadLocal FastMap pools - ZERO ALLOCATION
+        // Reuse thread-local request maps; capacity growth is bounded by request shape.
         FastMap pathParamMap = PooledMaps.getParams();
         FastMap queryParams = PooledMaps.getParams();
         FastMap headerMap = PooledMaps.getHeaders();
@@ -232,26 +231,49 @@ public final class ParameterResolver {
         }
 
         if (targetType == int.class || targetType == Integer.class) {
-            return Integer.parseInt(value);
+            return parseNumber("integer", value, Integer::parseInt);
         }
 
         if (targetType == long.class || targetType == Long.class) {
-            return Long.parseLong(value);
+            return parseNumber("long", value, Long::parseLong);
         }
 
         if (targetType == double.class || targetType == Double.class) {
-            return Double.parseDouble(value);
+            return parseNumber("double", value, Double::parseDouble);
         }
 
         if (targetType == boolean.class || targetType == Boolean.class) {
-            return Boolean.parseBoolean(value);
+            if ("true".equalsIgnoreCase(value)) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(value)) {
+                return false;
+            }
+            throw new BadRequestException("Invalid boolean parameter");
         }
 
         if (targetType.isEnum()) {
-            return Enum.valueOf((Class<? extends Enum>) targetType, value.toUpperCase());
+            try {
+                return Enum.valueOf((Class<? extends Enum>) targetType, value.toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new BadRequestException("Invalid " + targetType.getSimpleName() + " parameter", e);
+            }
         }
 
         return value;
+    }
+
+    private static <T> T parseNumber(String type, String value, NumberParser<T> parser) {
+        try {
+            return parser.parse(value);
+        } catch (NumberFormatException e) {
+            throw new BadRequestException("Invalid " + type + " parameter", e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface NumberParser<T> {
+        T parse(String value);
     }
 
     // ========================================
@@ -260,7 +282,7 @@ public final class ParameterResolver {
 
     /**
      * Parse key=value pairs from query string or path params.
-     * @deprecated Use PooledMaps.parseParamsTo() for zero-allocation
+     * @deprecated Use PooledMaps.parseParamsTo() to reuse request-local map storage
      */
     @Deprecated
     public static java.util.Map<String, String> parseParams(String params) {
@@ -281,7 +303,7 @@ public final class ParameterResolver {
 
     /**
      * Parse headers from string.
-     * @deprecated Use PooledMaps.parseHeadersTo() for zero-allocation
+     * @deprecated Use PooledMaps.parseHeadersTo() to reuse request-local map storage
      */
     @Deprecated
     public static java.util.Map<String, String> parseHeaders(String headers) {
@@ -302,7 +324,7 @@ public final class ParameterResolver {
 
     /**
      * Parse cookies from headers.
-     * @deprecated Use PooledMaps.parseCookiesTo() for zero-allocation
+     * @deprecated Use PooledMaps.parseCookiesTo() to reuse request-local map storage
      */
     @Deprecated
     public static java.util.Map<String, String> parseCookies(java.util.Map<String, String> headers) {

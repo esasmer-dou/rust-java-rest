@@ -89,8 +89,7 @@ public final class PropertiesLoader {
         properties.setProperty("server.port", "8080");
         properties.setProperty("server.host", "0.0.0.0");
         properties.setProperty("reactor.runtime.profile", "micro-rest");
-        properties.setProperty("native.library.path", "native/rust_hyper.dll");
-        properties.setProperty("reactor.native.load.java-library-path-first", "true");
+        properties.setProperty("reactor.native.load.java-library-path-first", "false");
         properties.setProperty("reactor.native.extract.cache.enabled", "true");
         properties.setProperty("reactor.native.extract.cache-dir", "");
         properties.setProperty("reactor.startup.component-index.enabled", "true");
@@ -156,8 +155,14 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.static-file.max-concurrent-streams", "128");
         properties.setProperty("reactor.rust.json.writer-initial-bytes", "4096");
         properties.setProperty("reactor.rust.json.writer-retain-max-bytes", "262144");
+        properties.setProperty("reactor.rust.json.fail-on-service-loader-error", "true");
         properties.setProperty("reactor.rust.async.max-inflight", "1024");
         properties.setProperty("reactor.rust.async.response-timeout-ms", "2000");
+        properties.setProperty("reactor.rust.async.frame-retain-max-bytes", "262144");
+        properties.setProperty("reactor.rust.errors.include-internal-message", "false");
+        properties.setProperty("reactor.rust.errors.max-message-chars", "512");
+        properties.setProperty("reactor.rust.server.startup-timeout-ms", "10000");
+        properties.setProperty("reactor.rust.server.graceful-shutdown-timeout-ms", "30000");
         properties.setProperty("reactor.rust.route-admission.enabled", "true");
         properties.setProperty("reactor.rust.route-admission.default-max-concurrent", "0");
         properties.setProperty("reactor.rust.route-admission.default-queue-timeout-ms", "0");
@@ -242,6 +247,41 @@ public final class PropertiesLoader {
         return value != null ? value : defaultValue;
     }
 
+    public static String require(String key) {
+        String value = get(key);
+        if (value == null || value.isBlank()) {
+            throw invalidProperty(key, value, "a non-blank value", null);
+        }
+        return value.trim();
+    }
+
+    public static int requireInt(String key) {
+        String value = require(key);
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw invalidProperty(key, value, "an integer", e);
+        }
+    }
+
+    public static long requireLong(String key) {
+        String value = require(key);
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw invalidProperty(key, value, "a long", e);
+        }
+    }
+
+    public static boolean requireBoolean(String key) {
+        String value = require(key);
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "true", "1", "yes", "on" -> true;
+            case "false", "0", "no", "off" -> false;
+            default -> throw invalidProperty(key, value, "a boolean", null);
+        };
+    }
+
     /**
      * Get int property
      */
@@ -251,9 +291,9 @@ public final class PropertiesLoader {
             return defaultValue;
         }
         try {
-            return Integer.parseInt(value);
+            return Integer.parseInt(value.trim());
         } catch (NumberFormatException e) {
-            return defaultValue;
+            throw invalidProperty(key, value, "an integer", e);
         }
     }
 
@@ -265,14 +305,20 @@ public final class PropertiesLoader {
         if (value == null) {
             return defaultValue;
         }
-        return Boolean.parseBoolean(value);
+        return switch (value.trim().toLowerCase(Locale.ROOT)) {
+            case "true", "1", "yes", "on" -> true;
+            case "false", "0", "no", "off" -> false;
+            default -> throw invalidProperty(key, value, "a boolean", null);
+        };
     }
 
     /**
      * Get all properties
      */
     public static Properties getAll() {
-        return new Properties(properties);
+        Properties copy = new Properties();
+        copy.putAll(properties);
+        return copy;
     }
 
     /**
@@ -284,9 +330,9 @@ public final class PropertiesLoader {
             return defaultValue;
         }
         try {
-            return Long.parseLong(value);
+            return Long.parseLong(value.trim());
         } catch (NumberFormatException e) {
-            return defaultValue;
+            throw invalidProperty(key, value, "a long", e);
         }
     }
 
@@ -299,10 +345,21 @@ public final class PropertiesLoader {
             return defaultValue;
         }
         try {
-            return Double.parseDouble(value);
+            return Double.parseDouble(value.trim());
         } catch (NumberFormatException e) {
-            return defaultValue;
+            throw invalidProperty(key, value, "a double", e);
         }
+    }
+
+    private static IllegalArgumentException invalidProperty(
+            String key,
+            String value,
+            String expected,
+            Throwable cause) {
+        String message = "Property '" + key + "' must be " + expected + ", but was '" + value + "'";
+        return cause == null
+                ? new IllegalArgumentException(message)
+                : new IllegalArgumentException(message, cause);
     }
 
     private static String toEnvKey(String key) {

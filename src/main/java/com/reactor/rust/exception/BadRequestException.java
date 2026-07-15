@@ -15,6 +15,12 @@ public class BadRequestException extends RuntimeException {
         this.invalidValue = null;
     }
 
+    public BadRequestException(String message, Throwable cause) {
+        super(message, cause);
+        this.field = null;
+        this.invalidValue = null;
+    }
+
     public BadRequestException(String field, String message, Object invalidValue) {
         super(message);
         this.field = field;

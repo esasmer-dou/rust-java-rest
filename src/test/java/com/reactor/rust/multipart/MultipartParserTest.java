@@ -171,6 +171,13 @@ class MultipartParserTest {
     }
 
     @Test
+    @DisplayName("Handle empty or unterminated boundary")
+    void testHandleInvalidBoundary() {
+        assertTrue(MultipartParser.parse("data".getBytes(), "multipart/form-data; boundary=").isEmpty());
+        assertTrue(MultipartParser.parse("data".getBytes(), "multipart/form-data; boundary=\"").isEmpty());
+    }
+
+    @Test
     @DisplayName("Enforce max file size")
     void testEnforceMaxFileSize() {
         String boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";

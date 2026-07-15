@@ -8,7 +8,7 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>3.2.7</version>
+    <version>3.3.0</version>
     <name>Rust-Java REST Framework</name>
     <description>Low-latency REST API framework with Rust Hyper HTTP I/O, Java handlers, low-RSS runtime profiles, route admission, and native response paths</description>
 
@@ -41,7 +41,6 @@
         <maven-compiler-plugin-version>3.12.1</maven-compiler-plugin-version>
         <maven-jar-plugin-version>3.3.0</maven-jar-plugin-version>
         <maven-shade-plugin-version>3.5.1</maven-shade-plugin-version>
-        <exec-maven-plugin-version>3.1.1</exec-maven-plugin-version>
         <jakarta.annotation-api-version>2.1.1</jakarta.annotation-api-version>
         <maven-source-plugin-version>3.3.0</maven-source-plugin-version>
         <maven-javadoc-plugin-version>3.6.3</maven-javadoc-plugin-version>
@@ -120,21 +119,6 @@
                             </excludes>
                         </configuration>
                     </execution>
-                    <execution>
-                        <id>attach-sample-jar</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                        <configuration>
-                            <classifier>sample</classifier>
-                            <archive>
-                                <manifest>
-                                    <mainClass>com.reactor.rust.example.ReactorRustHyperApplication</mainClass>
-                                </manifest>
-                            </archive>
-                        </configuration>
-                    </execution>
                 </executions>
             </plugin>
 
@@ -179,56 +163,6 @@
                         </configuration>
                     </execution>
                 </executions>
-            </plugin>
-
-            <!-- Dependency Plugin - copy runtime dependencies for the sample Docker benchmark classpath. -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <version>3.6.1</version>
-                <executions>
-                    <execution>
-                        <id>copy-runtime-dependencies</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>copy-dependencies</goal>
-                        </goals>
-                        <configuration>
-                            <includeScope>runtime</includeScope>
-                            <outputDirectory>${project.build.directory}/dependency</outputDirectory>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Exec Plugin for running with JVM parameters -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>${exec-maven-plugin-version}</version>
-                <executions>
-                    <execution>
-                        <id>generate-sample-startup-index</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>java</goal>
-                        </goals>
-                        <configuration>
-                            <mainClass>com.reactor.rust.startup.StartupIndexGenerator</mainClass>
-                            <arguments>
-                                <argument>--output</argument>
-                                <argument>${project.build.outputDirectory}</argument>
-                                <argument>--packages</argument>
-                                <argument>com.reactor.rust.example</argument>
-                                <argument>--exclude-websocket</argument>
-                                <argument>--exclude-static-files</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                </executions>
-                <configuration>
-                    <mainClass>com.reactor.rust.example.ReactorRustHyperApplication</mainClass>
-                </configuration>
             </plugin>
 
             <!-- Surefire Plugin for running tests -->

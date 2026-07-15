@@ -1,13 +1,13 @@
 package com.reactor.rust.util;
 
 /**
- * Zero-allocation map for high-performance parameter parsing.
- * Uses array-based storage instead of HashMap for minimal overhead.
+ * Small array-backed map for request parameter parsing.
+ * Reuses storage instead of creating a HashMap for every parse.
  *
  * Performance characteristics:
- * - No allocation on get/put (reuses internal arrays)
+ * - Reuses internal arrays after capacity stabilizes; growth can allocate
  * - O(n) lookup (but n is typically < 10 for HTTP params)
- * - Thread-safe via ThreadLocal usage pattern
+ * - Not thread-safe; intended for thread-confined reuse
  *
  * Usage:
  *   FastMap map = FastMap.acquire();
@@ -23,7 +23,7 @@ public final class FastMap {
     // Initial capacity for typical HTTP request (path params + query params)
     private static final int DEFAULT_CAPACITY = 16;
 
-    // Thread-local pool for zero-allocation
+    // Thread-local holder used to reuse the backing arrays
     private static final ThreadLocal<FastMap> POOL =
         ThreadLocal.withInitial(FastMap::new);
 

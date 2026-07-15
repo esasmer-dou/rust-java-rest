@@ -339,13 +339,13 @@ function Get-ProfileConfig {
 }
 
 function Find-FrameworkSampleJar {
-    $jar = Get-ChildItem -Path (Join-Path $FrameworkRoot "target") -Filter "rust-java-rest-*-sample.jar" |
+    $jar = Get-ChildItem -Path (Join-Path $FrameworkRoot "sample\target") -Filter "rust-java-rest-*-sample.jar" |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if ($null -eq $jar) {
-        throw "Framework executable sample jar not found. Run mvn package first."
+        throw "Framework executable sample jar not found. Build core, then run mvn package in sample/."
     }
-    return "target/$($jar.Name)"
+    return "sample/target/$($jar.Name)"
 }
 
 function Find-FrameworkCoreRuntimeJar {
@@ -356,19 +356,6 @@ function Find-FrameworkCoreRuntimeJar {
         throw "Framework core-runtime jar not found. Run mvn package first."
     }
     return "target/$($jar.Name)"
-}
-
-function Ensure-FrameworkRuntimeDependencies {
-    $dependencyDir = Join-Path $FrameworkRoot "target\dependency"
-    $hasRuntimeDeps = (Test-Path $dependencyDir) -and
-        $null -ne (Get-ChildItem -Path $dependencyDir -Filter "*.jar" -ErrorAction SilentlyContinue | Select-Object -First 1)
-    if ($hasRuntimeDeps) {
-        return
-    }
-    & mvn -q -DskipTests -f (Join-Path $FrameworkRoot "pom.xml") dependency:copy-dependencies "-DincludeScope=runtime" "-DoutputDirectory=target/dependency"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to copy framework runtime dependencies."
-    }
 }
 
 function Remove-ContainerIfExists {
@@ -1077,7 +1064,7 @@ $LoadRows = New-Object 'System.Collections.Generic.List[object]'
 
 try {
     if (-not $SkipBuild) {
-        & mvn -q -DskipTests -f (Join-Path $FrameworkRoot "pom.xml") package
+        & mvn -q -DskipTests -f (Join-Path $FrameworkRoot "pom.xml") install
         if ($LASTEXITCODE -ne 0) {
             throw "mvn package failed"
         }
@@ -1085,8 +1072,11 @@ try {
             $frameworkJar = Find-FrameworkCoreRuntimeJar
             docker build -t $Image -f (Join-Path $FrameworkRoot "benchmark/docker/minimal-production.Dockerfile") --build-arg "CORE_JAR=$frameworkJar" $FrameworkRoot
         } else {
+            & mvn -q -DskipTests -f (Join-Path $FrameworkRoot "sample\pom.xml") package
+            if ($LASTEXITCODE -ne 0) {
+                throw "sample mvn package failed"
+            }
             $frameworkJar = Find-FrameworkSampleJar
-            Ensure-FrameworkRuntimeDependencies
             docker build -t $Image -f (Join-Path $FrameworkRoot "benchmark/docker/framework.Dockerfile") --build-arg "JAR_FILE=$frameworkJar" $FrameworkRoot
         }
         if ($LASTEXITCODE -ne 0) {
@@ -1095,10 +1085,6 @@ try {
         docker build -q -t $RunnerImage -f (Join-Path $ScriptDir "Dockerfile.benchmark") $ScriptDir | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "runner docker build failed"
-        }
-    } else {
-        if ($AppMode -ne "minimal") {
-            Ensure-FrameworkRuntimeDependencies
         }
     }
 

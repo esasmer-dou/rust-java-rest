@@ -73,43 +73,49 @@ public final class PropertyInjector {
             return null;
         }
 
-        return convertType(stringValue, targetType);
+        return convertType(key, stringValue, targetType);
     }
 
     /**
      * String degeri hedef tipe donusturur.
      */
-    private static Object convertType(String value, Class<?> targetType) {
+    private static Object convertType(String key, String value, Class<?> targetType) {
         if (targetType == String.class) {
             return value;
         }
 
+        String normalized = value.trim();
+
         if (targetType == int.class || targetType == Integer.class) {
-            return Integer.parseInt(value);
+            return parseNumber(key, normalized, targetType, Integer::parseInt);
         }
 
         if (targetType == long.class || targetType == Long.class) {
-            return Long.parseLong(value);
+            return parseNumber(key, normalized, targetType, Long::parseLong);
         }
 
         if (targetType == double.class || targetType == Double.class) {
-            return Double.parseDouble(value);
+            return parseNumber(key, normalized, targetType, Double::parseDouble);
         }
 
         if (targetType == float.class || targetType == Float.class) {
-            return Float.parseFloat(value);
+            return parseNumber(key, normalized, targetType, Float::parseFloat);
         }
 
         if (targetType == boolean.class || targetType == Boolean.class) {
-            return Boolean.parseBoolean(value);
+            return switch (normalized.toLowerCase(java.util.Locale.ROOT)) {
+                case "true", "1", "yes", "on" -> true;
+                case "false", "0", "no", "off" -> false;
+                default -> throw invalidValue(key, value, targetType);
+            };
         }
 
         if (targetType == short.class || targetType == Short.class) {
-            return Short.parseShort(value);
+            return parseNumber(key, normalized, targetType, Short::parseShort);
         }
 
         if (targetType == byte.class || targetType == Byte.class) {
-            return Byte.parseByte(value);
+            return parseNumber(key, normalized, targetType, Byte::parseByte);
         }
 
         if (targetType == char.class || targetType == Character.class) {
@@ -120,15 +126,40 @@ public final class PropertyInjector {
         if (targetType.isEnum()) {
             @SuppressWarnings({"unchecked", "rawtypes"})
             Object[] enumConstants = targetType.getEnumConstants();
-            String upperValue = value.toUpperCase();
+            String upperValue = normalized.toUpperCase(java.util.Locale.ROOT);
             for (Object constant : enumConstants) {
                 if (((Enum) constant).name().equals(upperValue)) {
                     return constant;
                 }
             }
-            return null;
+            throw invalidValue(key, value, targetType);
         }
 
-        return value;
+        throw new IllegalArgumentException(
+                "Unsupported @RustProperty type " + targetType.getName() + " for '" + key + "'"
+        );
+    }
+
+    private static IllegalArgumentException invalidValue(String key, String value, Class<?> targetType) {
+        return new IllegalArgumentException(
+                "Property '" + key + "' value '" + value + "' is not a valid " + targetType.getSimpleName()
+        );
+    }
+
+    private static <T> T parseNumber(
+            String key,
+            String value,
+            Class<?> targetType,
+            NumberParser<T> parser) {
+        try {
+            return parser.parse(value);
+        } catch (NumberFormatException e) {
+            throw invalidValue(key, value, targetType);
+        }
+    }
+
+    @FunctionalInterface
+    private interface NumberParser<T> {
+        T parse(String value);
     }
 }

@@ -54,6 +54,13 @@ public final class FrameworkLogger {
         }
     }
 
+    public static void debugError(String message, Throwable error) {
+        if (level() >= DEBUG) {
+            System.err.println(message);
+            error.printStackTrace(System.err);
+        }
+    }
+
     private static int level() {
         String configured = PropertiesLoader.get("reactor.rust.java.log.level", "warn");
         return switch (configured.trim().toLowerCase(Locale.ROOT)) {

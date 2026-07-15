@@ -1,7 +1,8 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.json.DslJsonService;
-import com.reactor.rust.util.FastMapV2;
+import com.reactor.rust.exception.BadRequestException;
+import com.reactor.rust.util.RequestValueMap;
 import com.reactor.rust.util.UrlCodec;
 
 import java.lang.invoke.MethodHandle;
@@ -60,7 +61,7 @@ final class CompiledRouteInvoker {
         return invokeResolved(resolver.value(value));
     }
 
-    Object invoke(byte[] body, FastMapV2 params, FastMapV2 headers) throws Throwable {
+    Object invoke(byte[] body, RequestValueMap params, RequestValueMap headers) throws Throwable {
         return switch (resolvers.length) {
             case 0 -> invokeResolved();
             case 1 -> invokeResolved(resolvers[0].resolve(body, params, headers));
@@ -117,7 +118,7 @@ final class CompiledRouteInvoker {
         };
     }
 
-    Object invokeDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers) throws Throwable {
+    Object invokeDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers) throws Throwable {
         return switch (resolvers.length) {
             case 0 -> invokeResolved();
             case 1 -> invokeResolved(resolvers[0].resolveDirect(body, bodyLen, params, headers));
@@ -276,12 +277,17 @@ final class CompiledRouteInvoker {
     private static ArgumentResolver resolverFor(MethodMetadata.ParamInfo info) {
         return switch (info.paramType) {
             case PATH_VARIABLE, REQUEST_PARAM ->
-                    new ParamResolver(info.name, converterFor(info.type), info.defaultValue);
+                    new ParamResolver(info.name, converterFor(info.type), info.defaultValue, info.required);
             case HEADER_PARAM ->
-                    new HeaderResolver(info.name.toLowerCase(Locale.ROOT), converterFor(info.type), info.defaultValue);
+                    new HeaderResolver(
+                            info.name.toLowerCase(Locale.ROOT),
+                            converterFor(info.type),
+                            info.defaultValue,
+                            info.required
+                    );
             case COOKIE_VALUE ->
-                    new CookieResolver(info.name, converterFor(info.type), info.defaultValue);
-            case REQUEST_BODY -> new BodyResolver(info.type);
+                    new CookieResolver(info.name, converterFor(info.type), info.defaultValue, info.required);
+            case REQUEST_BODY -> new BodyResolver(info.type, info.required);
             case LEGACY_BUFFER -> NullResolver.INSTANCE;
             case LEGACY_INT -> ZeroIntResolver.INSTANCE;
             default -> NullResolver.INSTANCE;
@@ -289,9 +295,9 @@ final class CompiledRouteInvoker {
     }
 
     private interface ArgumentResolver {
-        Object resolve(byte[] body, FastMapV2 params, FastMapV2 headers);
+        Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers);
 
-        Object resolveDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers);
+        Object resolveDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers);
     }
 
     private interface SingleValueResolver {
@@ -302,23 +308,26 @@ final class CompiledRouteInvoker {
         Object convert(String value);
     }
 
-    private record ParamResolver(String name, ValueConverter converter, String defaultValue)
+    private record ParamResolver(String name, ValueConverter converter, String defaultValue, boolean required)
             implements ArgumentResolver, SingleValueResolver {
         @Override
-        public Object resolve(byte[] body, FastMapV2 params, FastMapV2 headers) {
+        public Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers) {
             return value(params);
         }
 
         @Override
-        public Object resolveDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers) {
+        public Object resolveDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers) {
             return value(params);
         }
 
-        private Object value(FastMapV2 params) {
+        private Object value(RequestValueMap params) {
             String value = params.get(name);
             if (value == null && defaultValue != null) {
                 value = defaultValue;
             }
+            if (value == null && required) {
+                throw new BadRequestException("Parameter '" + name + "' is required");
+            }
             return converter.convert(value);
         }
 
@@ -328,27 +337,33 @@ final class CompiledRouteInvoker {
             if (value == null && defaultValue != null) {
                 value = defaultValue;
             }
+            if (value == null && required) {
+                throw new BadRequestException("Parameter '" + name + "' is required");
+            }
             return converter.convert(value);
         }
     }
 
-    private record HeaderResolver(String name, ValueConverter converter, String defaultValue)
+    private record HeaderResolver(String name, ValueConverter converter, String defaultValue, boolean required)
             implements ArgumentResolver, SingleValueResolver {
         @Override
-        public Object resolve(byte[] body, FastMapV2 params, FastMapV2 headers) {
+        public Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers) {
             return value(headers);
         }
 
         @Override
-        public Object resolveDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers) {
+        public Object resolveDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers) {
             return value(headers);
         }
 
-        private Object value(FastMapV2 headers) {
+        private Object value(RequestValueMap headers) {
             String value = headers.get(name);
             if (value == null && defaultValue != null) {
                 value = defaultValue;
             }
+            if (value == null && required) {
+                throw new BadRequestException("Header '" + name + "' is required");
+            }
             return converter.convert(value);
         }
 
@@ -358,26 +373,32 @@ final class CompiledRouteInvoker {
             if (value == null && defaultValue != null) {
                 value = defaultValue;
             }
+            if (value == null && required) {
+                throw new BadRequestException("Header '" + name + "' is required");
+            }
             return converter.convert(value);
         }
     }
 
-    private record CookieResolver(String name, ValueConverter converter, String defaultValue)
+    private record CookieResolver(String name, ValueConverter converter, String defaultValue, boolean required)
             implements ArgumentResolver, SingleValueResolver {
         @Override
-        public Object resolve(byte[] body, FastMapV2 params, FastMapV2 headers) {
+        public Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers) {
             return value(headers);
         }
 
         @Override
-        public Object resolveDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers) {
+        public Object resolveDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers) {
             return value(headers);
         }
 
-        private Object value(FastMapV2 headers) {
+        private Object value(RequestValueMap headers) {
             String value = findCookieValue(headers.get("cookie"), name);
             if (value == null && defaultValue != null) {
                 value = defaultValue;
+            }
+            if (value == null && required) {
+                throw new BadRequestException("Cookie '" + name + "' is required");
             }
             return converter.convert(value);
         }
@@ -388,14 +409,18 @@ final class CompiledRouteInvoker {
             if (value == null && defaultValue != null) {
                 value = defaultValue;
             }
+            if (value == null && required) {
+                throw new BadRequestException("Cookie '" + name + "' is required");
+            }
             return converter.convert(value);
         }
     }
 
-    private record BodyResolver(Class<?> targetType) implements ArgumentResolver {
+    private record BodyResolver(Class<?> targetType, boolean required) implements ArgumentResolver {
         @Override
-        public Object resolve(byte[] body, FastMapV2 params, FastMapV2 headers) {
+        public Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers) {
             if (body == null || body.length == 0) {
+                requireBody();
                 return null;
             }
             if (targetType == byte[].class) {
@@ -408,8 +433,9 @@ final class CompiledRouteInvoker {
         }
 
         @Override
-        public Object resolveDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers) {
+        public Object resolveDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers) {
             if (body == null || bodyLen <= 0) {
+                requireBody();
                 return null;
             }
             if (targetType == ByteBuffer.class) {
@@ -420,18 +446,24 @@ final class CompiledRouteInvoker {
             }
             return DslJsonService.parse(body, bodyLen, targetType);
         }
+
+        private void requireBody() {
+            if (required) {
+                throw new BadRequestException("Request body is required");
+            }
+        }
     }
 
     private enum NullResolver implements ArgumentResolver {
         INSTANCE;
 
         @Override
-        public Object resolve(byte[] body, FastMapV2 params, FastMapV2 headers) {
+        public Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers) {
             return null;
         }
 
         @Override
-        public Object resolveDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers) {
+        public Object resolveDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers) {
             return null;
         }
     }
@@ -440,12 +472,12 @@ final class CompiledRouteInvoker {
         INSTANCE;
 
         @Override
-        public Object resolve(byte[] body, FastMapV2 params, FastMapV2 headers) {
+        public Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers) {
             return 0;
         }
 
         @Override
-        public Object resolveDirect(ByteBuffer body, int bodyLen, FastMapV2 params, FastMapV2 headers) {
+        public Object resolveDirect(ByteBuffer body, int bodyLen, RequestValueMap params, RequestValueMap headers) {
             return 0;
         }
     }
@@ -523,7 +555,7 @@ final class CompiledRouteInvoker {
 
         @Override
         public Object convert(String value) {
-            return value == null ? null : Integer.parseInt(value);
+            return value == null ? null : parseNumber("integer", value, Integer::parseInt);
         }
     }
 
@@ -532,7 +564,7 @@ final class CompiledRouteInvoker {
 
         @Override
         public Object convert(String value) {
-            return value == null ? null : Long.parseLong(value);
+            return value == null ? null : parseNumber("long", value, Long::parseLong);
         }
     }
 
@@ -541,7 +573,7 @@ final class CompiledRouteInvoker {
 
         @Override
         public Object convert(String value) {
-            return value == null ? null : Short.parseShort(value);
+            return value == null ? null : parseNumber("short", value, Short::parseShort);
         }
     }
 
@@ -550,7 +582,7 @@ final class CompiledRouteInvoker {
 
         @Override
         public Object convert(String value) {
-            return value == null ? null : Double.parseDouble(value);
+            return value == null ? null : parseNumber("double", value, Double::parseDouble);
         }
     }
 
@@ -559,7 +591,16 @@ final class CompiledRouteInvoker {
 
         @Override
         public Object convert(String value) {
-            return value == null ? null : Boolean.parseBoolean(value);
+            if (value == null) {
+                return null;
+            }
+            if ("true".equalsIgnoreCase(value)) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(value)) {
+                return false;
+            }
+            throw new BadRequestException("Invalid boolean parameter");
         }
     }
 
@@ -587,8 +628,21 @@ final class CompiledRouteInvoker {
                     return constants[i];
                 }
             }
-            throw new IllegalArgumentException("No enum constant " + enumType.getName() + "." + value);
+            throw new BadRequestException("Invalid " + enumType.getSimpleName() + " parameter");
         }
+    }
+
+    private static <T> T parseNumber(String type, String value, NumberParser<T> parser) {
+        try {
+            return parser.parse(value);
+        } catch (NumberFormatException e) {
+            throw new BadRequestException("Invalid " + type + " parameter", e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface NumberParser<T> {
+        T parse(String value);
     }
 
     private static String findCookieValue(String cookieHeader, String name) {

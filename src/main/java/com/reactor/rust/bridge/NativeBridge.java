@@ -1,16 +1,14 @@
 package com.reactor.rust.bridge;
 
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.exception.HttpErrorMapper;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.websocket.WebSocketRegistry;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * JNI bridge between Rust HTTP server and Java handlers.
@@ -23,7 +21,9 @@ import java.util.concurrent.TimeoutException;
  */
 public class NativeBridge {
 
-    static final int EXPECTED_NATIVE_ABI_VERSION = 21;
+    static final int EXPECTED_NATIVE_ABI_VERSION = 23;
+    static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 5;
+    static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 5;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;
     private static final long DEFAULT_MAX_IN_FLIGHT_BODY_BYTES = 64L * 1024L * 1024L;
@@ -53,6 +53,8 @@ public class NativeBridge {
     private static final long DEFAULT_NATIVE_CACHE_MAX_BYTES = 16L * 1024L * 1024L;
     private static final long DEFAULT_NATIVE_CACHE_TTL_MS = 300_000L;
     private static final int DEFAULT_ASYNC_RESPONSE_TIMEOUT_MS = 2_000;
+    private static final int DEFAULT_SERVER_STARTUP_TIMEOUT_MS = 10_000;
+    private static final int DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 30_000;
     public static final int WS_SEND_OK = 1;
     public static final int WS_SEND_NOT_FOUND = 0;
     public static final int WS_SEND_QUEUE_FULL = -1;
@@ -80,6 +82,12 @@ public class NativeBridge {
     );
 
     public static native int nativeAbiVersion();
+
+    public static native String nativeBuildInfo();
+
+    public static String nativeArtifactInfo() {
+        return NativeLibraryLoader.loadedArtifactInfo();
+    }
 
     public static native String nativeMetricsPrometheus();
 
@@ -133,6 +141,13 @@ public class NativeBridge {
 
     public static native int sendWebSocketBinary(long sessionId, byte[] data, int len);
 
+    public static native int sendWebSocketBinaryBuffer(
+            long sessionId,
+            ByteBuffer data,
+            int offset,
+            int len
+    );
+
     public static native int closeWebSocket(long sessionId);
 
     public static native int closeWebSocketWithReason(long sessionId, int code, String reason);
@@ -174,9 +189,45 @@ public class NativeBridge {
             int asyncResponseTimeoutMs
     );
 
-    public static native void startHttpServer(int port);
+    private static native boolean nativeStartHttpServer(
+            int port,
+            int startupTimeoutMs,
+            int gracefulShutdownTimeoutMs);
 
-    public static native boolean stopHttpServer();
+    private static native boolean nativeStopHttpServer(int waitTimeoutMs);
+
+    private static native int nativeHttpServerState();
+
+    public static void startHttpServer(int port) {
+        int startupTimeoutMs = positiveServerTimeout(
+                "reactor.rust.server.startup-timeout-ms",
+                DEFAULT_SERVER_STARTUP_TIMEOUT_MS
+        );
+        int gracefulShutdownTimeoutMs = positiveServerTimeout(
+                "reactor.rust.server.graceful-shutdown-timeout-ms",
+                DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS
+        );
+        if (!nativeStartHttpServer(port, startupTimeoutMs, gracefulShutdownTimeoutMs)) {
+            throw new IllegalStateException("Native Hyper server did not reach ready state");
+        }
+    }
+
+    public static boolean stopHttpServer() {
+        int gracefulShutdownTimeoutMs = positiveServerTimeout(
+                "reactor.rust.server.graceful-shutdown-timeout-ms",
+                DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT_MS
+        );
+        int waitTimeoutMs = Math.min(Integer.MAX_VALUE - 1_000, gracefulShutdownTimeoutMs + 1_000);
+        return nativeStopHttpServer(waitTimeoutMs);
+    }
+
+    public static boolean isHttpServerReady() {
+        return nativeHttpServerState() == 1;
+    }
+
+    public static boolean isHttpServerDraining() {
+        return nativeHttpServerState() == 2;
+    }
 
     public static native void registerRoutes(List<RouteDef> routes);
 
@@ -323,6 +374,17 @@ public class NativeBridge {
                                 + ". Rebuild rust-spring and update native resources."
                 );
             }
+            NativeProvenance.BuildInfo buildInfo = NativeLibraryLoader.validateRuntimeProvenance(
+                    nativeBuildInfo(),
+                    EXPECTED_NATIVE_ABI_VERSION
+            );
+            FrameworkLogger.info(
+                    "[NativeBridge] Native build: revision=" + buildInfo.sourceRevision()
+                            + " target=" + buildInfo.target()
+                            + " profile=" + buildInfo.profile()
+                            + " features=" + buildInfo.features()
+                            + " artifact={" + nativeArtifactInfo() + "}"
+            );
             configureRuntime(
                     maxRequestBodyBytes,
                     maxResponseBodyBytes,
@@ -408,8 +470,18 @@ public class NativeBridge {
             case "warn", "warning" -> 2;
             case "info" -> 3;
             case "debug", "trace" -> 4;
-            default -> DEFAULT_NATIVE_LOG_LEVEL;
+            default -> throw new IllegalArgumentException(
+                    "reactor.rust.log.level must be one of off, error, warn, info, debug"
+            );
         };
+    }
+
+    private static int positiveServerTimeout(String key, int defaultValue) {
+        int value = PropertiesLoader.getInt(key, defaultValue);
+        if (value < 100 || value > 300_000) {
+            throw new IllegalArgumentException(key + " must be between 100 and 300000 milliseconds");
+        }
+        return value;
     }
 
     /**
@@ -558,6 +630,7 @@ public class NativeBridge {
                     .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
             return true;
         } catch (Throwable e) {
+            throwIfFatal(e);
             completeAsyncHandler(requestId, (HandlerRegistry.AsyncResponseFrame) null, e);
             return true;
         }
@@ -575,6 +648,7 @@ public class NativeBridge {
                     .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
             return true;
         } catch (Throwable e) {
+            throwIfFatal(e);
             completeAsyncHandler(requestId, (HandlerRegistry.AsyncResponseFrame) null, e);
             return true;
         }
@@ -582,12 +656,11 @@ public class NativeBridge {
 
     private static void completeAsyncHandler(long requestId, HandlerRegistry.AsyncResponseFrame frame, Throwable error) {
         if (error != null) {
-            Throwable root = unwrapCompletion(error);
-            int status = root instanceof TimeoutException ? 504 : 500;
-            completeAsyncHandler(requestId, errorFrame(status, root), null);
+            throwIfFatal(error);
+            completeAsyncHandler(requestId, errorFrame(error), null);
             return;
         } else if (frame == null) {
-            completeAsyncHandler(requestId, errorFrame(500, new IllegalStateException("async handler completed with null frame")), null);
+            completeAsyncHandler(requestId, errorFrame(new IllegalStateException("async handler completed with null frame")), null);
             return;
         }
         try {
@@ -597,43 +670,37 @@ public class NativeBridge {
             } else {
                 completeAsyncResponse(requestId, frame.toByteArray());
             }
-        } catch (Throwable ignored) {
-            // Request may have timed out on the Rust side; late completion is intentionally dropped.
+        } catch (RuntimeException | LinkageError completionFailure) {
+            FrameworkLogger.debugError("[JAVA] Native async response completion was dropped: "
+                    + completionFailure.getMessage());
+        } finally {
+            HandlerRegistry.getInstance().releaseAsyncResponseFrame(frame);
         }
     }
 
     private static void completeAsyncHandler(long requestId, byte[] frame, Throwable error) {
         byte[] responseFrame = frame;
         if (error != null) {
-            Throwable root = unwrapCompletion(error);
-            int status = root instanceof TimeoutException ? 504 : 500;
-            responseFrame = errorFrame(status, root);
+            throwIfFatal(error);
+            responseFrame = errorFrame(error);
         } else if (responseFrame == null) {
-            responseFrame = errorFrame(500, new IllegalStateException("async handler completed with null frame"));
+            responseFrame = errorFrame(new IllegalStateException("async handler completed with null frame"));
         }
         try {
             completeAsyncResponse(requestId, responseFrame);
-        } catch (Throwable ignored) {
-            // Request may have timed out on the Rust side; late completion is intentionally dropped.
+        } catch (RuntimeException | LinkageError completionFailure) {
+            FrameworkLogger.debugError("[JAVA] Native async response completion was dropped: "
+                    + completionFailure.getMessage());
         }
     }
 
-    private static Throwable unwrapCompletion(Throwable error) {
-        Throwable current = error;
-        while ((current instanceof CompletionException || current instanceof ExecutionException)
-                && current.getCause() != null) {
-            current = current.getCause();
-        }
-        return current;
-    }
-
-    private static byte[] errorFrame(int status, Throwable error) {
-        String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
-        byte[] body = ("{\"error\":\"" + escapeJson(message) + "\"}")
-                .getBytes(StandardCharsets.UTF_8);
+    private static byte[] errorFrame(Throwable error) {
+        throwIfFatal(error);
+        HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(error);
+        byte[] body = HttpErrorMapper.toJsonBytes(mapped);
         ByteBuffer frame = ByteBuffer.allocate(RESPONSE_FRAME_HEADER_SIZE + body.length);
         frame.put(RESPONSE_FRAME_MAGIC);
-        frame.putShort((short) status);
+        frame.putShort((short) mapped.status());
         frame.putInt(0);
         frame.putInt(body.length);
         frame.put(body);
@@ -672,19 +739,7 @@ public class NativeBridge {
             return written;
 
         } catch (Throwable e) {
-            byte[] err = ("{\"error\":\"" + e.getMessage() + "\"}")
-                    .getBytes(StandardCharsets.UTF_8);
-            int totalSize = RESPONSE_FRAME_HEADER_SIZE + err.length;
-            if (totalSize > capacity) {
-                return -totalSize;
-            }
-            outBuffer.position(offset);
-            outBuffer.put(RESPONSE_FRAME_MAGIC);
-            outBuffer.putShort((short) 500);
-            outBuffer.putInt(0);
-            outBuffer.putInt(err.length);
-            outBuffer.put(err);
-            return totalSize;
+            return writeBridgeError(outBuffer, offset, capacity, e);
         }
     }
 
@@ -722,19 +777,7 @@ public class NativeBridge {
             return written;
 
         } catch (Throwable e) {
-            byte[] err = ("{\"error\":\"" + e.getMessage() + "\"}")
-                    .getBytes(StandardCharsets.UTF_8);
-            int totalSize = RESPONSE_FRAME_HEADER_SIZE + err.length;
-            if (totalSize > capacity) {
-                return -totalSize;
-            }
-            outBuffer.position(offset);
-            outBuffer.put(RESPONSE_FRAME_MAGIC);
-            outBuffer.putShort((short) 500);
-            outBuffer.putInt(0);
-            outBuffer.putInt(err.length);
-            outBuffer.put(err);
-            return totalSize;
+            return writeBridgeError(outBuffer, offset, capacity, e);
         }
     }
 
@@ -758,19 +801,7 @@ public class NativeBridge {
             return written;
 
         } catch (Throwable e) {
-            byte[] err = ("{\"error\":\"" + e.getMessage() + "\"}")
-                    .getBytes(StandardCharsets.UTF_8);
-            int totalSize = RESPONSE_FRAME_HEADER_SIZE + err.length;
-            if (totalSize > capacity) {
-                return -totalSize;
-            }
-            outBuffer.position(offset);
-            outBuffer.put(RESPONSE_FRAME_MAGIC);
-            outBuffer.putShort((short) 500);
-            outBuffer.putInt(0);
-            outBuffer.putInt(err.length);
-            outBuffer.put(err);
-            return totalSize;
+            return writeBridgeError(outBuffer, offset, capacity, e);
         }
     }
 
@@ -795,19 +826,7 @@ public class NativeBridge {
             return written;
 
         } catch (Throwable e) {
-            byte[] err = ("{\"error\":\"" + e.getMessage() + "\"}")
-                    .getBytes(StandardCharsets.UTF_8);
-            int totalSize = RESPONSE_FRAME_HEADER_SIZE + err.length;
-            if (totalSize > capacity) {
-                return -totalSize;
-            }
-            outBuffer.position(offset);
-            outBuffer.put(RESPONSE_FRAME_MAGIC);
-            outBuffer.putShort((short) 500);
-            outBuffer.putInt(0);
-            outBuffer.putInt(err.length);
-            outBuffer.put(err);
-            return totalSize;
+            return writeBridgeError(outBuffer, offset, capacity, e);
         }
     }
 
@@ -912,19 +931,36 @@ public class NativeBridge {
     }
 
     private static int writeBridgeError(ByteBuffer outBuffer, int offset, int capacity, Throwable error) {
-        byte[] err = ("{\"error\":\"" + escapeJson(error.getMessage()) + "\"}")
-                .getBytes(StandardCharsets.UTF_8);
+        throwIfFatal(error);
+        HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(error);
+        byte[] err = HttpErrorMapper.toJsonBytes(mapped);
         int totalSize = RESPONSE_FRAME_HEADER_SIZE + err.length;
         if (totalSize > capacity) {
             return -totalSize;
         }
         outBuffer.position(offset);
         outBuffer.put(RESPONSE_FRAME_MAGIC);
-        outBuffer.putShort((short) 500);
+        outBuffer.putShort((short) mapped.status());
         outBuffer.putInt(0);
         outBuffer.putInt(err.length);
         outBuffer.put(err);
         return totalSize;
+    }
+
+    private static void throwIfFatal(Throwable failure) {
+        Throwable current = failure;
+        while ((current instanceof java.util.concurrent.CompletionException
+                || current instanceof java.util.concurrent.ExecutionException)
+                && current.getCause() != null
+                && current.getCause() != current) {
+            current = current.getCause();
+        }
+        if (current instanceof VirtualMachineError fatal) {
+            throw fatal;
+        }
+        if (current instanceof ThreadDeath threadDeath) {
+            throw threadDeath;
+        }
     }
 
     // ======================
@@ -962,7 +998,10 @@ public class NativeBridge {
             return null;
         } catch (Exception e) {
             debugError("[NativeBridge] Error in onWebSocketMessage: " + e.getMessage());
-            return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+            return new String(
+                    HttpErrorMapper.toJsonBytes(HttpErrorMapper.map(e)),
+                    StandardCharsets.UTF_8
+            );
         }
     }
 
@@ -977,7 +1016,7 @@ public class NativeBridge {
             return null;
         } catch (Exception e) {
             debugError("[NativeBridge] Error in onWebSocketBinary: " + e.getMessage());
-            return ("{\"error\":\"" + escapeJson(e.getMessage()) + "\"}").getBytes(StandardCharsets.UTF_8);
+            return HttpErrorMapper.toJsonBytes(HttpErrorMapper.map(e));
         }
     }
 
@@ -1019,11 +1058,4 @@ public class NativeBridge {
         }
     }
 
-    private static String escapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r");
-    }
 }

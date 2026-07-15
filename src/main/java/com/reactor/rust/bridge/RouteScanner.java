@@ -53,6 +53,7 @@ public final class RouteScanner {
                 scanHandler(bean, routes);
             }
 
+            validateUniqueRoutes(routes);
             validateRouteIndex(routes);
             routePlans.publishStartupMetrics();
             routePlans.logSummary();
@@ -68,6 +69,16 @@ public final class RouteScanner {
                     routes.stream().filter(r -> !r.path.contains("{")).count() +
                     " pattern=" +
                     routes.stream().filter(r -> r.path.contains("{")).count());
+        }
+    }
+
+    static void validateUniqueRoutes(List<RouteDef> routes) {
+        Set<String> routeKeys = new HashSet<>(Math.max(16, routes.size() * 2));
+        for (RouteDef route : routes) {
+            String key = route.httpMethod.toUpperCase(Locale.ROOT) + " " + route.path;
+            if (!routeKeys.add(key)) {
+                throw new IllegalStateException("Duplicate HTTP route: " + key);
+            }
         }
     }
 
@@ -1020,11 +1031,7 @@ public final class RouteScanner {
         if (value == null || value.isBlank()) {
             return fallback;
         }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (NumberFormatException ignored) {
-            return fallback;
-        }
+        return PropertiesLoader.getInt(key, fallback);
     }
 
     private static String workloadKey(RouteWorkload.Type workloadType) {

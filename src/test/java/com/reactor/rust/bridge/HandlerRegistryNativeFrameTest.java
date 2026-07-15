@@ -60,6 +60,12 @@ class HandlerRegistryNativeFrameTest {
         return new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
     }
 
+    private static int frameStatus(ByteBuffer out) {
+        ByteBuffer frame = out.duplicate();
+        frame.position(8);
+        return frame.getShort() & 0xFFFF;
+    }
+
     static class LegacyHandler {
         public ResponseEntity<String> notFound(
                 ByteBuffer out,
@@ -405,6 +411,22 @@ class HandlerRegistryNativeFrameTest {
         }
     }
 
+    static class UnsafeAsyncBorrowedBufferHandler {
+        public CompletableFuture<Integer> writeLater(ByteBuffer out, int offset) {
+            return CompletableFuture.completedFuture(0);
+        }
+    }
+
+    static class ErrorContractHandler {
+        public ResponseEntity<String> byId(@RequestParam("id") int id) {
+            return ResponseEntity.ok("id:" + id);
+        }
+
+        public ResponseEntity<String> crash() {
+            throw new IllegalStateException("database-password-must-not-leak");
+        }
+    }
+
     @Test
     void responseEntityWritesNativeFrameWithStatusHeadersAndBody() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
@@ -578,6 +600,52 @@ class HandlerRegistryNativeFrameTest {
         int bodyLen = frame.getInt();
         String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
         assertEquals("\"async-created\"", encodedBody);
+    }
+
+    @Test
+    void rejectsAsyncHandlerThatBorrowsFrameworkOutputBuffer() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        UnsafeAsyncBorrowedBufferHandler handler = new UnsafeAsyncBorrowedBufferHandler();
+        Method method = UnsafeAsyncBorrowedBufferHandler.class.getDeclaredMethod(
+                "writeLater",
+                ByteBuffer.class,
+                int.class
+        );
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> registry.registerHandler(handler, method, byte[].class, Integer.class)
+        );
+
+        assertTrue(error.getMessage().contains("cannot receive a framework-owned ByteBuffer"));
+    }
+
+    @Test
+    void mapsCompiledParameterFailuresTo400AndMasksInternalFailures() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        ErrorContractHandler handler = new ErrorContractHandler();
+        Method byId = ErrorContractHandler.class.getDeclaredMethod("byId", int.class);
+        Method crash = ErrorContractHandler.class.getDeclaredMethod("crash");
+        int byIdHandler = registry.registerHandler(handler, byId, Void.class, ResponseEntity.class);
+        int crashHandler = registry.registerHandler(handler, crash, Void.class, ResponseEntity.class);
+
+        ByteBuffer missing = ByteBuffer.allocate(4096);
+        int missingWritten = registry.invokeBuffered(byIdHandler, missing, 0, null, "", "", "");
+        assertEquals(400, frameStatus(missing));
+        assertTrue(frameBody(missing, missingWritten).contains("is required"));
+
+        ByteBuffer malformed = ByteBuffer.allocate(4096);
+        int malformedWritten = registry.invokeBuffered(byIdHandler, malformed, 0, null, "", "id=abc", "");
+        assertEquals(400, frameStatus(malformed));
+        assertTrue(frameBody(malformed, malformedWritten).contains("Invalid integer parameter"));
+
+        ByteBuffer internal = ByteBuffer.allocate(4096);
+        int internalWritten = registry.invokeBuffered(crashHandler, internal, 0, null, "", "", "");
+        assertEquals(500, frameStatus(internal));
+        assertEquals(
+                "{\"error\":\"Internal server error\",\"code\":\"internal_server_error\"}",
+                frameBody(internal, internalWritten)
+        );
     }
 
     @Test

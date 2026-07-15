@@ -1,11 +1,13 @@
 package com.reactor.rust.websocket;
 
-import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.util.UrlCodec;
 import com.reactor.rust.websocket.annotation.*;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,7 +46,11 @@ public final class WebSocketRegistry {
         String path = wsAnnotation.value();
         WebSocketHandlerInfo info = new WebSocketHandlerInfo(handler, clazz);
 
-        handlers.put(path, info);
+        WebSocketHandlerInfo previous = handlers.putIfAbsent(path, info);
+        if (previous != null && previous.bean != handler) {
+            throw new IllegalStateException("Duplicate WebSocket route: " + path
+                    + " handlers=" + previous.clazz.getName() + "," + clazz.getName());
+        }
         debugLog("[WebSocketRegistry] Registered handler: " + path + " -> " + clazz.getName());
     }
 
@@ -92,11 +98,11 @@ public final class WebSocketRegistry {
         );
         sessions.put(sessionId, session);
 
-        if (handler.onOpenMethod != null) {
+        if (handler.onOpen != null) {
             try {
-                handler.onOpenMethod.invoke(handler.bean, session);
-            } catch (Exception e) {
-                debugError("[WebSocketRegistry] Error in onOpen: " + e.getMessage());
+                handler.onOpen.invoke(session);
+            } catch (Throwable e) {
+                handleCallbackFailure("onOpen", e);
             }
         }
     }
@@ -111,11 +117,11 @@ public final class WebSocketRegistry {
         WebSocketHandlerInfo handler = handlers.get(session.getPath());
         if (handler == null) return;
 
-        if (handler.onMessageMethod != null) {
+        if (handler.onMessage != null) {
             try {
-                handler.onMessageMethod.invoke(handler.bean, session, message);
-            } catch (Exception e) {
-                debugError("[WebSocketRegistry] Error in onMessage: " + e.getMessage());
+                handler.onMessage.invoke(session, message);
+            } catch (Throwable e) {
+                handleCallbackFailure("onMessage", e);
             }
         }
     }
@@ -130,11 +136,11 @@ public final class WebSocketRegistry {
         WebSocketHandlerInfo handler = handlers.get(session.getPath());
         if (handler == null) return;
 
-        if (handler.onBinaryMethod != null) {
+        if (handler.onBinary != null) {
             try {
-                handler.onBinaryMethod.invoke(handler.bean, session, data);
-            } catch (Exception e) {
-                debugError("[WebSocketRegistry] Error in onBinary: " + e.getMessage());
+                handler.onBinary.invoke(session, data);
+            } catch (Throwable e) {
+                handleCallbackFailure("onBinary", e);
             }
         }
     }
@@ -150,11 +156,11 @@ public final class WebSocketRegistry {
         WebSocketHandlerInfo handler = handlers.get(session.getPath());
         if (handler == null) return;
 
-        if (handler.onCloseMethod != null) {
+        if (handler.onClose != null) {
             try {
-                handler.onCloseMethod.invoke(handler.bean, session);
-            } catch (Exception e) {
-                debugError("[WebSocketRegistry] Error in onClose: " + e.getMessage());
+                handler.onClose.invoke(session);
+            } catch (Throwable e) {
+                handleCallbackFailure("onClose", e);
             }
         }
     }
@@ -169,11 +175,11 @@ public final class WebSocketRegistry {
         WebSocketHandlerInfo handler = handlers.get(session.getPath());
         if (handler == null) return;
 
-        if (handler.onErrorMethod != null) {
+        if (handler.onError != null) {
             try {
-                handler.onErrorMethod.invoke(handler.bean, session, errorMessage);
-            } catch (Exception e) {
-                debugError("[WebSocketRegistry] Error in onError: " + e.getMessage());
+                handler.onError.invoke(session, errorMessage);
+            } catch (Throwable e) {
+                handleCallbackFailure("onError", e);
             }
         }
     }
@@ -210,32 +216,50 @@ public final class WebSocketRegistry {
      * Parse key=value params.
      */
     private Map<String, String> parseParams(String params, boolean plusAsSpace) {
-        Map<String, String> map = new ConcurrentHashMap<>();
         if (params == null || params.isEmpty()) {
-            return map;
+            return Map.of();
         }
-        for (String pair : params.split("&")) {
-            int idx = pair.indexOf('=');
-            if (idx > 0) {
+        Map<String, String> map = new HashMap<>();
+        int start = 0;
+        while (start < params.length()) {
+            int end = params.indexOf('&', start);
+            if (end < 0) {
+                end = params.length();
+            }
+            int idx = params.indexOf('=', start);
+            if (idx > start && idx < end) {
                 map.put(
-                        UrlCodec.decodeComponent(pair.substring(0, idx), plusAsSpace),
-                        UrlCodec.decodeComponent(pair.substring(idx + 1), plusAsSpace)
+                        UrlCodec.decodeComponent(params.substring(start, idx), plusAsSpace),
+                        UrlCodec.decodeComponent(params.substring(idx + 1, end), plusAsSpace)
                 );
             }
+            start = end + 1;
         }
         return map;
     }
 
     private static void debugLog(String message) {
-        if (NativeBridge.isDebugLoggingEnabled()) {
+        if (isDebugEnabled()) {
             FrameworkLogger.debug(message);
         }
     }
 
     private static void debugError(String message) {
-        if (NativeBridge.isDebugLoggingEnabled()) {
-            FrameworkLogger.debugError(message);
+        FrameworkLogger.error(message);
+    }
+
+    private static void handleCallbackFailure(String callback, Throwable failure) {
+        if (failure instanceof VirtualMachineError virtualMachineError) {
+            throw virtualMachineError;
         }
+        if (failure instanceof ThreadDeath threadDeath) {
+            throw threadDeath;
+        }
+        debugError("[WebSocketRegistry] Error in " + callback + ": " + failure.getMessage());
+    }
+
+    private static boolean isDebugEnabled() {
+        return Boolean.getBoolean("reactor.rust.java.debug") || FrameworkLogger.isDebugEnabled();
     }
 
     /**
@@ -250,6 +274,12 @@ public final class WebSocketRegistry {
         public Method onCloseMethod;
         public Method onErrorMethod;
 
+        private SessionCallback onOpen;
+        private TextCallback onMessage;
+        private BinaryCallback onBinary;
+        private SessionCallback onClose;
+        private TextCallback onError;
+
         public WebSocketHandlerInfo(Object bean, Class<?> clazz) {
             this.bean = bean;
             this.clazz = clazz;
@@ -258,27 +288,102 @@ public final class WebSocketRegistry {
 
         private void scanMethods() {
             for (Method method : clazz.getDeclaredMethods()) {
-                method.setAccessible(true);
-
                 if (method.isAnnotationPresent(OnOpen.class)) {
+                    requireUnset(onOpenMethod, OnOpen.class);
                     onOpenMethod = method;
+                    onOpen = sessionCallback(method);
                 }
                 if (method.isAnnotationPresent(OnMessage.class)) {
-                    // Check if it's binary or text
                     Class<?>[] params = method.getParameterTypes();
-                    if (params.length >= 2 && params[1] == byte[].class) {
+                    if (params.length == 2 && params[1] == byte[].class) {
+                        requireUnset(onBinaryMethod, OnMessage.class);
                         onBinaryMethod = method;
+                        onBinary = binaryCallback(method);
                     } else {
+                        requireUnset(onMessageMethod, OnMessage.class);
                         onMessageMethod = method;
+                        onMessage = textCallback(method);
                     }
                 }
                 if (method.isAnnotationPresent(OnClose.class)) {
+                    requireUnset(onCloseMethod, OnClose.class);
                     onCloseMethod = method;
+                    onClose = sessionCallback(method);
                 }
                 if (method.isAnnotationPresent(OnError.class)) {
+                    requireUnset(onErrorMethod, OnError.class);
                     onErrorMethod = method;
+                    onError = textCallback(method);
                 }
             }
         }
+
+        private SessionCallback sessionCallback(Method method) {
+            MethodHandle handle = callbackHandle(
+                    method,
+                    MethodType.methodType(void.class, WebSocketSession.class));
+            return session -> {
+                handle.invokeExact(session);
+            };
+        }
+
+        private TextCallback textCallback(Method method) {
+            MethodHandle handle = callbackHandle(
+                    method,
+                    MethodType.methodType(void.class, WebSocketSession.class, String.class));
+            return (session, value) -> {
+                handle.invokeExact(session, value);
+            };
+        }
+
+        private BinaryCallback binaryCallback(Method method) {
+            MethodHandle handle = callbackHandle(
+                    method,
+                    MethodType.methodType(void.class, WebSocketSession.class, byte[].class));
+            return (session, value) -> {
+                handle.invokeExact(session, value);
+            };
+        }
+
+        private MethodHandle callbackHandle(Method method, MethodType expectedType) {
+            if (method.getReturnType() != void.class
+                    || !Arrays.equals(method.getParameterTypes(), expectedType.parameterArray())) {
+                throw new IllegalArgumentException(
+                        "Invalid WebSocket callback signature for " + method.toGenericString()
+                                + "; expected " + expectedType);
+            }
+            try {
+                return MethodHandles.privateLookupIn(clazz, MethodHandles.lookup())
+                        .unreflect(method)
+                        .bindTo(bean)
+                        .asType(expectedType);
+            } catch (IllegalAccessException e) {
+                throw new IllegalArgumentException(
+                        "WebSocket callback is not accessible: " + method.toGenericString(),
+                        e);
+            }
+        }
+
+        private void requireUnset(Method current, Class<?> annotationType) {
+            if (current != null) {
+                throw new IllegalArgumentException(
+                        "Duplicate @" + annotationType.getSimpleName() + " callback in " + clazz.getName());
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface SessionCallback {
+        void invoke(WebSocketSession session) throws Throwable;
+    }
+
+    @FunctionalInterface
+    private interface TextCallback {
+        void invoke(WebSocketSession session, String value) throws Throwable;
+    }
+
+    @FunctionalInterface
+    private interface BinaryCallback {
+        void invoke(WebSocketSession session, byte[] value) throws Throwable;
     }
 }

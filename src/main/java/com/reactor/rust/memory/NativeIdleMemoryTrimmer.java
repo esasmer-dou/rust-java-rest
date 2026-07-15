@@ -209,7 +209,7 @@ public final class NativeIdleMemoryTrimmer implements AutoCloseable {
             metrics.setGauge(METRIC_LAST_DURATION_MS, durationMs);
             metrics.setGauge(METRIC_LAST_EPOCH_MS, System.currentTimeMillis());
             FrameworkLogger.debug("[JAVA] Native idle memory trim completed in " + durationMs + " ms");
-        } catch (Throwable error) {
+        } catch (RuntimeException | LinkageError error) {
             metrics.increment(METRIC_ERRORS);
             FrameworkLogger.debugError("[JAVA] Native idle memory trim failed: " + error.getMessage());
         }
@@ -327,7 +327,7 @@ public final class NativeIdleMemoryTrimmer implements AutoCloseable {
                     parsePrometheusLong(metricsText, "reactor_native_http_user_requests_total",
                             fallbackUserRequests > 0 ? fallbackUserRequests : fallbackAllRequests)
             );
-        } catch (Throwable ignored) {
+        } catch (RuntimeException | LinkageError ignored) {
             Metrics javaMetrics = Metrics.getInstance();
             long userRequests = javaMetrics.getCounter("http_user_requests_total");
             return new ActivitySnapshot(

@@ -57,6 +57,41 @@ Primary path in this workspace is the container harness:
 powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1
 ```
 
+## Current Dubbo Sample Benchmarks
+
+The scripts under `benchmark/dubbo_overhead` use the current sample projects rather than the
+framework core JAR:
+
+- consumer: `rest-sample-dubbo-consumer`, Maven profile `native-static-consumer`
+- provider: `rest-sample-dubbo-provider`, Maven profile `catalog-static-provider`
+- RPC endpoint: `GET /api/v1/catalog/nested`
+- control endpoint in the same Dubbo-enabled process: `GET /app/health`
+
+Run a short native-static consumer matrix:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\dubbo_overhead\run_dubbo_overhead.ps1 `
+  -ConcurrencyValues "64,256,512" `
+  -RuntimeProfile micro-dubbo `
+  -DurationSeconds 8
+```
+
+Run the repeat gate or connection-pool matrix:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\dubbo_overhead\run_dubbo_overhead_repeat.ps1 `
+  -RepeatCount 3 `
+  -RuntimeProfile balanced-dubbo
+
+powershell -ExecutionPolicy Bypass -File .\benchmark\dubbo_overhead\run_native_pool_benchmark.ps1 `
+  -PoolSizes "1,2,4,8,16" `
+  -ConcurrencyValues "64,256,512"
+```
+
+The health route is not a Dubbo-disabled baseline. It is only a non-RPC control route inside the
+same process. Do not subtract the two endpoints and label the result as pure Dubbo overhead; their
+workloads are different.
+
 It builds both jars, builds local runtime images, starts both services as containers, runs the Rust `load-probe` from a separate benchmark container, and writes results to `benchmark/results/container_<timestamp>/summary.md`.
 
 Default comparison:

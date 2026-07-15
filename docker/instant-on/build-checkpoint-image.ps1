@@ -1,7 +1,6 @@
 param(
     [string]$BaseImage = "rust-java-rest-instanton-base:local",
     [string]$RestoreImage = "rust-java-rest-instanton:local",
-    [string]$StartupIndexPackages = "com.reactor.rust.example",
     [int]$CheckpointTimeoutSeconds = 60,
     [switch]$SkipCriuCheck
 )
@@ -15,7 +14,6 @@ $containerName = "rust-java-rest-instanton-checkpoint-$PID"
 
 docker build `
   -f (Join-Path $projectRoot "docker\instant-on\Dockerfile") `
-  --build-arg "STARTUP_INDEX_PACKAGES=$StartupIndexPackages" `
   -t $BaseImage `
   $projectRoot
 

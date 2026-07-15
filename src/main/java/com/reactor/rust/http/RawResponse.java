@@ -37,8 +37,8 @@ public final class RawResponse {
 
     public static RawResponse text(String body, String contentType) {
         RawResponse response = new RawResponse(
-                body != null ? body.getBytes(StandardCharsets.UTF_8) : new byte[0],
-                new HashMap<>()
+                body != null ? body.getBytes(StandardCharsets.UTF_8) : EMPTY_BYTES,
+                Map.of()
         );
         response.header("Content-Type", normalizeTextualContentType(
                 contentType != null ? contentType : MediaType.TEXT_PLAIN_UTF8
@@ -47,7 +47,7 @@ public final class RawResponse {
     }
 
     public static RawResponse bytes(byte[] body, String contentType) {
-        RawResponse response = new RawResponse(body, new HashMap<>());
+        RawResponse response = new RawResponse(body, Map.of());
         response.header("Content-Type", normalizeTextualContentType(
                 contentType != null ? contentType : MediaType.APPLICATION_OCTET_STREAM
         ));
@@ -74,10 +74,9 @@ public final class RawResponse {
      * in native memory.</p>
      */
     public static RawResponse registeredBytes(byte[] body, String contentType) {
-        Map<String, String> headers = new HashMap<>();
-        if (contentType != null && !contentType.isBlank()) {
-            headers.put("Content-Type", contentType);
-        }
+        Map<String, String> headers = contentType != null && !contentType.isBlank()
+                ? Map.of("Content-Type", normalizeTextualContentType(contentType))
+                : Map.of();
         return registered(body, headers, 200);
     }
 
@@ -99,7 +98,7 @@ public final class RawResponse {
     }
 
     public static RawResponse nativeResponse(int nativeId) {
-        return new RawResponse(new byte[0], new HashMap<>(), nativeId);
+        return new RawResponse(EMPTY_BYTES, Map.of(), nativeId);
     }
 
     public byte[] getBody() {

@@ -10,6 +10,7 @@ import java.util.*;
 public final class MultipartParser {
 
     private static final int MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB default
+    private static final byte[] HEADER_BODY_SEPARATOR = {'\r', '\n', '\r', '\n'};
 
     /**
      * Parse multipart form data.
@@ -33,6 +34,9 @@ public final class MultipartParser {
     public static Map<String, Object> parse(byte[] data, String contentType, long maxFileSize) {
         Map<String, Object> result = new LinkedHashMap<>();
 
+        if (maxFileSize < 0) {
+            throw new IllegalArgumentException("maxFileSize must not be negative");
+        }
         if (data == null || data.length == 0 || contentType == null) {
             return result;
         }
@@ -71,7 +75,7 @@ public final class MultipartParser {
 
             // Parse this part
             PartInfo part = parsePart(data, partStart, partEnd);
-            if (part != null) {
+            if (part != null && part.name != null && !part.name.isBlank()) {
                 if (part.filename != null) {
                     // It's a file
                     if (part.data.length <= maxFileSize) {
@@ -103,34 +107,37 @@ public final class MultipartParser {
             return null;
         }
 
-        // Find boundary= in content type
-        int boundaryIndex = contentType.indexOf("boundary=");
-        if (boundaryIndex < 0) {
-            return null;
-        }
-
-        boundaryIndex += 9; // "boundary=".length()
-
-        // Extract boundary value (may be quoted)
-        String boundary;
-        if (contentType.charAt(boundaryIndex) == '"') {
-            // Quoted boundary
-            int endQuote = contentType.indexOf('"', boundaryIndex + 1);
-            if (endQuote < 0) {
-                return null;
+        int parameterStart = contentType.indexOf(';');
+        while (parameterStart >= 0 && parameterStart < contentType.length() - 1) {
+            int next = contentType.indexOf(';', parameterStart + 1);
+            int end = next < 0 ? contentType.length() : next;
+            String parameter = contentType.substring(parameterStart + 1, end).trim();
+            int equals = parameter.indexOf('=');
+            if (equals > 0 && parameter.substring(0, equals).trim().equalsIgnoreCase("boundary")) {
+                String value = parameter.substring(equals + 1).trim();
+                if (value.length() >= 2 && value.charAt(0) == '"' && value.charAt(value.length() - 1) == '"') {
+                    value = value.substring(1, value.length() - 1);
+                } else if (value.startsWith("\"") || value.endsWith("\"")) {
+                    return null;
+                }
+                if (value.isEmpty() || value.length() > 70 || containsControlCharacter(value)) {
+                    return null;
+                }
+                return value;
             }
-            boundary = contentType.substring(boundaryIndex + 1, endQuote);
-        } else {
-            // Unquoted boundary - ends at semicolon or end
-            int endBoundary = contentType.indexOf(';', boundaryIndex);
-            if (endBoundary < 0) {
-                boundary = contentType.substring(boundaryIndex);
-            } else {
-                boundary = contentType.substring(boundaryIndex, endBoundary);
+            parameterStart = next;
+        }
+        return null;
+    }
+
+    private static boolean containsControlCharacter(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char current = value.charAt(i);
+            if (current < 0x20 || current == 0x7f) {
+                return true;
             }
         }
-
-        return boundary.trim();
+        return false;
     }
 
     /**
@@ -138,7 +145,7 @@ public final class MultipartParser {
      */
     private static PartInfo parsePart(byte[] data, int start, int end) {
         // Find header/body separator (double CRLF)
-        int headerEnd = indexOf(data, new byte[]{'\r', '\n', '\r', '\n'}, start);
+        int headerEnd = indexOf(data, HEADER_BODY_SEPARATOR, start, end);
         if (headerEnd < 0 || headerEnd >= end) {
             return null;
         }
@@ -180,13 +187,20 @@ public final class MultipartParser {
      */
     private static Map<String, String> parseHeaders(String headers) {
         Map<String, String> map = new HashMap<>();
-        for (String line : headers.split("\r\n")) {
+        int start = 0;
+        while (start < headers.length()) {
+            int end = headers.indexOf("\r\n", start);
+            if (end < 0) {
+                end = headers.length();
+            }
+            String line = headers.substring(start, end);
             int colon = line.indexOf(':');
             if (colon > 0) {
                 String key = line.substring(0, colon).trim().toLowerCase(java.util.Locale.ROOT);
                 String value = line.substring(colon + 1).trim();
                 map.put(key, value);
             }
+            start = end + 2;
         }
         return map;
     }
@@ -227,8 +241,15 @@ public final class MultipartParser {
      * Find byte sequence in data.
      */
     private static int indexOf(byte[] data, byte[] pattern, int start) {
+        return indexOf(data, pattern, start, data.length);
+    }
+
+    private static int indexOf(byte[] data, byte[] pattern, int start, int endExclusive) {
+        if (pattern.length == 0 || start < 0 || endExclusive > data.length || start > endExclusive) {
+            return -1;
+        }
         outer:
-        for (int i = start; i <= data.length - pattern.length; i++) {
+        for (int i = start; i <= endExclusive - pattern.length; i++) {
             for (int j = 0; j < pattern.length; j++) {
                 if (data[i + j] != pattern[j]) {
                     continue outer;

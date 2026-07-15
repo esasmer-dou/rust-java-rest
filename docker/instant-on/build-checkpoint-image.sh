@@ -7,13 +7,11 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BASE_IMAGE="${BASE_IMAGE:-rust-java-rest-instanton-base:local}"
 RESTORE_IMAGE="${RESTORE_IMAGE:-rust-java-rest-instanton:local}"
 CONTAINER_NAME="${CONTAINER_NAME:-rust-java-rest-instanton-checkpoint-$$}"
-STARTUP_INDEX_PACKAGES="${STARTUP_INDEX_PACKAGES:-com.reactor.rust.example}"
 CHECKPOINT_TIMEOUT_SECONDS="${CHECKPOINT_TIMEOUT_SECONDS:-60}"
 SKIP_CRIU_CHECK="${SKIP_CRIU_CHECK:-false}"
 
 docker build \
   -f "${PROJECT_ROOT}/docker/instant-on/Dockerfile" \
-  --build-arg STARTUP_INDEX_PACKAGES="${STARTUP_INDEX_PACKAGES}" \
   -t "${BASE_IMAGE}" \
   "${PROJECT_ROOT}"
 

@@ -1,67 +1,23 @@
 package com.reactor.rust.component;
 
 
-import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 
+/**
+ * @deprecated Direct-buffer lifetime is owned by the framework/native pools. Explicit cleaner
+ * reflection is not portable on Java 21/OpenJ9 and must not be used for production memory policy.
+ */
+@Deprecated(forRemoval = true)
 public final class CleanerUtils {
-
-    private static final Method cleanerMethod;
-    private static final Method cleanMethod;
-
-    static {
-        Method cMethod = null;
-        Method clMethod = null;
-
-        try {
-            // Java 8 ve bazı JVM’lerde: DirectByteBuffer.cleaner()
-            cMethod = Class.forName("java.nio.DirectByteBuffer")
-                    .getMethod("cleaner");
-            cMethod.setAccessible(true);
-
-            // cleaner.clean()
-            Class<?> cleanerClass = Class.forName("sun.misc.Cleaner");
-            clMethod = cleanerClass.getMethod("clean");
-            clMethod.setAccessible(true);
-
-        } catch (Throwable t1) {
-            try {
-                // Java 9–21: jdk.internal.ref.Cleaner
-                cMethod = Class.forName("java.nio.DirectByteBuffer")
-                        .getDeclaredMethod("cleaner");
-                cMethod.setAccessible(true);
-
-                Class<?> cleanerClass = Class.forName("jdk.internal.ref.Cleaner");
-                clMethod = cleanerClass.getDeclaredMethod("clean");
-                clMethod.setAccessible(true);
-
-            } catch (Throwable t2) {
-                // No direct cleaner available - fallback to GC
-            }
-        }
-
-        cleanerMethod = cMethod;
-        cleanMethod = clMethod;
-    }
 
     private CleanerUtils() {}
 
+    /**
+     * Compatibility no-op. Drop references normally and use measured native idle-trim policy for
+     * allocator retention; forcing a JDK-internal cleaner can invalidate borrowed buffers.
+     */
+    @Deprecated(forRemoval = true)
     public static void free(ByteBuffer buffer) {
-        if (buffer == null) return;
-        if (!buffer.isDirect()) return;
-
-        if (cleanerMethod == null || cleanMethod == null) {
-            // Fallback: GC’ye bırak
-            return;
-        }
-
-        try {
-            Object cleaner = cleanerMethod.invoke(buffer);
-            if (cleaner != null) {
-                cleanMethod.invoke(cleaner);
-            }
-        } catch (Throwable ignored) {
-            // Eğer failure olursa GC’ye bırakarak degrade olur (safe fallback)
-        }
+        // Intentionally empty; retained for source and binary compatibility.
     }
 }

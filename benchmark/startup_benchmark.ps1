@@ -92,7 +92,14 @@ $version = Get-MavenProjectVersion $pom
 if ($Build) {
     Push-Location $ProjectRoot
     try {
-        mvn -q -DskipTests package
+        mvn -q -DskipTests install
+        if ($LASTEXITCODE -ne 0) {
+            throw "Core Maven install failed"
+        }
+        mvn -q -DskipTests -f sample/pom.xml package
+        if ($LASTEXITCODE -ne 0) {
+            throw "Sample Maven package failed"
+        }
     } finally {
         Pop-Location
     }
@@ -102,10 +109,13 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $runDir = Join-Path $OutputDir "startup_${timestamp}_${Profile}_${JvmPreset}"
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
-$classpath = @(
-    (Join-Path $ProjectRoot "target\\classes"),
-    (Join-Path $ProjectRoot "target\\dependency\\*")
-) -join [IO.Path]::PathSeparator
+$sampleJar = Get-ChildItem -Path (Join-Path $ProjectRoot "sample\target") -Filter "rust-java-rest-*-sample.jar" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($null -eq $sampleJar) {
+    throw "Sample jar not found. Use -Build or package rust-java-rest/sample first."
+}
+$classpath = $sampleJar.FullName
 
 $cacheRoot = Join-Path $ProjectRoot "target\\openj9-scc"
 $cacheName = "rust-java-rest-$version-$Profile"

@@ -511,32 +511,13 @@ function Test-ContainerExists {
 }
 
 function Find-FrameworkJar {
-    $jar = Get-ChildItem -Path (Join-Path $FrameworkRoot "target") -Filter "rust-java-rest-*-sample.jar" |
+    $jar = Get-ChildItem -Path (Join-Path $FrameworkRoot "sample\target") -Filter "rust-java-rest-*-sample.jar" |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if ($null -eq $jar) {
-        throw "Framework executable sample jar not found. Run mvn package first and use the -sample classifier for benchmarks."
+        throw "Framework executable sample jar not found. Build core, then run mvn package in sample/."
     }
-    return "target/$($jar.Name)"
-}
-
-function Ensure-FrameworkRuntimeDependencies {
-    $dependencyDir = Join-Path $FrameworkRoot "target\dependency"
-    $hasRuntimeDeps = (Test-Path $dependencyDir) -and
-        $null -ne (Get-ChildItem -Path $dependencyDir -Filter "*.jar" -ErrorAction SilentlyContinue | Select-Object -First 1)
-
-    if ($hasRuntimeDeps) {
-        return
-    }
-
-    Write-Host "Framework runtime dependency directory is missing; copying runtime dependencies for sample benchmark image."
-    Invoke-Checked -FilePath "mvn" -Arguments @(
-        "-q",
-        "-DskipTests",
-        "dependency:copy-dependencies",
-        "-DincludeScope=runtime",
-        "-DoutputDirectory=target/dependency"
-    ) -WorkingDirectory $FrameworkRoot
+    return "sample/target/$($jar.Name)"
 }
 
 function Find-SpringJar {
@@ -1194,14 +1175,14 @@ $rows = New-Object System.Collections.Generic.List[object]
 
 try {
     if (-not $SkipBuild) {
-        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $FrameworkRoot
+        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "install") -WorkingDirectory $FrameworkRoot
+        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory (Join-Path $FrameworkRoot "sample")
         if (-not $FrameworkOnly) {
             Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $SpringRoot
         }
     }
 
     $frameworkJar = Find-FrameworkJar
-    Ensure-FrameworkRuntimeDependencies
 
     Invoke-Docker -Arguments @("build", "-t", $FrameworkImage, "-f", "benchmark/docker/framework.Dockerfile", "--build-arg", "JAR_FILE=$frameworkJar", ".") -WorkingDirectory $FrameworkRoot
     if (-not $FrameworkOnly) {

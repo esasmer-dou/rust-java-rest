@@ -93,13 +93,13 @@ function Resolve-CommonJavaOptions {
 }
 
 function Find-FrameworkSampleJar {
-    $jar = Get-ChildItem -Path (Join-Path $FrameworkRoot "target") -Filter "rust-java-rest-*-sample.jar" |
+    $jar = Get-ChildItem -Path (Join-Path $FrameworkRoot "sample\target") -Filter "rust-java-rest-*-sample.jar" |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if ($null -eq $jar) {
-        throw "Framework sample jar not found. Run mvn package first."
+        throw "Framework sample jar not found. Build core, then run mvn package in sample/."
     }
-    return "target/$($jar.Name)"
+    return "sample/target/$($jar.Name)"
 }
 
 function Find-FrameworkCoreRuntimeJar {
@@ -144,7 +144,8 @@ function Prepare-Builds {
         Ensure-RuntimeDependencyDir
         return
     }
-    Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $FrameworkRoot
+    Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "install") -WorkingDirectory $FrameworkRoot
+    Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory (Join-Path $FrameworkRoot "sample")
     Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "install") -WorkingDirectory $DubboRoot
     Invoke-Checked -FilePath "mvn" -Arguments (@(Consumer-ProfileArgs) + @("-q", "-DskipTests", "package")) -WorkingDirectory $ConsumerRoot
     Ensure-RuntimeDependencyDir

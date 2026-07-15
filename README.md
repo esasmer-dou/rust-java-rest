@@ -20,8 +20,8 @@ The model is intentionally simple:
 ## Current Stable Line
 
 `3.2.7` carries the current native runtime line used by `java-rust-cache:0.2.4` and
-`java-rust-dubbo:0.2.3`. It keeps Redis native ABI version `3` for Redis Cluster routing and
-Sentinel master failover refresh, and it includes the native runtime updates needed by the Dubbo
+`java-rust-dubbo:0.2.3`. The packaged native runtime reports REST ABI `23`, Dubbo ABI `5`, and Redis
+ABI `5`. It includes the native runtime updates needed by the Dubbo
 native response handle path. If your application combines these libraries, keep the versions aligned:
 
 ```xml
@@ -44,7 +44,10 @@ native response handle path. If your application combines these libraries, keep 
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.2.4` Sentinel mode or `java-rust-dubbo:0.2.3` native handle mode with an older `rust-java-rest` native binary. Standalone cache mode can still fall back to the older native ABI, Cluster needs ABI version `2`, Sentinel master failover refresh needs ABI version `3`, and Dubbo native response handles need the current native resource package.
+Do not mix `java-rust-cache:0.2.4` or `java-rust-dubbo:0.2.3` native mode with a DLL/SO copied from
+an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
+provenance before serving traffic. An incompatible binary fails at startup instead of producing
+delayed JNI errors.
 
 ## v3.2.7 At A Glance
 
@@ -109,20 +112,35 @@ public final class OrdersApplication {
 }
 ```
 
-For very small applications, pass explicit handler instances and close owned resources yourself:
+When a handler depends on a resource created from runtime properties, use a startup module. The
+framework loads properties and applies the runtime profile first. It then runs the module and owns
+every resource registered with `context.manage(...)`:
 
 ```java
 public final class CatalogApplication {
     public static void main(String[] args) {
-        CatalogClient client = CatalogClient.open();
         RestApplication.builder()
-                .handlerInstances(new HealthHandler(), new CatalogHandler(client))
-                .closeable(client)
+                .module(context -> {
+                    CatalogClient client = context.manage(
+                            CatalogClient.open(context.properties()));
+                    context.handlers(new HealthHandler(), new CatalogHandler(client));
+                })
                 .disableRouteIndexValidationIfNotExplicit(true)
                 .start();
     }
 }
 ```
+
+If module configuration or HTTP startup fails, managed resources are closed in reverse order. A
+builder can start only once. This keeps startup failure behavior deterministic.
+
+Use `.standardRuntimeFeatures()` only when the application needs the complete property-controlled
+startup set: low-RSS gate, WebSocket registration, static files, prewarm, InstantOn checkpoint, and
+idle native trim. Small explicit applications do not enable that surface automatically.
+
+For small typed responses, use `JsonResponses.body(record)` or the primitive field helpers. For hot
+large responses, keep using `JsonBodyProducer`, a direct writer, raw/native response, or file
+streaming. Declarative bootstrap does not replace the response-path decision.
 
 BEST: use this for predictable startup and less boilerplate. ACCEPTABLE: keep manual
 `NativeBridge.startHttpServer(...)` when you need custom lifecycle wiring. ANTI-PATTERN: classpath
@@ -224,7 +242,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.2.5</version>
+  <version>3.2.7</version>
 </dependency>
 ```
 
@@ -297,19 +315,19 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-3.2.5.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-3.2.5-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-3.2.7.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-3.2.7-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `rust-java-rest-3.2.5-sample.jar`: runnable demo and benchmark app only. Do not use this as a
-  production dependency.
+- `sample/target/rust-java-rest-3.2.7-sample.jar`: runnable demo and benchmark application built by
+  the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:3.2.5`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:3.2.7`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
-- The `sample` classifier exists only so developers can run the bundled demo and benchmark
-  endpoints from the framework repository.
+- The `sample` directory is an isolated runnable project. It depends on the core artifact in the
+  same way as a real consumer application.
 - Do not use framework `target/classes` or `rust-java-rest-*-sample.jar` to make production RSS
   claims. Those paths intentionally contain demo code and can make the memory picture look worse
   than the real library dependency.
@@ -318,11 +336,18 @@ What this means in practice:
 
 Package rule:
 
-- Maven packages are immutable. The existing `3.2.5` package should not be republished with changed
-  bytes under the same version.
-- Documentation and GitHub release notes can be clarified for `3.2.5`.
-- If code, native binaries, or packaged benchmark fixtures must change for consumers, cut a new patch
-  version instead of overwriting `3.2.5`.
+- Maven packages are immutable. Never republish changed Java classes or native binaries under an
+  existing version.
+- Documentation and GitHub release notes can be clarified without replacing package bytes.
+- If Java code, DLL/SO files, ABI, or packaged fixtures change, cut a new patch version.
+
+Build the two artifacts independently:
+
+```powershell
+mvn clean install
+mvn -f sample/pom.xml clean package
+java -jar sample/target/rust-java-rest-3.2.7-sample.jar
+```
 
 ## Quick Start
 
@@ -1409,17 +1434,17 @@ raw/read-model, or native serialization.
 The Maven package includes:
 
 - `native/windows-x64/rust_hyper.dll`
-- `native/windows-x64/rust_hyper-windows-x64.dll`
 - `native/linux-x64/librust_hyper.so`
-- `native/linux-x64/librust_hyper-linux-x64.so`
 
 The release asset names are:
 
 - `rust_hyper-windows-x64.dll`
 - `librust_hyper-linux-x64.so`
 
-Java checks the native ABI at startup. If the DLL/SO does not match the Java artifact, startup fails
-early instead of running with a broken JNI contract.
+Java checks the native ABI and provenance schema at startup. The packaged manifest records REST ABI
+`23`, Dubbo ABI `5`, Redis ABI `5`, source revision, crate version, and a SHA-256 hash for each
+platform. If the DLL/SO does not match the Java artifact, startup fails early instead of running with
+a broken JNI contract.
 
 ## Production Checklist
 

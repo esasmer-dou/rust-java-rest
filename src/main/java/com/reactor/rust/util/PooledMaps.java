@@ -2,7 +2,7 @@ package com.reactor.rust.util;
 
 /**
  * ThreadLocal pools for FastMap instances.
- * Provides zero-allocation map usage for parameter parsing.
+ * Reuses map storage across requests handled by the same thread.
  *
  * Usage:
  *   FastMap params = PooledMaps.getParams();
@@ -64,7 +64,7 @@ public final class PooledMaps {
     }
 
     /**
-     * Parse key=value pairs into a FastMap (zero-allocation).
+     * Parse key=value pairs into a reusable FastMap.
      * Format: "key1=value1&amp;key2=value2"
      *
      * @param map Target map (must be cleared before calling)
@@ -95,7 +95,7 @@ public final class PooledMaps {
     }
 
     /**
-     * Parse headers into a FastMap (zero-allocation).
+     * Parse headers into a reusable FastMap.
      * Format: "Header1: value1\nHeader2: value2\n"
      *
      * @param map Target map (must be cleared before calling)

@@ -37,4 +37,16 @@ class FastMapV2Test {
         assertNull(map.get("city"));
         assertEquals(0, map.size());
     }
+
+    @Test
+    void acquireClearsValuesFromThePreviousLease() {
+        FastMapV2 first = FastMapV2.acquire();
+        first.put("request", "one");
+
+        FastMapV2 second = FastMapV2.acquire();
+
+        assertEquals(first, second);
+        assertEquals(0, second.size());
+        assertNull(second.get("request"));
+    }
 }

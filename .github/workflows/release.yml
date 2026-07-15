@@ -80,6 +80,36 @@ jobs:
       - name: Test
         run: mvn -B test
 
+      - name: Verify release version
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CORE_VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          SAMPLE_VERSION="$(mvn -q -f sample/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)"
+          test "$VERSION" = "$CORE_VERSION"
+          test "$VERSION" = "$SAMPLE_VERSION"
+
+      - name: Verify native release provenance
+        shell: bash
+        run: |
+          MANIFEST="src/main/resources/native/native-provenance.properties"
+          test -f "$MANIFEST"
+          grep -qx 'schema=2' "$MANIFEST"
+          grep -qx 'rest.abi=23' "$MANIFEST"
+          grep -qx 'dubbo.abi=5' "$MANIFEST"
+          grep -qx 'redis.abi=5' "$MANIFEST"
+          ! grep -q -- '-dirty$' "$MANIFEST"
+          LINUX_EXPECTED="$(sed -n 's/^linux-x64.sha256=//p' "$MANIFEST")"
+          WINDOWS_EXPECTED="$(sed -n 's/^windows-x64.sha256=//p' "$MANIFEST")"
+          test "$(sha256sum src/main/resources/native/linux-x64/librust_hyper.so | awk '{print $1}')" = "$LINUX_EXPECTED"
+          test "$(sha256sum src/main/resources/native/windows-x64/rust_hyper.dll | awk '{print $1}')" = "$WINDOWS_EXPECTED"
+
+      - name: Build isolated sample application
+        shell: bash
+        run: |
+          mvn -B -DskipTests install
+          mvn -B -DskipTests -f sample/pom.xml package
+
       - name: Publish Maven package
         run: mvn -B -DskipTests deploy
 
@@ -89,7 +119,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p "release-assets"
           cp "target/rust-java-rest-${VERSION}.jar" "release-assets/"
-          cp "target/rust-java-rest-${VERSION}-sample.jar" "release-assets/"
+          cp "sample/target/rust-java-rest-${VERSION}-sample.jar" "release-assets/"
           cp "target/rust-java-rest-${VERSION}-core-runtime.jar" "release-assets/"
           cp "target/rust-java-rest-${VERSION}-sources.jar" "release-assets/"
           cp "target/rust-java-rest-${VERSION}-javadoc.jar" "release-assets/"
@@ -101,6 +131,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
           body_path: docs/release-notes/v${{ steps.version.outputs.version }}.md
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           files: release-assets/*

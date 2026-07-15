@@ -14,6 +14,7 @@ import com.reactor.rust.annotations.DirectQueryLong;
 import com.reactor.rust.annotations.DirectQueryShort;
 import com.reactor.rust.async.AsyncHandlerExecutor;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.exception.HttpErrorMapper;
 import com.reactor.rust.http.DirectJsonResponse;
 import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.JsonProducerResponse;
@@ -23,7 +24,7 @@ import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.json.JsonBodyProducer;
 import com.reactor.rust.logging.FrameworkLogger;
-import com.reactor.rust.util.FastMapV2;
+import com.reactor.rust.util.RequestValueMap;
 import com.reactor.rust.util.UrlCodec;
 
 import java.lang.invoke.MethodHandle;
@@ -46,7 +47,7 @@ import java.util.concurrent.atomic.LongAdder;
 /**
  * Optimized handler registry with:
  * - MethodMetadata cache (zero runtime annotation lookup)
- * - FastMapV2 for parameter resolution (O(1) lookup)
+ * - RequestValueMap for parameter resolution (O(1) lookup)
  * - ThreadLocal ByteBuffer pool
  * - Exact MethodHandle invocation for common signatures
  */
@@ -60,12 +61,16 @@ public class HandlerRegistry {
     private static final ThreadLocal<ByteBuffer> ASYNC_BUFFER_POOL =
         ThreadLocal.withInitial(() -> allocateAsyncBuffer(64 * 1024));
     private static final int MAX_ASYNC_RESPONSE_FRAME_BYTES = 8 * 1024 * 1024 + 64 * 1024;
+    private static final int ASYNC_FRAME_RETAIN_MAX_BYTES = Math.max(
+            64 * 1024,
+            PropertiesLoader.getInt("reactor.rust.async.frame-retain-max-bytes", 256 * 1024)
+    );
 
-    // ThreadLocal FastMapV2 pools for zero-allocation parameter parsing
-    private static final ThreadLocal<FastMapV2> PARAM_MAP_POOL =
-        ThreadLocal.withInitial(FastMapV2::new);
-    private static final ThreadLocal<FastMapV2> HEADER_MAP_POOL =
-        ThreadLocal.withInitial(FastMapV2::new);
+    // Thread-confined maps avoid request-level allocation after the first use on a worker.
+    private static final ThreadLocal<RequestValueMap> PARAM_MAP_POOL =
+        ThreadLocal.withInitial(RequestValueMap::new);
+    private static final ThreadLocal<RequestValueMap> HEADER_MAP_POOL =
+        ThreadLocal.withInitial(RequestValueMap::new);
 
     // Lazy logger - only logs when DEBUG is true
     private static final boolean DEBUG = Boolean.getBoolean("handler.debug") || FrameworkLogger.isDebugEnabled();
@@ -78,8 +83,6 @@ public class HandlerRegistry {
     private static final int RESPONSE_FRAME_HEADER_SIZE = 18;
     private static final int MAX_FILE_RESPONSE_PATH_BYTES = 4096;
     private static final byte[] EMPTY_BYTES = new byte[0];
-    private static final byte[] ERROR_PREFIX = "{\"error\":\"".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] ERROR_SUFFIX = "\"}".getBytes(StandardCharsets.UTF_8);
     private static final int MAX_EXACT_ANNOTATED_PARAMS = 8;
     private static final Object SINGLE_VALUE_FAST_PATH_MISS = new Object();
     private static final byte[] DEFAULT_JSON_CONTENT_TYPE_HEADER =
@@ -236,6 +239,16 @@ public class HandlerRegistry {
         }
     }
 
+    void releaseAsyncResponseFrame(AsyncResponseFrame frame) {
+        if (frame == null || frame.buffer.capacity() <= ASYNC_FRAME_RETAIN_MAX_BYTES) {
+            return;
+        }
+        ByteBuffer current = ASYNC_BUFFER_POOL.get();
+        if (current == frame.buffer) {
+            ASYNC_BUFFER_POOL.set(allocateAsyncBuffer(64 * 1024));
+        }
+    }
+
     private HandlerRegistry() {}
 
     public List<Object> getHandlers() {
@@ -330,6 +343,22 @@ public class HandlerRegistry {
 
             // Check if method returns CompletableFuture (async)
             boolean isAsync = CompletionStage.class.isAssignableFrom(method.getReturnType());
+            boolean borrowsOutputBuffer = legacyV4
+                    || directV5
+                    || isDirectInt(method)
+                    || isDirectLong(method)
+                    || isDirectBoolean(method)
+                    || isDirectDouble(method)
+                    || isDirectShort(method)
+                    || directBodylessOutput;
+            if (isAsync && borrowsOutputBuffer) {
+                throw new IllegalArgumentException(
+                        "Async handler " + method
+                                + " cannot receive a framework-owned ByteBuffer. "
+                                + "Return CompletionStage<JsonBodyProducer>, CompletionStage<RawResponse>, "
+                                + "or CompletionStage<ResponseEntity<?>> instead."
+                );
+            }
 
             // Check for @ResponseStatus annotation
             int customResponseStatus = 200;
@@ -524,7 +553,7 @@ public class HandlerRegistry {
             }
 
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -562,7 +591,7 @@ public class HandlerRegistry {
 
             return invokeV4(desc, out, offset, toByteArray(inBuffer, inLength), pathParams, queryString, headers);
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -588,7 +617,7 @@ public class HandlerRegistry {
                     : desc.handle.invoke(out, offset, queryInt);
             return processDirectResult(desc, result, out, offset);
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -611,7 +640,7 @@ public class HandlerRegistry {
         try {
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryLong), out, offset);
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -634,7 +663,7 @@ public class HandlerRegistry {
         try {
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryBoolean), out, offset);
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -657,7 +686,7 @@ public class HandlerRegistry {
         try {
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryDouble), out, offset);
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -680,7 +709,7 @@ public class HandlerRegistry {
         try {
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryShort), out, offset);
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -702,7 +731,7 @@ public class HandlerRegistry {
         try {
             return invokeBodylessOutput(desc, out, offset);
         } catch (Throwable e) {
-            return writeError(out, offset, e.getMessage());
+            return writeError(out, offset, e);
         }
     }
 
@@ -818,7 +847,7 @@ public class HandlerRegistry {
     }
 
     /**
-     * Fast annotated invocation using FastMapV2 for O(1) parameter lookup.
+     * Fast annotated invocation using RequestValueMap for O(1) parameter lookup.
      */
     private int invokeAnnotatedFast(
             HandlerDescriptor desc,
@@ -840,9 +869,8 @@ public class HandlerRegistry {
             return writeAnnotatedResult(desc, singleValueResult, out, offset);
         }
 
-        // Use ThreadLocal FastMapV2 pools - O(1) lookup, zero allocation
-        FastMapV2 paramMap = PARAM_MAP_POOL.get();
-        FastMapV2 headerMap = HEADER_MAP_POOL.get();
+        RequestValueMap paramMap = PARAM_MAP_POOL.get();
+        RequestValueMap headerMap = HEADER_MAP_POOL.get();
 
         try {
             paramMap.clear();
@@ -889,8 +917,8 @@ public class HandlerRegistry {
             return writeAnnotatedResult(desc, singleValueResult, out, offset);
         }
 
-        FastMapV2 paramMap = PARAM_MAP_POOL.get();
-        FastMapV2 headerMap = HEADER_MAP_POOL.get();
+        RequestValueMap paramMap = PARAM_MAP_POOL.get();
+        RequestValueMap headerMap = HEADER_MAP_POOL.get();
 
         try {
             paramMap.clear();
@@ -976,9 +1004,9 @@ public class HandlerRegistry {
     }
 
     /**
-     * Fast parameter parsing into FastMapV2.
+     * Fast parameter parsing into RequestValueMap.
      */
-    private void parseParamsFast(FastMapV2 map, String params, boolean plusAsSpace, String[] wantedNames) {
+    private void parseParamsFast(RequestValueMap map, String params, boolean plusAsSpace, String[] wantedNames) {
         if (params == null || params.isEmpty()) return;
 
         int start = 0;
@@ -1008,9 +1036,9 @@ public class HandlerRegistry {
     }
 
     /**
-     * Fast header parsing into FastMapV2.
+     * Fast header parsing into RequestValueMap.
      */
-    private void parseHeadersFast(FastMapV2 map, String headers, String[] wantedNames) {
+    private void parseHeadersFast(RequestValueMap map, String headers, String[] wantedNames) {
         if (headers == null || headers.isEmpty()) return;
 
         int start = 0;
@@ -1287,8 +1315,8 @@ public class HandlerRegistry {
     private Object invokeAnnotatedHandle(
             HandlerDescriptor desc,
             byte[] body,
-            FastMapV2 params,
-            FastMapV2 headers
+            RequestValueMap params,
+            RequestValueMap headers
     ) throws Throwable {
         return desc.compiledInvoker.invoke(body, params, headers);
     }
@@ -1297,8 +1325,8 @@ public class HandlerRegistry {
             HandlerDescriptor desc,
             ByteBuffer body,
             int bodyLen,
-            FastMapV2 params,
-            FastMapV2 headers
+            RequestValueMap params,
+            RequestValueMap headers
     ) throws Throwable {
         return desc.compiledInvoker.invokeDirect(body, bodyLen, params, headers);
     }
@@ -1421,17 +1449,19 @@ public class HandlerRegistry {
     /**
      * Write error response to buffer.
      */
-    private int writeError(ByteBuffer out, int offset, String message) {
-        byte[] escaped = escapeJson(message).getBytes(StandardCharsets.UTF_8);
-        int bodyLen = ERROR_PREFIX.length + escaped.length + ERROR_SUFFIX.length;
-        byte[] body = new byte[bodyLen];
-        int pos = 0;
-        System.arraycopy(ERROR_PREFIX, 0, body, pos, ERROR_PREFIX.length);
-        pos += ERROR_PREFIX.length;
-        System.arraycopy(escaped, 0, body, pos, escaped.length);
-        pos += escaped.length;
-        System.arraycopy(ERROR_SUFFIX, 0, body, pos, ERROR_SUFFIX.length);
-        return writeFrameWithBytes(500, DEFAULT_JSON_CONTENT_TYPE_HEADER, body, out, offset);
+    private int writeError(ByteBuffer out, int offset, String internalMessage) {
+        return writeError(out, offset, new IllegalStateException(internalMessage));
+    }
+
+    private int writeError(ByteBuffer out, int offset, Throwable error) {
+        HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(error);
+        return writeFrameWithBytes(
+                mapped.status(),
+                DEFAULT_JSON_CONTENT_TYPE_HEADER,
+                HttpErrorMapper.toJsonBytes(mapped),
+                out,
+                offset
+        );
     }
 
     private int writeObjectFrame(
@@ -1770,18 +1800,6 @@ public class HandlerRegistry {
         return value;
     }
 
-    /**
-     * Escape special characters in JSON string.
-     */
-    private String escapeJson(String s) {
-        if (s == null) return "null";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
     // ========================================
     // ASYNC HANDLER SUPPORT (CompletableFuture)
     // ========================================
@@ -1794,7 +1812,13 @@ public class HandlerRegistry {
             String headers
     ) {
         return invokeAsyncFrame(handlerId, inBytes, pathParams, queryString, headers)
-                .thenApply(AsyncResponseFrame::toByteArray);
+                .thenApply(frame -> {
+                    try {
+                        return frame.toByteArray();
+                    } finally {
+                        releaseAsyncResponseFrame(frame);
+                    }
+                });
     }
 
     public CompletableFuture<AsyncResponseFrame> invokeAsyncFrame(
@@ -1837,18 +1861,7 @@ public class HandlerRegistry {
                 return new AsyncResponseFrame(buffer, written);
 
             } catch (Throwable e) {
-                if (DEBUG) {
-                    FrameworkLogger.debugError("[HandlerRegistry] Error: " + e.getClass().getName());
-                    e.printStackTrace();
-                }
-                String errorMsg = e.getMessage();
-                if (errorMsg == null) {
-                    errorMsg = e.getClass().getName();
-                    if (e.getCause() != null) {
-                        errorMsg += ": " + e.getCause().getMessage();
-                    }
-                }
-                return encodeAsyncErrorFrame(new RuntimeException(errorMsg, e));
+                return encodeAsyncErrorFrame(e);
             }
         });
     }
@@ -1903,8 +1916,8 @@ public class HandlerRegistry {
             if (singleValueResult != SINGLE_VALUE_FAST_PATH_MISS) {
                 return singleValueResult;
             }
-            FastMapV2 paramMap = PARAM_MAP_POOL.get();
-            FastMapV2 headerMap = HEADER_MAP_POOL.get();
+            RequestValueMap paramMap = PARAM_MAP_POOL.get();
+            RequestValueMap headerMap = HEADER_MAP_POOL.get();
             try {
                 paramMap.clear();
                 headerMap.clear();
@@ -1990,20 +2003,15 @@ public class HandlerRegistry {
 
     private AsyncResponseFrame encodeAsyncErrorFrame(Throwable e) {
         if (DEBUG) {
-            FrameworkLogger.debugError("[HandlerRegistry] Async error: " + e.getClass().getName());
-            e.printStackTrace();
+            FrameworkLogger.debugError(
+                    "[HandlerRegistry] Async error: " + e.getClass().getName(),
+                    e);
         }
-        String errorMsg = e.getMessage();
-        if (errorMsg == null) {
-            errorMsg = e.getClass().getName();
-            if (e.getCause() != null) {
-                errorMsg += ": " + e.getCause().getMessage();
-            }
-        }
+        HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(e);
         ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
         buffer.clear();
-        byte[] body = ("{\"error\":\"" + escapeJson(errorMsg) + "\"}").getBytes(StandardCharsets.UTF_8);
-        int written = writeFrameWithBytes(500, DEFAULT_JSON_CONTENT_TYPE_HEADER, body, buffer, 0);
+        byte[] body = HttpErrorMapper.toJsonBytes(mapped);
+        int written = writeFrameWithBytes(mapped.status(), DEFAULT_JSON_CONTENT_TYPE_HEADER, body, buffer, 0);
         return new AsyncResponseFrame(buffer, written);
     }
 

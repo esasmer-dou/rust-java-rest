@@ -354,16 +354,26 @@ function Write-Report {
 if (-not $SkipBuild) {
     Push-Location $FrameworkRoot
     try {
-        & mvn -q -DskipTests package
+        & mvn -q -DskipTests install
         if ($LASTEXITCODE -ne 0) {
-            throw "mvn package failed"
+            throw "core mvn install failed"
+        }
+        & mvn -q -DskipTests -f sample/pom.xml package
+        if ($LASTEXITCODE -ne 0) {
+            throw "sample mvn package failed"
         }
     } finally {
         Pop-Location
     }
 }
 
-$classpath = "target/classes;target/dependency/*"
+$sampleJar = Get-ChildItem -Path (Join-Path $FrameworkRoot "sample\target") -Filter "rust-java-rest-*-sample.jar" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($null -eq $sampleJar) {
+    throw "Sample jar not found. Build rust-java-rest/sample first."
+}
+$classpath = $sampleJar.FullName
 $javaArgs = @(
     "@src/main/resources/startup/openj9-micro-rss.options",
     "-Dserver.port=$Port",

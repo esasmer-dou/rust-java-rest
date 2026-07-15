@@ -2,7 +2,7 @@ FROM ibm-semeru-runtimes:open-21-jdk-jammy AS builder
 
 WORKDIR /build
 
-ARG CORE_JAR=target/rust-java-rest-3.2.1-core-runtime.jar
+ARG CORE_JAR=target/rust-java-rest-*-core-runtime.jar
 
 COPY ${CORE_JAR} /build/framework.jar
 COPY benchmark/minimal-production/src /build/src

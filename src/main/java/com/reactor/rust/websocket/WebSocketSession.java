@@ -116,9 +116,19 @@ public class WebSocketSession {
         if (!open) {
             throw new IllegalStateException("Session is closed");
         }
-        byte[] data = new byte[buffer.remaining()];
-        buffer.get(data);
-        ensureSendAccepted(NativeBridge.sendWebSocketBinary(id, data, data.length));
+        Objects.requireNonNull(buffer, "buffer");
+        int position = buffer.position();
+        int length = buffer.remaining();
+        int status;
+        if (buffer.isDirect()) {
+            status = NativeBridge.sendWebSocketBinaryBuffer(id, buffer, position, length);
+            buffer.position(buffer.limit());
+        } else {
+            byte[] data = new byte[length];
+            buffer.get(data);
+            status = NativeBridge.sendWebSocketBinary(id, data, data.length);
+        }
+        ensureSendAccepted(status);
     }
 
     /**

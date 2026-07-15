@@ -1,349 +1,346 @@
 package com.reactor.rust.validation;
 
-import com.reactor.rust.annotations.*;
+import com.reactor.rust.annotations.DecimalMax;
+import com.reactor.rust.annotations.DecimalMin;
+import com.reactor.rust.annotations.Email;
+import com.reactor.rust.annotations.Field;
+import com.reactor.rust.annotations.Max;
+import com.reactor.rust.annotations.Min;
+import com.reactor.rust.annotations.Negative;
+import com.reactor.rust.annotations.NotBlank;
+import com.reactor.rust.annotations.NotEmpty;
+import com.reactor.rust.annotations.NotNull;
+import com.reactor.rust.annotations.Pattern;
+import com.reactor.rust.annotations.Positive;
+import com.reactor.rust.annotations.Request;
+import com.reactor.rust.annotations.Response;
+import com.reactor.rust.annotations.Size;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.Array;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @Request ve @Response annotation'lari ile isaretlenmis Record'lar icin validation.
- * Tum validation annotation'larini destekler.
- *
- * Supported annotations:
- * - @Field (required, min, max, pattern, defaultValue)
- * - @NotNull, @NotBlank, @NotEmpty
- * - @Size (min, max)
- * - @Min, @Max
- * - @Positive, @Negative
- * - @DecimalMin, @DecimalMax
- * - @Pattern
- * - @Email
- */
+/** Validates framework request/response records using per-class compiled plans. */
 public final class DTOValidator {
 
     private static final DTOValidator INSTANCE = new DTOValidator();
-
-    // Email regex - RFC 5322 compliant simplified
     private static final java.util.regex.Pattern EMAIL_PATTERN = java.util.regex.Pattern.compile(
-        "^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,7}$"
-    );
+            "^[a-zA-Z0-9_+&*-]+(?:\\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,7}$");
+    private static final ClassValue<ValidationPlan> PLANS = new ClassValue<>() {
+        @Override
+        protected ValidationPlan computeValue(Class<?> type) {
+            return ValidationPlan.compile(type);
+        }
+    };
 
-    private DTOValidator() {}
+    private DTOValidator() {
+    }
 
     public static DTOValidator getInstance() {
         return INSTANCE;
     }
 
-    /**
-     * Object'in @Request veya @Response ile isaretlenmis olup olmadigini kontrol eder.
-     */
     public boolean isDTO(Class<?> clazz) {
-        return clazz.isAnnotationPresent(Request.class) || clazz.isAnnotationPresent(Response.class);
+        return PLANS.get(clazz).dto();
     }
 
-    /**
-     * @Request/@Response ile isaretlenmis Record'u validate eder.
-     * Tum validation annotation'larini kontrol eder.
-     */
     public ValidationResult validate(Object obj) {
         if (obj == null) {
             return ValidationResult.failure("object", "must not be null", null);
         }
 
-        Class<?> clazz = obj.getClass();
-
-        // Sadece @Request/@Response ile isaretli class'lari validate et
-        if (!isDTO(clazz)) {
+        ValidationPlan plan = PLANS.get(obj.getClass());
+        if (!plan.dto()) {
             return ValidationResult.success();
         }
-
-        // Sadece Record'lari destekle (Constraint #7)
-        if (!clazz.isRecord()) {
-            return ValidationResult.failure("class", "must be a Record", clazz.getName());
+        if (!plan.record()) {
+            return ValidationResult.failure("class", "must be a Record", obj.getClass().getName());
         }
 
-        List<ConstraintViolation> violations = new ArrayList<>();
-        RecordComponent[] components = clazz.getRecordComponents();
-
+        ViolationCollector violations = new ViolationCollector();
         try {
-            Object[] componentValues = extractRecordValues(obj, components);
-
-            for (int i = 0; i < components.length; i++) {
-                RecordComponent component = components[i];
-                Object value = componentValues[i];
-                String fieldName = component.getName();
-
-                // Validate all annotations
-                validateFieldAnnotations(fieldName, value, component, violations);
+            for (FieldPlan field : plan.fields()) {
+                field.validate(field.accessor().get(obj), violations);
             }
-
-        } catch (Exception e) {
-            violations.add(new ConstraintViolation("object", "validation error: " + e.getMessage(), null));
+        } catch (Throwable failure) {
+            if (failure instanceof Error error) {
+                throw error;
+            }
+            violations.add(
+                    "object",
+                    "validation error: " + safeMessage(failure),
+                    null);
         }
-
-        return ValidationResult.of(violations);
+        return violations.result();
     }
 
-    /**
-     * Validate all annotation types for a field.
-     */
-    private void validateFieldAnnotations(String fieldName, Object value, RecordComponent component,
-                                          List<ConstraintViolation> violations) {
-
-        // @NotNull
-        NotNull notNull = component.getAnnotation(NotNull.class);
-        if (notNull != null && value == null) {
-            violations.add(new ConstraintViolation(fieldName, notNull.message(), value));
-            return;
-        }
-
-        // @Field.required
-        Field fieldAnnotation = component.getAnnotation(Field.class);
-        if (fieldAnnotation != null && fieldAnnotation.required() && value == null) {
-            violations.add(new ConstraintViolation(fieldName, "is required", value));
-            return;
-        }
-
-        // Skip remaining validations if null
-        if (value == null) {
-            return;
-        }
-
-        // @NotBlank
-        NotBlank notBlank = component.getAnnotation(NotBlank.class);
-        if (notBlank != null) {
-            if (!(value instanceof String) || ((String) value).trim().isEmpty()) {
-                violations.add(new ConstraintViolation(fieldName, notBlank.message(), value));
-            }
-        }
-
-        // @NotEmpty
-        NotEmpty notEmpty = component.getAnnotation(NotEmpty.class);
-        if (notEmpty != null) {
-            if (isEmpty(value)) {
-                violations.add(new ConstraintViolation(fieldName, notEmpty.message(), value));
-            }
-        }
-
-        // @Size
-        Size size = component.getAnnotation(Size.class);
-        if (size != null) {
-            int length = getLength(value);
-            if (length < size.min() || length > size.max()) {
-                String msg = size.message()
-                    .replace("{min}", String.valueOf(size.min()))
-                    .replace("{max}", String.valueOf(size.max()));
-                violations.add(new ConstraintViolation(fieldName, msg, value));
-            }
-        }
-
-        // @Email
-        Email email = component.getAnnotation(Email.class);
-        if (email != null && value instanceof String) {
-            if (!EMAIL_PATTERN.matcher((String) value).matches()) {
-                violations.add(new ConstraintViolation(fieldName, email.message(), value));
-            }
-        }
-
-        // @Pattern
-        Pattern pattern = component.getAnnotation(Pattern.class);
-        if (pattern != null && value instanceof String) {
-            if (!((String) value).matches(pattern.regexp())) {
-                String msg = pattern.message().replace("{regexp}", pattern.regexp());
-                violations.add(new ConstraintViolation(fieldName, msg, value));
-            }
-        }
-
-        // @Min
-        Min min = component.getAnnotation(Min.class);
-        if (min != null && value instanceof Number) {
-            long num = ((Number) value).longValue();
-            if (num < min.value()) {
-                String msg = min.message().replace("{value}", String.valueOf(min.value()));
-                violations.add(new ConstraintViolation(fieldName, msg, value));
-            }
-        }
-
-        // @Max
-        Max max = component.getAnnotation(Max.class);
-        if (max != null && value instanceof Number) {
-            long num = ((Number) value).longValue();
-            if (num > max.value()) {
-                String msg = max.message().replace("{value}", String.valueOf(max.value()));
-                violations.add(new ConstraintViolation(fieldName, msg, value));
-            }
-        }
-
-        // @Positive
-        Positive positive = component.getAnnotation(Positive.class);
-        if (positive != null && value instanceof Number) {
-            if (((Number) value).doubleValue() <= 0) {
-                violations.add(new ConstraintViolation(fieldName, positive.message(), value));
-            }
-        }
-
-        // @Negative
-        Negative negative = component.getAnnotation(Negative.class);
-        if (negative != null && value instanceof Number) {
-            if (((Number) value).doubleValue() >= 0) {
-                violations.add(new ConstraintViolation(fieldName, negative.message(), value));
-            }
-        }
-
-        // @DecimalMin
-        DecimalMin decimalMin = component.getAnnotation(DecimalMin.class);
-        if (decimalMin != null && value instanceof Number) {
-            double num = ((Number) value).doubleValue();
-            double minVal = Double.parseDouble(decimalMin.value());
-            if (num < minVal) {
-                violations.add(new ConstraintViolation(fieldName, decimalMin.message(), value));
-            }
-        }
-
-        // @DecimalMax
-        DecimalMax decimalMax = component.getAnnotation(DecimalMax.class);
-        if (decimalMax != null && value instanceof Number) {
-            double num = ((Number) value).doubleValue();
-            double maxVal = Double.parseDouble(decimalMax.value());
-            if (num > maxVal) {
-                violations.add(new ConstraintViolation(fieldName, decimalMax.message(), value));
-            }
-        }
-
-        // @Field annotation validation (min/max/pattern)
-        if (fieldAnnotation != null) {
-            validateFieldAnnotation(fieldName, value, fieldAnnotation, violations);
-        }
-    }
-
-    /**
-     * @Field annotation validation.
-     */
-    private void validateFieldAnnotation(String fieldName, Object value, Field annotation,
-                                         List<ConstraintViolation> violations) {
-        // String kontrolleri
-        if (value instanceof String strValue) {
-            // Required (blank kontrolu)
-            if (annotation.required() && strValue.isBlank()) {
-                violations.add(new ConstraintViolation(fieldName, "is required and cannot be blank", value));
-            }
-
-            // Pattern
-            String pattern = annotation.pattern();
-            if (!pattern.isEmpty() && !strValue.matches(pattern)) {
-                violations.add(new ConstraintViolation(fieldName, "does not match pattern: " + pattern, value));
-            }
-        }
-
-        // Sayisal kontroller
-        if (value instanceof Number numValue) {
-            double num = numValue.doubleValue();
-            double min = annotation.min();
-            double max = annotation.max();
-
-            // Min kontrolu (Double.MIN_VALUE default, kontrol etme)
-            if (min != Double.MIN_VALUE && num < min) {
-                violations.add(new ConstraintViolation(fieldName, "must be >= " + min, value));
-            }
-
-            // Max kontrolu (Double.MAX_VALUE default, kontrol etme)
-            if (max != Double.MAX_VALUE && num > max) {
-                violations.add(new ConstraintViolation(fieldName, "must be <= " + max, value));
-            }
-        }
-    }
-
-    /**
-     * Check if value is empty (String, Collection, Map, Array).
-     */
-    private boolean isEmpty(Object value) {
-        if (value instanceof String) {
-            return ((String) value).isEmpty();
-        } else if (value instanceof Collection) {
-            return ((Collection<?>) value).isEmpty();
-        } else if (value instanceof Map) {
-            return ((Map<?, ?>) value).isEmpty();
-        } else if (value.getClass().isArray()) {
-            return java.lang.reflect.Array.getLength(value) == 0;
-        }
-        return false;
-    }
-
-    /**
-     * Get length of value (String, Collection, Map, Array).
-     */
-    private int getLength(Object value) {
-        if (value instanceof String) {
-            return ((String) value).length();
-        } else if (value instanceof Collection) {
-            return ((Collection<?>) value).size();
-        } else if (value instanceof Map) {
-            return ((Map<?, ?>) value).size();
-        } else if (value.getClass().isArray()) {
-            return java.lang.reflect.Array.getLength(value);
-        }
-        return 0;
-    }
-
-    /**
-     * Record degerlerini extract eder.
-     */
-    private Object[] extractRecordValues(Object record, RecordComponent[] components) throws Exception {
-        Object[] values = new Object[components.length];
-        for (int i = 0; i < components.length; i++) {
-            values[i] = components[i].getAccessor().invoke(record);
-        }
-        return values;
-    }
-
-    /**
-     * Default value'u uygula (eger null ise ve defaultValue varsa).
-     */
     public boolean hasDefaultValue(Object obj, String fieldName) {
-        if (obj == null || !obj.getClass().isRecord()) {
+        if (obj == null || fieldName == null) {
             return false;
         }
-
-        try {
-            RecordComponent[] components = obj.getClass().getRecordComponents();
-            for (RecordComponent component : components) {
-                if (component.getName().equals(fieldName)) {
-                    Field annotation = component.getAnnotation(Field.class);
-                    return annotation != null && !annotation.defaultValue().isEmpty();
-                }
-            }
-        } catch (Exception e) {
-            // Ignore
-        }
-
-        return false;
+        return PLANS.get(obj.getClass()).defaults().containsKey(fieldName);
     }
 
-    /**
-     * Field icin default value'i dondur.
-     */
     public String getDefaultValue(Class<?> recordClass, String fieldName) {
-        if (!recordClass.isRecord()) {
+        if (recordClass == null || fieldName == null) {
             return null;
         }
+        return PLANS.get(recordClass).defaults().get(fieldName);
+    }
 
-        try {
-            RecordComponent[] components = recordClass.getRecordComponents();
-            for (RecordComponent component : components) {
-                if (component.getName().equals(fieldName)) {
-                    Field annotation = component.getAnnotation(Field.class);
-                    if (annotation != null && !annotation.defaultValue().isEmpty()) {
-                        return annotation.defaultValue();
-                    }
+    private static String safeMessage(Throwable failure) {
+        String message = failure.getMessage();
+        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
+    }
+
+    private static boolean isEmpty(Object value) {
+        if (value instanceof String string) {
+            return string.isEmpty();
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.isEmpty();
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.isEmpty();
+        }
+        return value.getClass().isArray() && Array.getLength(value) == 0;
+    }
+
+    private static int lengthOf(Object value) {
+        if (value instanceof String string) {
+            return string.length();
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.size();
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.size();
+        }
+        return value.getClass().isArray() ? Array.getLength(value) : 0;
+    }
+
+    private record ValidationPlan(
+            boolean dto,
+            boolean record,
+            FieldPlan[] fields,
+            Map<String, String> defaults) {
+
+        static ValidationPlan compile(Class<?> type) {
+            boolean dto = type.isAnnotationPresent(Request.class) || type.isAnnotationPresent(Response.class);
+            if (!dto || !type.isRecord()) {
+                return new ValidationPlan(dto, type.isRecord(), new FieldPlan[0], Map.of());
+            }
+
+            RecordComponent[] components = type.getRecordComponents();
+            FieldPlan[] fields = new FieldPlan[components.length];
+            Map<String, String> defaults = new LinkedHashMap<>();
+            for (int i = 0; i < components.length; i++) {
+                RecordComponent component = components[i];
+                fields[i] = FieldPlan.compile(type, component);
+                String defaultValue = fields[i].defaultValue();
+                if (defaultValue != null) {
+                    defaults.put(component.getName(), defaultValue);
                 }
             }
-        } catch (Exception e) {
-            // Ignore
+            return new ValidationPlan(true, true, fields, Map.copyOf(defaults));
+        }
+    }
+
+    private record FieldPlan(
+            String name,
+            ValueAccessor accessor,
+            String notNullMessage,
+            boolean required,
+            String notBlankMessage,
+            String notEmptyMessage,
+            int sizeMin,
+            int sizeMax,
+            String sizeMessage,
+            String emailMessage,
+            java.util.regex.Pattern pattern,
+            String patternMessage,
+            Long min,
+            String minMessage,
+            Long max,
+            String maxMessage,
+            String positiveMessage,
+            String negativeMessage,
+            Double decimalMin,
+            String decimalMinMessage,
+            Double decimalMax,
+            String decimalMaxMessage,
+            java.util.regex.Pattern fieldPattern,
+            Double fieldMin,
+            Double fieldMax,
+            String defaultValue) {
+
+        static FieldPlan compile(Class<?> recordType, RecordComponent component) {
+            NotNull notNull = component.getAnnotation(NotNull.class);
+            Field field = component.getAnnotation(Field.class);
+            NotBlank notBlank = component.getAnnotation(NotBlank.class);
+            NotEmpty notEmpty = component.getAnnotation(NotEmpty.class);
+            Size size = component.getAnnotation(Size.class);
+            Email email = component.getAnnotation(Email.class);
+            Pattern pattern = component.getAnnotation(Pattern.class);
+            Min min = component.getAnnotation(Min.class);
+            Max max = component.getAnnotation(Max.class);
+            Positive positive = component.getAnnotation(Positive.class);
+            Negative negative = component.getAnnotation(Negative.class);
+            DecimalMin decimalMin = component.getAnnotation(DecimalMin.class);
+            DecimalMax decimalMax = component.getAnnotation(DecimalMax.class);
+
+            String annotationPattern = pattern == null ? null : pattern.regexp();
+            String fieldPatternValue = field == null || field.pattern().isEmpty() ? null : field.pattern();
+            String defaultValue = field == null || field.defaultValue().isEmpty() ? null : field.defaultValue();
+
+            return new FieldPlan(
+                    component.getName(),
+                    DTOValidator.accessor(recordType, component.getAccessor()),
+                    notNull == null ? null : notNull.message(),
+                    field != null && field.required(),
+                    notBlank == null ? null : notBlank.message(),
+                    notEmpty == null ? null : notEmpty.message(),
+                    size == null ? -1 : size.min(),
+                    size == null ? -1 : size.max(),
+                    size == null ? null : size.message()
+                            .replace("{min}", Integer.toString(size.min()))
+                            .replace("{max}", Integer.toString(size.max())),
+                    email == null ? null : email.message(),
+                    annotationPattern == null ? null : java.util.regex.Pattern.compile(annotationPattern),
+                    pattern == null ? null : pattern.message().replace("{regexp}", annotationPattern),
+                    min == null ? null : min.value(),
+                    min == null ? null : min.message().replace("{value}", Long.toString(min.value())),
+                    max == null ? null : max.value(),
+                    max == null ? null : max.message().replace("{value}", Long.toString(max.value())),
+                    positive == null ? null : positive.message(),
+                    negative == null ? null : negative.message(),
+                    decimalMin == null ? null : Double.parseDouble(decimalMin.value()),
+                    decimalMin == null ? null : decimalMin.message(),
+                    decimalMax == null ? null : Double.parseDouble(decimalMax.value()),
+                    decimalMax == null ? null : decimalMax.message(),
+                    fieldPatternValue == null ? null : java.util.regex.Pattern.compile(fieldPatternValue),
+                    field == null || field.min() == Double.MIN_VALUE ? null : field.min(),
+                    field == null || field.max() == Double.MAX_VALUE ? null : field.max(),
+                    defaultValue);
         }
 
-        return null;
+        void validate(Object value, ViolationCollector violations) {
+            if (value == null) {
+                if (notNullMessage != null) {
+                    violations.add(name, notNullMessage, null);
+                } else if (required) {
+                    violations.add(name, "is required", null);
+                }
+                return;
+            }
+
+            if (notBlankMessage != null
+                    && (!(value instanceof String string) || string.trim().isEmpty())) {
+                violations.add(name, notBlankMessage, value);
+            }
+            if (notEmptyMessage != null && isEmpty(value)) {
+                violations.add(name, notEmptyMessage, value);
+            }
+            if (sizeMessage != null) {
+                int length = lengthOf(value);
+                if (length < sizeMin || length > sizeMax) {
+                    violations.add(name, sizeMessage, value);
+                }
+            }
+            if (emailMessage != null && value instanceof String string
+                    && !EMAIL_PATTERN.matcher(string).matches()) {
+                violations.add(name, emailMessage, value);
+            }
+            if (pattern != null && value instanceof String string && !pattern.matcher(string).matches()) {
+                violations.add(name, patternMessage, value);
+            }
+            if (min != null && value instanceof Number number && number.longValue() < min) {
+                violations.add(name, minMessage, value);
+            }
+            if (max != null && value instanceof Number number && number.longValue() > max) {
+                violations.add(name, maxMessage, value);
+            }
+            if (positiveMessage != null && value instanceof Number number && number.doubleValue() <= 0) {
+                violations.add(name, positiveMessage, value);
+            }
+            if (negativeMessage != null && value instanceof Number number && number.doubleValue() >= 0) {
+                violations.add(name, negativeMessage, value);
+            }
+            if (decimalMin != null && value instanceof Number number && number.doubleValue() < decimalMin) {
+                violations.add(name, decimalMinMessage, value);
+            }
+            if (decimalMax != null && value instanceof Number number && number.doubleValue() > decimalMax) {
+                violations.add(name, decimalMaxMessage, value);
+            }
+            if (value instanceof String string) {
+                if (required && string.isBlank()) {
+                    violations.add(name, "is required and cannot be blank", value);
+                }
+                if (fieldPattern != null && !fieldPattern.matcher(string).matches()) {
+                    violations.add(name, "does not match pattern: " + fieldPattern.pattern(), value);
+                }
+            }
+            if (value instanceof Number number) {
+                double numeric = number.doubleValue();
+                if (fieldMin != null && numeric < fieldMin) {
+                    violations.add(name, "must be >= " + fieldMin, value);
+                }
+                if (fieldMax != null && numeric > fieldMax) {
+                    violations.add(name, "must be <= " + fieldMax, value);
+                }
+            }
+        }
+    }
+
+    private static ValueAccessor accessor(Class<?> recordType, Method method) {
+        try {
+            MethodHandles.Lookup lookup = MethodHandles.privateLookupIn(recordType, MethodHandles.lookup());
+            MethodHandle handle = lookup.unreflect(method)
+                    .asType(MethodType.methodType(Object.class, Object.class));
+            return target -> (Object) handle.invokeExact(target);
+        } catch (IllegalAccessException inaccessible) {
+            if (!method.trySetAccessible()) {
+                throw new IllegalArgumentException(
+                        "Record accessor is not accessible: " + method.toGenericString(),
+                        inaccessible);
+            }
+            return target -> {
+                try {
+                    return method.invoke(target);
+                } catch (InvocationTargetException e) {
+                    throw e.getCause();
+                }
+            };
+        }
+    }
+
+    @FunctionalInterface
+    private interface ValueAccessor {
+        Object get(Object target) throws Throwable;
+    }
+
+    private static final class ViolationCollector {
+
+        private List<ConstraintViolation> values;
+
+        void add(String field, String message, Object invalidValue) {
+            if (values == null) {
+                values = new ArrayList<>(2);
+            }
+            values.add(new ConstraintViolation(field, message, invalidValue));
+        }
+
+        ValidationResult result() {
+            return values == null ? ValidationResult.success() : ValidationResult.of(values);
+        }
     }
 }

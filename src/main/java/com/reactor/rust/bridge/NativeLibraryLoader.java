@@ -34,6 +34,8 @@ public final class NativeLibraryLoader {
 
     private static final String LIBRARY_NAME = "rust_hyper";
     private static boolean loaded = false;
+    private static volatile LoadedArtifact loadedArtifact =
+            LoadedArtifact.external("not-loaded", "unknown", "unknown");
 
     private NativeLibraryLoader() {
         // Utility class
@@ -62,11 +64,16 @@ public final class NativeLibraryLoader {
             String javaLibPath = System.getProperty("java.library.path");
             boolean tryJavaLibraryPath = PropertiesLoader.getBoolean(
                     "reactor.native.load.java-library-path-first",
-                    true
+                    false
             );
             if (tryJavaLibraryPath && javaLibPath != null && !javaLibPath.isEmpty()) {
                 try {
                     System.loadLibrary(LIBRARY_NAME);
+                    loadedArtifact = LoadedArtifact.external(
+                            "java.library.path",
+                            javaLibPath,
+                            "unknown"
+                    );
                     loaded = true;
                     FrameworkLogger.info("[NativeLibraryLoader] Loaded from java.library.path: " + LIBRARY_NAME);
                     return;
@@ -91,9 +98,15 @@ public final class NativeLibraryLoader {
         if (loaded) {
             return;
         }
-        System.load(path);
+        Path nativePath = Path.of(path).toAbsolutePath().normalize();
+        System.load(nativePath.toString());
+        loadedArtifact = LoadedArtifact.external(
+                "explicit-api-path",
+                nativePath.toString(),
+                fileHash(nativePath)
+        );
         loaded = true;
-        FrameworkLogger.info("[NativeLibraryLoader] Loaded from custom path: " + path);
+        FrameworkLogger.info("[NativeLibraryLoader] Loaded from custom path: " + nativePath);
     }
 
     /**
@@ -108,15 +121,22 @@ public final class NativeLibraryLoader {
         FrameworkLogger.info("[NativeLibraryLoader] Looking for resource: " + resourcePath);
 
         // Extract library from JAR to temp file
-        Path tempFile = extractLibrary(resourcePath, libraryFileName, platform);
+        ExtractedLibrary extracted = extractLibrary(resourcePath, libraryFileName, platform);
 
         // Load the extracted library
-        System.load(tempFile.toString());
-        FrameworkLogger.info("[NativeLibraryLoader] Loaded from extracted: " + tempFile);
+        System.load(extracted.path().toString());
+        loadedArtifact = new LoadedArtifact(
+                "jar-resource",
+                extracted.path().toString(),
+                extracted.manifest().sha256(),
+                extracted.manifest()
+        );
+        FrameworkLogger.info("[NativeLibraryLoader] Loaded verified native resource: "
+                + extracted.path() + " sha256=" + extracted.manifest().sha256());
 
         if (!isExtractionCacheEnabled()) {
             // Delete on exit (best effort). Cached native files are intentionally kept for faster cold starts.
-            tempFile.toFile().deleteOnExit();
+            extracted.path().toFile().deleteOnExit();
         }
     }
 
@@ -136,13 +156,17 @@ public final class NativeLibraryLoader {
         }
 
         System.load(path.toString());
+        loadedArtifact = LoadedArtifact.external("custom-path", path.toString(), fileHash(path));
         FrameworkLogger.info("[NativeLibraryLoader] Loaded from custom path: " + path);
     }
 
     /**
      * Extract library from JAR resources to temp file.
      */
-    private static Path extractLibrary(String resourcePath, String libraryFileName, Platform platform) {
+    private static ExtractedLibrary extractLibrary(
+            String resourcePath,
+            String libraryFileName,
+            Platform platform) {
         try (InputStream is = NativeLibraryLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
                 String macOSNote = platform.os == OsType.MACOS
@@ -161,8 +185,17 @@ public final class NativeLibraryLoader {
             }
 
             byte[] bytes = is.readAllBytes();
+            NativeProvenance.Manifest manifest = NativeProvenance.verifyPackagedBinary(
+                    NativeLibraryLoader.class.getClassLoader(),
+                    platform.toString(),
+                    bytes,
+                    NativeBridge.EXPECTED_NATIVE_ABI_VERSION
+            );
             if (isExtractionCacheEnabled()) {
-                return extractToCache(bytes, libraryFileName, platform);
+                return new ExtractedLibrary(
+                        extractToCache(bytes, libraryFileName, platform),
+                        manifest
+                );
             }
 
             // Create temp file with correct extension
@@ -180,7 +213,7 @@ public final class NativeLibraryLoader {
                 // Ignore on Windows
             }
 
-            return tempFile;
+            return new ExtractedLibrary(tempFile, manifest);
 
         } catch (IOException e) {
             throw new UnsatisfiedLinkError("Failed to extract native library: " + e.getMessage());
@@ -232,13 +265,29 @@ public final class NativeLibraryLoader {
         if (!Files.exists(target) || Files.size(target) != expectedSize) {
             return false;
         }
-        return expectedHash.equals(sha256(Files.readAllBytes(target)));
+        return expectedHash.equals(sha256(target));
     }
 
     private static String sha256(byte[] bytes) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest is not available", e);
+        }
+    }
+
+    private static String sha256(Path path) throws IOException {
+        try (InputStream input = Files.newInputStream(path)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[16 * 1024];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 digest is not available", e);
         }
@@ -281,6 +330,76 @@ public final class NativeLibraryLoader {
      */
     public static boolean isLoaded() {
         return loaded;
+    }
+
+    public static String loadedArtifactInfo() {
+        LoadedArtifact artifact = loadedArtifact;
+        return "source=" + artifact.source()
+                + ", location=" + artifact.location()
+                + ", sha256=" + artifact.sha256();
+    }
+
+    static NativeProvenance.BuildInfo validateRuntimeProvenance(
+            String nativeBuildInfo,
+            int expectedRestAbi) {
+        NativeProvenance.BuildInfo buildInfo = NativeProvenance.parseBuildInfo(nativeBuildInfo);
+        if (buildInfo.restAbi() != expectedRestAbi) {
+            throw new IllegalStateException(
+                    "Native build provenance ABI mismatch: expected " + expectedRestAbi
+                            + " but binary reported " + buildInfo.restAbi()
+            );
+        }
+        if (buildInfo.redisAbi() != NativeBridge.EXPECTED_REDIS_NATIVE_ABI_VERSION) {
+            throw new IllegalStateException(
+                    "Native Redis build provenance ABI mismatch: expected "
+                            + NativeBridge.EXPECTED_REDIS_NATIVE_ABI_VERSION
+                            + " but binary reported " + buildInfo.redisAbi()
+            );
+        }
+        if (buildInfo.dubboAbi() != NativeBridge.EXPECTED_DUBBO_NATIVE_ABI_VERSION) {
+            throw new IllegalStateException(
+                    "Native Dubbo build provenance ABI mismatch: expected "
+                            + NativeBridge.EXPECTED_DUBBO_NATIVE_ABI_VERSION
+                            + " but binary reported " + buildInfo.dubboAbi()
+            );
+        }
+
+        NativeProvenance.Manifest manifest = loadedArtifact.manifest();
+        if (manifest != null) {
+            if (!manifest.sourceRevision().equals(buildInfo.sourceRevision())) {
+                throw new IllegalStateException(
+                        "Packaged native source revision mismatch: manifest="
+                                + manifest.sourceRevision() + " binary=" + buildInfo.sourceRevision()
+                );
+            }
+            if (!manifest.crateVersion().equals(buildInfo.crateVersion())) {
+                throw new IllegalStateException(
+                        "Packaged native crate version mismatch: manifest="
+                                + manifest.crateVersion() + " binary=" + buildInfo.crateVersion()
+                );
+            }
+            if (manifest.redisAbi() != buildInfo.redisAbi()) {
+                throw new IllegalStateException(
+                        "Packaged native Redis ABI mismatch: manifest="
+                                + manifest.redisAbi() + " binary=" + buildInfo.redisAbi()
+                );
+            }
+            if (manifest.dubboAbi() != buildInfo.dubboAbi()) {
+                throw new IllegalStateException(
+                        "Packaged native Dubbo ABI mismatch: manifest="
+                                + manifest.dubboAbi() + " binary=" + buildInfo.dubboAbi()
+                );
+            }
+        }
+        return buildInfo;
+    }
+
+    private static String fileHash(Path path) {
+        try {
+            return sha256(path);
+        } catch (IOException error) {
+            throw new IllegalStateException("Cannot hash native library: " + path, error);
+        }
     }
 
     // ==================== Platform Detection ====================
@@ -332,6 +451,19 @@ public final class NativeLibraryLoader {
         @Override
         public String toString() {
             return os.name + "-" + arch.name;
+        }
+    }
+
+    private record ExtractedLibrary(Path path, NativeProvenance.Manifest manifest) {}
+
+    private record LoadedArtifact(
+            String source,
+            String location,
+            String sha256,
+            NativeProvenance.Manifest manifest) {
+
+        static LoadedArtifact external(String source, String location, String sha256) {
+            return new LoadedArtifact(source, location, sha256, null);
         }
     }
 }

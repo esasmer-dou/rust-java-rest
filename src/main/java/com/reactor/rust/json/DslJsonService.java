@@ -1,42 +1,30 @@
 package com.reactor.rust.json;
 
-import com.dslplatform.json.Configuration;
+import com.dslplatform.json.ConfigurationException;
 import com.dslplatform.json.DslJson;
 import com.dslplatform.json.JsonWriter;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.exception.BadRequestException;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.ServiceConfigurationError;
-import java.util.ServiceLoader;
 
 /**
- * JSON serialization service using DSL-JSON 2.0.2.
- * Compile-time annotation processing ile ZERO overhead.
+ * DSL-JSON serialization service.
  *
- * OPTIMIZED (Phase 5):
- * - ThreadLocal JsonWriter reuse - eliminates allocation per serialize
- * - Pre-allocated error byte arrays for fast error responses
- * - Direct buffer access without intermediate copies
- * - Removed verbose initialization logging (hot path optimization)
- *
- * Memory savings:
- * - Before: ~2KB allocation per serialize
- * - After: ~0 bytes allocation (reuses ThreadLocal instances)
- *
- * Performance:
- * - ThreadLocal lookup: ~5ns
- * - Writer allocation (avoided): ~200ns per serialize
+ * Generated configurations are discovered at startup. Thread-local writers reduce repeated
+ * allocation, and oversized writers are discarded according to the configured retention cap.
+ * Registered direct writers can bypass the generic serializer for selected response types.
  */
 public final class DslJsonService {
 
     private static final boolean FAIL_ON_SERVICE_LOADER_ERROR = PropertiesLoader.getBoolean(
             "reactor.rust.json.fail-on-service-loader-error",
-            false
+            true
     );
 
     // Initialize DSL-JSON with ServiceLoader to discover generated Configuration classes
@@ -60,11 +48,11 @@ public final class DslJsonService {
                 classLoader = ClassLoader.getSystemClassLoader();
             }
 
-            DslJson<Object> json = new DslJson<>(new DslJson.Settings());
-            configureFromServiceLoader(json, classLoader);
+            DslJson<Object> json = new DslJson<>(
+                    new DslJson.Settings<>().includeServiceLoader(classLoader));
             return new InitResult(json, false, "");
 
-        } catch (Throwable e) {
+        } catch (ServiceConfigurationError | LinkageError | RuntimeException e) {
             if (FAIL_ON_SERVICE_LOADER_ERROR) {
                 throw new ExceptionInInitializerError(e);
             }
@@ -75,34 +63,13 @@ public final class DslJsonService {
                         true,
                         e.getClass().getName() + ": " + String.valueOf(e.getMessage())
                 );
-            } catch (Throwable e2) {
+            } catch (LinkageError | RuntimeException e2) {
                 return new InitResult(
                         new DslJson<>(),
                         true,
-                        e.getClass().getName() + ": " + String.valueOf(e.getMessage())
+                        failureMessage(e, e2)
                 );
             }
-        }
-    }
-
-    private static void configureFromServiceLoader(DslJson<Object> json, ClassLoader classLoader) {
-        ServiceLoader<Configuration> loader = ServiceLoader.load(Configuration.class, classLoader);
-        Iterator<Configuration> iterator = loader.iterator();
-        while (true) {
-            Configuration config;
-            try {
-                if (!iterator.hasNext()) {
-                    return;
-                }
-                config = iterator.next();
-            } catch (ServiceConfigurationError | LinkageError error) {
-                if (FAIL_ON_SERVICE_LOADER_ERROR) {
-                    throw error;
-                }
-                serviceLoaderSkippedConfigurations++;
-                continue;
-            }
-            config.configure(json);
         }
     }
 
@@ -126,7 +93,7 @@ public final class DslJsonService {
     // Pre-allocated null bytes
     private static final byte[] NULL_BYTES = "null".getBytes(StandardCharsets.UTF_8);
 
-    // Pre-allocated error response templates (Phase 5)
+    // Shared immutable error response templates avoid rebuilding common payloads.
     private static final byte[] ERROR_PREFIX = "{\"error\":\"".getBytes(StandardCharsets.UTF_8);
     private static final byte[] ERROR_SUFFIX = "\"}".getBytes(StandardCharsets.UTF_8);
     private static final byte[] ERROR_TOO_LARGE =
@@ -232,6 +199,10 @@ public final class DslJsonService {
         if (bytes == null || bytes.length == 0) return null;
         try {
             return DSL_JSON.deserialize(clazz, bytes, bytes.length);
+        } catch (ConfigurationException e) {
+            throw new IllegalStateException("No JSON reader registered for " + clazz.getName(), e);
+        } catch (IOException e) {
+            throw new BadRequestException("Malformed JSON request body", e);
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse JSON: " + e.getMessage(), e);
         }
@@ -270,6 +241,10 @@ public final class DslJsonService {
             duplicate.position(0);
             duplicate.limit(Math.min(length, duplicate.capacity()));
             return DSL_JSON.deserialize(clazz, new ByteBufferInputStream(duplicate));
+        } catch (ConfigurationException e) {
+            throw new IllegalStateException("No JSON reader registered for " + clazz.getName(), e);
+        } catch (IOException e) {
+            throw new BadRequestException("Malformed JSON request body", e);
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse JSON: " + e.getMessage(), e);
         }
@@ -311,14 +286,14 @@ public final class DslJsonService {
      * @return Number of bytes written
      */
     public static int writeErrorToBuffer(String message, ByteBuffer out, int offset) {
+        if (offset < 0 || offset > out.limit()) {
+            throw new IllegalArgumentException("offset is outside target buffer");
+        }
         String escaped = escapeJson(message);
         byte[] escapedBytes = escaped.getBytes(StandardCharsets.UTF_8);
 
         int totalSize = ERROR_PREFIX.length + escapedBytes.length + ERROR_SUFFIX.length;
         int remaining = out.limit() - offset;
-        if (remaining < 0) {
-            throw new IllegalArgumentException("offset is outside target buffer");
-        }
         if (totalSize > remaining) {
             if (ERROR_TOO_LARGE.length > remaining) {
                 throw new IllegalArgumentException("target buffer is too small for JSON error response");
@@ -341,11 +316,38 @@ public final class DslJsonService {
      */
     private static String escapeJson(String s) {
         if (s == null) return "null";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+        StringBuilder escaped = null;
+        int copyFrom = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char current = s.charAt(i);
+            String replacement = switch (current) {
+                case '\"' -> "\\\"";
+                case '\\' -> "\\\\";
+                case '\b' -> "\\b";
+                case '\f' -> "\\f";
+                case '\n' -> "\\n";
+                case '\r' -> "\\r";
+                case '\t' -> "\\t";
+                default -> current < 0x20
+                        ? String.format("\\u%04x", (int) current)
+                        : null;
+            };
+            if (replacement == null) {
+                continue;
+            }
+            if (escaped == null) {
+                escaped = new StringBuilder(s.length() + 16);
+            }
+            escaped.append(s, copyFrom, i).append(replacement);
+            copyFrom = i + 1;
+        }
+        return escaped == null ? s : escaped.append(s, copyFrom, s.length()).toString();
+    }
+
+    private static String failureMessage(Throwable primary, Throwable fallback) {
+        String primaryMessage = primary.getClass().getName() + ": " + String.valueOf(primary.getMessage());
+        String fallbackMessage = fallback.getClass().getName() + ": " + String.valueOf(fallback.getMessage());
+        return primaryMessage + "; fallback failed: " + fallbackMessage;
     }
 
     /**
@@ -354,14 +356,15 @@ public final class DslJsonService {
      */
     public static byte[] serialize(Object obj) {
         if (obj == null) return NULL_BYTES;
+        JsonWriter writer = WRITER_CACHE.get();
         try {
-            // Reuse ThreadLocal writer - no allocation
-            JsonWriter writer = WRITER_CACHE.get();
             writer.reset();
             DSL_JSON.serialize(writer, obj);
             return writer.toByteArray();
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize JSON: " + e.getMessage(), e);
+        } finally {
+            releaseOversizedWriter(writer);
         }
     }
 
@@ -371,13 +374,15 @@ public final class DslJsonService {
      */
     public static int getSerializedSize(Object obj) {
         if (obj == null) return NULL_BYTES.length;
+        JsonWriter writer = WRITER_CACHE.get();
         try {
-            JsonWriter writer = WRITER_CACHE.get();
             writer.reset();
             DSL_JSON.serialize(writer, obj);
             return writer.size();
         } catch (Exception e) {
             throw new RuntimeException("Failed to get serialized size: " + e.getMessage(), e);
+        } finally {
+            releaseOversizedWriter(writer);
         }
     }
 
