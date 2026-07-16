@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 public class NativeBridge {
 
     static final int EXPECTED_NATIVE_ABI_VERSION = 24;
-    static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 6;
+    static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 7;
     static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 6;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;

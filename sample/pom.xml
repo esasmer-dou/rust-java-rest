@@ -6,7 +6,7 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest-sample</artifactId>
-    <version>3.4.0</version>
+    <version>3.4.1</version>
     <name>Rust-Java REST Sample</name>
     <description>Runnable sample and benchmark application for rust-java-rest.</description>
 

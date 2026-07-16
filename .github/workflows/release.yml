@@ -96,7 +96,7 @@ jobs:
           test -f "$MANIFEST"
           grep -qx 'schema=2' "$MANIFEST"
           grep -qx 'rest.abi=24' "$MANIFEST"
-          grep -qx 'dubbo.abi=6' "$MANIFEST"
+          grep -qx 'dubbo.abi=7' "$MANIFEST"
           grep -qx 'redis.abi=6' "$MANIFEST"
           ! grep -q -- '-dirty$' "$MANIFEST"
           LINUX_EXPECTED="$(sed -n 's/^linux-x64.sha256=//p' "$MANIFEST")"

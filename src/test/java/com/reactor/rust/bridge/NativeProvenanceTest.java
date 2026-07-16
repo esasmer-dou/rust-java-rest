@@ -20,7 +20,7 @@ class NativeProvenanceTest {
         ClassLoader loader = manifestLoader("""
                 schema=2
                 rest.abi=24
-                dubbo.abi=6
+                dubbo.abi=7
                 redis.abi=6
                 crate.version=0.1.0
                 source.revision=abc123
@@ -35,7 +35,7 @@ class NativeProvenanceTest {
                         NativeBridge.EXPECTED_NATIVE_ABI_VERSION
                 );
 
-        assertEquals(6, manifest.dubboAbi());
+        assertEquals(7, manifest.dubboAbi());
         assertEquals(6, manifest.redisAbi());
         assertEquals(hash, manifest.sha256());
     }
@@ -51,12 +51,12 @@ class NativeProvenanceTest {
                 profile=release
                 features=default
                 restAbi=24
-                dubboAbi=6
+                dubboAbi=7
                 redisAbi=6
                 """);
 
         assertEquals(24, info.restAbi());
-        assertEquals(6, info.dubboAbi());
+        assertEquals(7, info.dubboAbi());
         assertEquals(6, info.redisAbi());
         assertEquals("abc123-dirty", info.sourceRevision());
     }

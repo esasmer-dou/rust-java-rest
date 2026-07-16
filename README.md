@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.4.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -19,8 +19,8 @@ The model is intentionally simple:
 
 ## Current Stable Line
 
-`3.4.0` carries the current native runtime line used by `java-rust-cache:0.4.0` and
-`java-rust-dubbo:0.4.0`. The packaged native runtime reports REST ABI `24`, Dubbo ABI `6`, and Redis
+`3.4.1` carries the current native runtime line used by `java-rust-cache:0.4.1` and
+`java-rust-dubbo:0.4.1`. The packaged native runtime reports REST ABI `24`, Dubbo ABI `7`, and Redis
 ABI `6`. It adds bounded async response retention, configurable native thread stacks, transport-plane
 isolation, and read/write Redis access modes. If your application combines these libraries, keep the
 versions aligned:
@@ -29,34 +29,34 @@ versions aligned:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.0</version>
+  <version>3.4.1</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.4.0</version>
+  <version>0.4.1</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.4.0</version>
+  <version>0.4.1</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.4.0` or `java-rust-dubbo:0.4.0` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.4.1` or `java-rust-dubbo:0.4.1` native mode with a DLL/SO copied from
 an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
 
-## v3.4.0 At A Glance
+## v3.4.1 At A Glance
 
-`v3.4.0` keeps the same Java programming model: handlers, services, records, database calls, and
-business rules stay in Java. The release reduces memory retained after bursts without making queues
-or pools unbounded. `micro-rest` now starts async responses with an `8 KiB` heap frame, keeps only two
-completed frames, and does not retain large or huge native response buffers. Larger responses still
-work through bounded capacity retry; a pool capacity of `0` disables retention, not the response.
+`v3.4.1` keeps the same Java programming model: handlers, services, records, database calls, and
+business rules stay in Java. REST-only services do not need a code or configuration change. When the
+same process uses native Dubbo, the shared runtime now expires old idle sockets, validates pooled
+connections before reuse, and rejects a stale ABI at startup. The bounded response-memory defaults
+introduced in `3.4.0` remain unchanged.
 
 No REST annotation or handler signature changed. Existing DTO routes remain compatible. For hot
 large-JSON routes, prefer `JsonBodyProducer`, direct writer, raw/precomputed JSON, or native response
@@ -274,7 +274,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.0</version>
+  <version>3.4.1</version>
 </dependency>
 ```
 
@@ -347,16 +347,16 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-3.4.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-3.4.0-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-3.4.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-3.4.1-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-3.4.0-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-3.4.1-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:3.4.0`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:3.4.1`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -378,7 +378,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-3.4.0-sample.jar
+java -jar sample/target/rust-java-rest-3.4.1-sample.jar
 ```
 
 ## Quick Start
@@ -1489,7 +1489,7 @@ The release asset names are:
 - `librust_hyper-linux-x64.so`
 
 Java checks the native ABI and provenance schema at startup. The packaged manifest records REST ABI
-`24`, Dubbo ABI `6`, Redis ABI `6`, source revision, crate version, and a SHA-256 hash for each
+`24`, Dubbo ABI `7`, Redis ABI `6`, source revision, crate version, and a SHA-256 hash for each
 platform. If the DLL/SO does not match the Java artifact, startup fails early instead of running with
 a broken JNI contract.
 

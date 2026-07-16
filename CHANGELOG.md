@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.4.1] - 2026-07-16
+
+### Changed
+
+- Refreshed the packaged Windows and Linux native runtime from a clean `rust-spring` source
+  revision.
+- Advanced the aligned Dubbo native contract from ABI `6` to ABI `7`; REST ABI `24` and Redis ABI
+  `6` are unchanged.
+- Added stale idle Dubbo connection expiry and liveness validation to the shared native runtime.
+- Updated native provenance, SHA-256 validation, and release workflow gates for the `24/7/6` ABI
+  line.
+
+### Compatibility
+
+- REST annotations, handler signatures, DTO serialization, runtime profiles, and response APIs are
+  unchanged.
+- Applications that use native Dubbo must upgrade `rust-java-rest` and `java-rust-dubbo` together.
+
+---
+
 ## [3.3.1] - 2026-07-15
 
 ### Added
@@ -625,6 +645,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[3.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.0...v3.4.1
 [3.2.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.4...v3.2.5
 [3.2.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.1...v3.2.2
 [3.2.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.0...v3.2.1

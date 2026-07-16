@@ -12,7 +12,7 @@ param(
 
     [int]$RestAbi = 24,
 
-    [int]$DubboAbi = 6,
+    [int]$DubboAbi = 7,
 
     [int]$RedisAbi = 6
 )
