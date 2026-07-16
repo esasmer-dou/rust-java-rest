@@ -64,12 +64,27 @@ public final class AsyncHandlerExecutor {
         if (!inFlight.tryAcquire()) {
             return CompletableFuture.failedFuture(new RejectedExecutionException("async handler bulkhead full"));
         }
+        CompletableFuture<T> result = new CompletableFuture<>();
         try {
-            return CompletableFuture.supplyAsync(task, executor)
-                    .whenComplete((ignored, error) -> inFlight.release());
+            executor.execute(() -> {
+                T value;
+                try {
+                    value = task.get();
+                } catch (Throwable error) {
+                    inFlight.release();
+                    result.completeExceptionally(error);
+                    return;
+                }
+                // Match the previous supplyAsync(...).whenComplete(...) contract: the task permit
+                // covers user work, not dependent response serialization/completion callbacks.
+                inFlight.release();
+                result.complete(value);
+            });
+            return result;
         } catch (RuntimeException e) {
             inFlight.release();
-            return CompletableFuture.failedFuture(e);
+            result.completeExceptionally(e);
+            return result;
         }
     }
 
@@ -86,6 +101,14 @@ public final class AsyncHandlerExecutor {
      */
     public Executor getExecutor() {
         return executor;
+    }
+
+    int availablePermits() {
+        return inFlight.availablePermits();
+    }
+
+    int maxInflight() {
+        return maxInflight;
     }
 
     /**

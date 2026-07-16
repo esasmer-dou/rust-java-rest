@@ -18,10 +18,12 @@ param(
     [double] $FrameworkCodeCacheMaxRAMPercentage = 0,
     [string] $FrameworkCodeCacheTotal = "",
     [string] $FrameworkJavaOptsAppend = "",
+    [string] $FrameworkJavaToolOptions = "",
     [switch] $PlanPreWarm,
     [string] $PlanPreWarmDuration = "3s",
     [switch] $FrameworkOnly,
     [switch] $SkipBuild,
+    [switch] $SkipImageBuild,
     [switch] $KeepContainers
 )
 
@@ -836,7 +838,7 @@ function Invoke-RunnerCurl {
     )
     $output = & docker @args 2>$null
     if ($LASTEXITCODE -ne 0) {
-        return $null
+        throw "Required framework probe failed: $Url"
     }
     return ($output -join "`n")
 }
@@ -1010,6 +1012,7 @@ function Write-Summary {
     $lines.Add("- Framework memory limit: $FrameworkMemory")
     $lines.Add("- Spring memory limit: $SpringMemory")
     $lines.Add("- Framework JAVA_OPTS: ``$($profileConfig.FrameworkJavaOpts)``")
+    $lines.Add("- Framework JAVA_TOOL_OPTIONS: ``$FrameworkJavaToolOptions``")
     if ($FrameworkOnly) {
         $lines.Add("- Spring target: skipped (`-FrameworkOnly`)")
     } else {
@@ -1182,12 +1185,18 @@ try {
         }
     }
 
-    $frameworkJar = Find-FrameworkJar
-
-    Invoke-Docker -Arguments @("build", "-t", $FrameworkImage, "-f", "benchmark/docker/framework.Dockerfile", "--build-arg", "JAR_FILE=$frameworkJar", ".") -WorkingDirectory $FrameworkRoot
-    if (-not $FrameworkOnly) {
-        $springJar = Find-SpringJar
-        Invoke-Docker -Arguments @("build", "-t", $SpringImage, "-f", "Dockerfile.benchmark", "--build-arg", "JAR_FILE=$springJar", ".") -WorkingDirectory $SpringRoot
+    if (-not $SkipImageBuild) {
+        $frameworkJar = Find-FrameworkJar
+        Invoke-Docker -Arguments @("build", "-t", $FrameworkImage, "-f", "benchmark/docker/framework.Dockerfile", "--build-arg", "JAR_FILE=$frameworkJar", ".") -WorkingDirectory $FrameworkRoot
+        if (-not $FrameworkOnly) {
+            $springJar = Find-SpringJar
+            Invoke-Docker -Arguments @("build", "-t", $SpringImage, "-f", "Dockerfile.benchmark", "--build-arg", "JAR_FILE=$springJar", ".") -WorkingDirectory $SpringRoot
+        }
+    } else {
+        Invoke-Checked -FilePath "docker" -Arguments @("image", "inspect", $FrameworkImage) -WorkingDirectory $FrameworkRoot | Out-Null
+        if (-not $FrameworkOnly) {
+            Invoke-Checked -FilePath "docker" -Arguments @("image", "inspect", $SpringImage) -WorkingDirectory $SpringRoot | Out-Null
+        }
     }
     Invoke-Docker -Arguments @("build", "-t", $RunnerImage, "-f", "Dockerfile.benchmark", ".") -WorkingDirectory $ScriptDir
 
@@ -1207,6 +1216,7 @@ try {
         "-p", "8080:8080",
         "--cpus", "$CpuLimit",
         "--memory", $FrameworkMemory,
+        "-e", "JAVA_TOOL_OPTIONS=$FrameworkJavaToolOptions",
         "-e", "JAVA_OPTS=$frameworkJavaOpts",
         $FrameworkImage
     )
@@ -1275,6 +1285,15 @@ try {
             Lua = "/results/get_status.lua"
         },
         [PSCustomObject]@{
+            Name = "heavy100_dynamic_producer_async"
+            Class = "dynamic-producer-json-async"
+            Method = "GET"
+            RustPath = "/api/v1/heavy/dto/async?items=100"
+            SpringPath = ""
+            Targets = @("rust_java")
+            Lua = "/results/get_status.lua"
+        },
+        [PSCustomObject]@{
             Name = "heavy100_dynamic_dto_legacy"
             Class = "dynamic-dto-json"
             Method = "GET"
@@ -1297,6 +1316,15 @@ try {
             Class = "producer-json"
             Method = "GET"
             RustPath = "/api/v1/heavy/producer?items=100"
+            SpringPath = ""
+            Targets = @("rust_java")
+            Lua = "/results/get_status.lua"
+        },
+        [PSCustomObject]@{
+            Name = "heavy100_producer_json_async"
+            Class = "producer-json-async"
+            Method = "GET"
+            RustPath = "/api/v1/heavy/producer/async?items=100"
             SpringPath = ""
             Targets = @("rust_java")
             Lua = "/results/get_status.lua"

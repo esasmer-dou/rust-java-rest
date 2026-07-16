@@ -57,6 +57,14 @@ public final class RuntimeFootprintGate {
                     "medium response pool can retain memory after bursts", warnings, violations);
             checkMaxInt("reactor.rust.response-pool.large-capacity", 1,
                     "large response pool can retain memory after bursts", warnings, violations);
+            checkMaxInt("reactor.rust.response-pool.huge-capacity", 0,
+                    "huge response pool can retain 1 MiB buffers after bursts", warnings, violations);
+            checkMaxInt("reactor.rust.async.frame-pool-capacity", 4,
+                    "async frame pool retains reusable completion buffers process-wide", warnings, violations);
+            checkMaxInt("reactor.rust.async.frame-initial-bytes", 8_192,
+                    "async frame initial allocation is large for a memory-first profile", warnings, violations);
+            checkMaxInt("reactor.rust.async.frame-retain-max-bytes", 65_536,
+                    "async frame pool can retain large completion buffers after bursts", warnings, violations);
 
             if (PropertiesLoader.getBoolean("reactor.websocket.enabled", true)) {
                 warnings.add("reactor.websocket.enabled=true; WebSocket registry/callback surface may load");

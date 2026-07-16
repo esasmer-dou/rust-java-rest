@@ -16,4 +16,17 @@ class RequestValueMapTest {
         assertEquals("abc-123", map.getIgnoreCase("X-REQUEST-id"));
         assertNull(map.getIgnoreCase("missing"));
     }
+
+    @Test
+    void oversizedBackingArraysAreReleasedOnClear() {
+        RequestValueMap map = new RequestValueMap();
+        for (int i = 0; i < 80; i++) {
+            map.put("key-" + i, "value-" + i);
+        }
+
+        map.clear();
+
+        assertEquals(16, map.retainedCapacity());
+        assertEquals(0, map.size());
+    }
 }

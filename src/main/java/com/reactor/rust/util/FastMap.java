@@ -6,7 +6,7 @@ package com.reactor.rust.util;
  *
  * Performance characteristics:
  * - Reuses internal arrays after capacity stabilizes; growth can allocate
- * - O(n) lookup (but n is typically < 10 for HTTP params)
+ * - O(n) lookup (but n is typically &lt; 10 for HTTP params)
  * - Not thread-safe; intended for thread-confined reuse
  *
  * Usage:
@@ -22,6 +22,7 @@ public final class FastMap {
 
     // Initial capacity for typical HTTP request (path params + query params)
     private static final int DEFAULT_CAPACITY = 16;
+    private static final int MAX_RETAINED_CAPACITY = 64;
 
     // Thread-local holder used to reuse the backing arrays
     private static final ThreadLocal<FastMap> POOL =
@@ -90,7 +91,7 @@ public final class FastMap {
 
     /**
      * Get value for key, or null if not found.
-     * O(n) but n is typically small (< 10).
+     * O(n) but n is typically small (&lt; 10).
      */
     public String get(String key) {
         for (int i = 0; i < size; i++) {
@@ -144,11 +145,21 @@ public final class FastMap {
      * Also sets all values to null to help GC.
      */
     public void clear() {
+        if (keys.length > MAX_RETAINED_CAPACITY) {
+            keys = new String[DEFAULT_CAPACITY];
+            values = new String[DEFAULT_CAPACITY];
+            size = 0;
+            return;
+        }
         for (int i = 0; i < size; i++) {
             keys[i] = null;
             values[i] = null;
         }
         size = 0;
+    }
+
+    int retainedCapacity() {
+        return keys.length;
     }
 
     /**

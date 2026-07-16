@@ -69,7 +69,10 @@ class RuntimeProfilesTest {
         assertEquals(1, PropertiesLoader.getInt("reactor.rust.jni.workers", 0));
         assertEquals(128, PropertiesLoader.getInt("reactor.rust.jni.queue-capacity", 0));
         assertEquals(2, PropertiesLoader.getInt("reactor.rust.response-pool.medium-capacity", 0));
+        assertEquals(0, PropertiesLoader.getInt("reactor.rust.response-pool.large-capacity", -1));
+        assertEquals(0, PropertiesLoader.getInt("reactor.rust.response-pool.huge-capacity", -1));
         assertEquals(0, PropertiesLoader.getInt("reactor.rust.native-cache.max-bytes", -1));
+        assertEquals(8192, PropertiesLoader.getInt("reactor.rust.async.frame-initial-bytes", -1));
     }
 
     @Test

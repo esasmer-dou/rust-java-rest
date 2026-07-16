@@ -70,8 +70,8 @@ public final class ParameterResolver {
         Object[] args = new Object[params.length];
 
         // Reuse thread-local request maps; capacity growth is bounded by request shape.
-        FastMap pathParamMap = PooledMaps.getParams();
-        FastMap queryParams = PooledMaps.getParams();
+        FastMap pathParamMap = PooledMaps.getPathParams();
+        FastMap queryParams = PooledMaps.getQueryParams();
         FastMap headerMap = PooledMaps.getHeaders();
         FastMap cookieMap = PooledMaps.getCookies();
 

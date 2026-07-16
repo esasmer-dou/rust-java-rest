@@ -55,6 +55,8 @@ public final class RuntimeProfiles {
         set("reactor.rust.runtime.worker-threads", "1");
         set("reactor.rust.runtime.max-blocking-threads", "1");
         set("reactor.rust.runtime.thread-stack-bytes", "262144");
+        set("reactor.rust.jni.thread-stack-bytes", "524288");
+        set("reactor.rust.server.thread-stack-bytes", "262144");
         set("reactor.rust.file-stream.chunk-bytes", "32768");
         set("reactor.rust.static-file.inline-max-bytes", "0");
         set("reactor.rust.static-file.max-concurrent-streams", "32");
@@ -63,13 +65,16 @@ public final class RuntimeProfiles {
         set("reactor.rust.websocket.send-timeout-ms", "1000");
         set("reactor.rust.response-pool.small-capacity", "8");
         set("reactor.rust.response-pool.medium-capacity", "2");
-        set("reactor.rust.response-pool.large-capacity", "1");
-        set("reactor.rust.response-pool.huge-capacity", "1");
+        set("reactor.rust.response-pool.large-capacity", "0");
+        set("reactor.rust.response-pool.huge-capacity", "0");
         set("reactor.rust.native-cache.max-entries", "0");
         set("reactor.rust.native-cache.max-bytes", "0");
         set("reactor.rust.native-cache.ttl-ms", "60000");
         set("reactor.rust.json.writer-retain-max-bytes", "32768");
         set("reactor.rust.async.max-inflight", "64");
+        set("reactor.rust.async.frame-initial-bytes", "8192");
+        set("reactor.rust.async.frame-pool-capacity", "2");
+        set("reactor.rust.async.frame-retain-max-bytes", "65536");
         set("reactor.rust.async.response-timeout-ms", "1500");
     }
 
@@ -146,6 +151,8 @@ public final class RuntimeProfiles {
         set("reactor.rust.runtime.worker-threads", "2");
         set("reactor.rust.runtime.max-blocking-threads", "4");
         set("reactor.rust.runtime.thread-stack-bytes", "262144");
+        set("reactor.rust.jni.thread-stack-bytes", "524288");
+        set("reactor.rust.server.thread-stack-bytes", "262144");
         set("reactor.rust.file-stream.chunk-bytes", "65536");
         set("reactor.rust.static-file.inline-max-bytes", "524288");
         set("reactor.rust.static-file.max-concurrent-streams", "128");
@@ -157,6 +164,9 @@ public final class RuntimeProfiles {
         set("reactor.rust.native-cache.max-bytes", "4194304");
         set("reactor.rust.json.writer-retain-max-bytes", "65536");
         set("reactor.rust.async.max-inflight", "128");
+        set("reactor.rust.async.frame-initial-bytes", "8192");
+        set("reactor.rust.async.frame-pool-capacity", "4");
+        set("reactor.rust.async.frame-retain-max-bytes", "65536");
         set("reactor.rust.async.response-timeout-ms", "2000");
         set("reactor.dubbo.transport", "native");
         set("reactor.dubbo.native-connections-per-endpoint", "2");
@@ -189,6 +199,8 @@ public final class RuntimeProfiles {
         set("reactor.rust.runtime.worker-threads", "2");
         set("reactor.rust.runtime.max-blocking-threads", "4");
         set("reactor.rust.runtime.thread-stack-bytes", "262144");
+        set("reactor.rust.jni.thread-stack-bytes", "1048576");
+        set("reactor.rust.server.thread-stack-bytes", "524288");
         set("reactor.rust.file-stream.chunk-bytes", "65536");
         set("reactor.rust.static-file.inline-max-bytes", "1048576");
         set("reactor.rust.static-file.max-concurrent-streams", "256");
@@ -199,6 +211,9 @@ public final class RuntimeProfiles {
         set("reactor.rust.native-cache.max-entries", "512");
         set("reactor.rust.native-cache.max-bytes", "8388608");
         set("reactor.rust.async.max-inflight", "1024");
+        set("reactor.rust.async.frame-initial-bytes", "16384");
+        set("reactor.rust.async.frame-pool-capacity", "16");
+        set("reactor.rust.async.frame-retain-max-bytes", "262144");
         set("reactor.rust.async.response-timeout-ms", "2000");
         set("reactor.dubbo.transport", "native");
         set("reactor.dubbo.native-connections-per-endpoint", "16");
@@ -231,6 +246,8 @@ public final class RuntimeProfiles {
         set("reactor.rust.runtime.worker-threads", "0");
         set("reactor.rust.runtime.max-blocking-threads", "0");
         set("reactor.rust.runtime.thread-stack-bytes", "0");
+        set("reactor.rust.jni.thread-stack-bytes", "0");
+        set("reactor.rust.server.thread-stack-bytes", "0");
         set("reactor.rust.file-stream.chunk-bytes", "131072");
         set("reactor.rust.static-file.inline-max-bytes", "2097152");
         set("reactor.rust.static-file.max-concurrent-streams", "1024");
@@ -241,6 +258,9 @@ public final class RuntimeProfiles {
         set("reactor.rust.native-cache.max-entries", "2048");
         set("reactor.rust.native-cache.max-bytes", "33554432");
         set("reactor.rust.async.max-inflight", "4096");
+        set("reactor.rust.async.frame-initial-bytes", "65536");
+        set("reactor.rust.async.frame-pool-capacity", "64");
+        set("reactor.rust.async.frame-retain-max-bytes", "524288");
         set("reactor.rust.async.response-timeout-ms", "3000");
         set("reactor.dubbo.transport", "native");
         set("reactor.dubbo.native-connections-per-endpoint", "32");

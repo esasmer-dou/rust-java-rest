@@ -48,22 +48,34 @@ import java.util.concurrent.atomic.LongAdder;
  * Optimized handler registry with:
  * - MethodMetadata cache (zero runtime annotation lookup)
  * - RequestValueMap for parameter resolution (O(1) lookup)
- * - ThreadLocal ByteBuffer pool
+ * - Bounded, request-owned async response buffer pool
  * - Exact MethodHandle invocation for common signatures
  */
 public class HandlerRegistry {
 
     private static final HandlerRegistry INSTANCE = new HandlerRegistry();
 
-    // ThreadLocal async frame buffer. Heap is the low-RSS default; direct can be enabled only after an RSS gate.
+    private static final int INITIAL_ASYNC_FRAME_BYTES = Math.max(
+            1024,
+            PropertiesLoader.getInt("reactor.rust.async.frame-initial-bytes", 16 * 1024)
+    );
     private static final boolean ASYNC_DIRECT_BUFFER_ENABLED =
             PropertiesLoader.getBoolean("reactor.rust.async.direct-buffer.enabled", false);
-    private static final ThreadLocal<ByteBuffer> ASYNC_BUFFER_POOL =
-        ThreadLocal.withInitial(() -> allocateAsyncBuffer(64 * 1024));
     private static final int MAX_ASYNC_RESPONSE_FRAME_BYTES = 8 * 1024 * 1024 + 64 * 1024;
     private static final int ASYNC_FRAME_RETAIN_MAX_BYTES = Math.max(
-            64 * 1024,
+            INITIAL_ASYNC_FRAME_BYTES,
             PropertiesLoader.getInt("reactor.rust.async.frame-retain-max-bytes", 256 * 1024)
+    );
+    private static final int ASYNC_FRAME_POOL_CAPACITY = Math.max(
+            0,
+            PropertiesLoader.getInt("reactor.rust.async.frame-pool-capacity", 8)
+    );
+    private static final AsyncFrameBufferPool ASYNC_FRAME_POOL = new AsyncFrameBufferPool(
+            ASYNC_FRAME_POOL_CAPACITY,
+            INITIAL_ASYNC_FRAME_BYTES,
+            ASYNC_FRAME_RETAIN_MAX_BYTES,
+            MAX_ASYNC_RESPONSE_FRAME_BYTES,
+            ASYNC_DIRECT_BUFFER_ENABLED
     );
 
     // Thread-confined maps avoid request-level allocation after the first use on a worker.
@@ -240,13 +252,38 @@ public class HandlerRegistry {
     }
 
     void releaseAsyncResponseFrame(AsyncResponseFrame frame) {
-        if (frame == null || frame.buffer.capacity() <= ASYNC_FRAME_RETAIN_MAX_BYTES) {
-            return;
+        if (frame != null) {
+            ASYNC_FRAME_POOL.release(frame.buffer);
         }
-        ByteBuffer current = ASYNC_BUFFER_POOL.get();
-        if (current == frame.buffer) {
-            ASYNC_BUFFER_POOL.set(allocateAsyncBuffer(64 * 1024));
-        }
+    }
+
+    public String asyncFramePoolDiagnosticsJson() {
+        AsyncFrameBufferPool.Snapshot snapshot = ASYNC_FRAME_POOL.snapshot();
+        return "{\"capacity\":" + snapshot.capacity()
+                + ",\"size\":" + snapshot.size()
+                + ",\"initial_buffer_bytes\":" + snapshot.initialBufferBytes()
+                + ",\"retain_max_bytes\":" + snapshot.retainMaxBytes()
+                + ",\"direct\":" + snapshot.direct()
+                + ",\"hit\":" + snapshot.hits()
+                + ",\"miss\":" + snapshot.misses()
+                + ",\"returned\":" + snapshot.returned()
+                + ",\"dropped\":" + snapshot.dropped()
+                + '}';
+    }
+
+    public String asyncFramePoolMetricsPrometheus() {
+        AsyncFrameBufferPool.Snapshot snapshot = ASYNC_FRAME_POOL.snapshot();
+        return "reactor_java_async_frame_pool_capacity " + snapshot.capacity() + '\n'
+                + "reactor_java_async_frame_pool_size " + snapshot.size() + '\n'
+                + "reactor_java_async_frame_pool_retain_max_bytes " + snapshot.retainMaxBytes() + '\n'
+                + "reactor_java_async_frame_pool_hit_total " + snapshot.hits() + '\n'
+                + "reactor_java_async_frame_pool_miss_total " + snapshot.misses() + '\n'
+                + "reactor_java_async_frame_pool_return_total " + snapshot.returned() + '\n'
+                + "reactor_java_async_frame_pool_drop_total " + snapshot.dropped() + '\n';
+    }
+
+    public void resetAsyncFramePoolMetrics() {
+        ASYNC_FRAME_POOL.resetMetrics();
     }
 
     private HandlerRegistry() {}
@@ -1847,8 +1884,8 @@ public class HandlerRegistry {
         }
 
         return AsyncHandlerExecutor.getInstance().submit(() -> {
+            ByteBuffer buffer = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
             try {
-                ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
                 buffer.clear();
 
                 int written;
@@ -1861,6 +1898,7 @@ public class HandlerRegistry {
                 return new AsyncResponseFrame(buffer, written);
 
             } catch (Throwable e) {
+                ASYNC_FRAME_POOL.release(buffer);
                 return encodeAsyncErrorFrame(e);
             }
         });
@@ -1894,9 +1932,9 @@ public class HandlerRegistry {
 
     private CompletableFuture<AsyncResponseFrame> encodeAsyncRawResult(HandlerDescriptor desc, Object raw) {
         if (raw instanceof CompletionStage<?> stage) {
-            return stage.toCompletableFuture()
-                    .thenApply(result -> encodeAsyncResultFrame(desc, result))
-                    .exceptionally(this::encodeAsyncErrorFrame);
+            return stage.toCompletableFuture().handle((result, error) -> error == null
+                    ? encodeAsyncResultFrame(desc, result)
+                    : encodeAsyncErrorFrame(error));
         }
         return CompletableFuture.completedFuture(encodeAsyncResultFrame(desc, raw));
     }
@@ -1937,26 +1975,12 @@ public class HandlerRegistry {
             }
         }
 
-        ByteBuffer out = ASYNC_BUFFER_POOL.get();
-        out.clear();
-        if (desc.usesDirectBodyBuffer) {
-            ByteBuffer inBuffer = ByteBuffer.wrap(inBytes == null ? EMPTY_BYTES : inBytes);
-            return desc.handle.invoke(
-                    out,
-                    0,
-                    inBuffer,
-                    inBuffer.remaining(),
-                    pathParams,
-                    queryString,
-                    headers
-            );
-        }
-        return desc.handle.invoke(out, 0, inBytes, pathParams, queryString, headers);
+        throw new IllegalStateException("Async handler has no safe non-borrowing invocation plan: " + desc.method);
     }
 
     private AsyncResponseFrame encodeAsyncResultFrame(HandlerDescriptor desc, Object result) {
+        ByteBuffer buffer = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
         try {
-            ByteBuffer buffer = asyncBufferAtLeast(64 * 1024);
             if (result instanceof Integer written) {
                 if (written < 0) {
                     throw new IllegalStateException("async direct response returned required size without retry: " + -written);
@@ -1973,32 +1997,13 @@ public class HandlerRegistry {
                 if (required <= 0 || required > MAX_ASYNC_RESPONSE_FRAME_BYTES) {
                     throw new IllegalStateException("async response frame too large: " + required);
                 }
-                buffer = asyncBufferAtLeast(required);
+                buffer = ASYNC_FRAME_POOL.grow(buffer, required);
             }
             throw new IllegalStateException("async response frame retry exceeded");
         } catch (Throwable e) {
+            ASYNC_FRAME_POOL.release(buffer);
             return encodeAsyncErrorFrame(e);
         }
-    }
-
-    private ByteBuffer asyncBufferAtLeast(int requiredCapacity) {
-        ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
-        if (buffer.capacity() >= requiredCapacity) {
-            return buffer;
-        }
-        if (requiredCapacity > MAX_ASYNC_RESPONSE_FRAME_BYTES) {
-            throw new IllegalStateException("async response frame too large: " + requiredCapacity);
-        }
-        int nextCapacity = Math.max(requiredCapacity, Math.min(MAX_ASYNC_RESPONSE_FRAME_BYTES, buffer.capacity() * 2));
-        ByteBuffer next = allocateAsyncBuffer(nextCapacity);
-        ASYNC_BUFFER_POOL.set(next);
-        return next;
-    }
-
-    private static ByteBuffer allocateAsyncBuffer(int capacity) {
-        return ASYNC_DIRECT_BUFFER_ENABLED
-                ? ByteBuffer.allocateDirect(capacity)
-                : ByteBuffer.allocate(capacity);
     }
 
     private AsyncResponseFrame encodeAsyncErrorFrame(Throwable e) {
@@ -2008,7 +2013,7 @@ public class HandlerRegistry {
                     e);
         }
         HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(e);
-        ByteBuffer buffer = ASYNC_BUFFER_POOL.get();
+        ByteBuffer buffer = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
         buffer.clear();
         byte[] body = HttpErrorMapper.toJsonBytes(mapped);
         int written = writeFrameWithBytes(mapped.status(), DEFAULT_JSON_CONTENT_TYPE_HEADER, body, buffer, 0);

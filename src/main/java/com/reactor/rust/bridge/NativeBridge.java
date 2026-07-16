@@ -21,9 +21,9 @@ import java.util.concurrent.TimeUnit;
  */
 public class NativeBridge {
 
-    static final int EXPECTED_NATIVE_ABI_VERSION = 23;
-    static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 5;
-    static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 5;
+    static final int EXPECTED_NATIVE_ABI_VERSION = 24;
+    static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 6;
+    static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 6;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;
     private static final long DEFAULT_MAX_IN_FLIGHT_BODY_BYTES = 64L * 1024L * 1024L;
@@ -45,6 +45,8 @@ public class NativeBridge {
     private static final int DEFAULT_RUNTIME_WORKER_THREADS = 0;
     private static final int DEFAULT_RUNTIME_MAX_BLOCKING_THREADS = 0;
     private static final long DEFAULT_RUNTIME_THREAD_STACK_BYTES = 0L;
+    private static final long DEFAULT_JNI_THREAD_STACK_BYTES = 0L;
+    private static final long DEFAULT_SERVER_THREAD_STACK_BYTES = 0L;
     private static final boolean DEFAULT_HTTP1_ONLY_ENABLED = false;
     private static final int DEFAULT_FILE_STREAM_CHUNK_BYTES = 64 * 1024;
     private static final long DEFAULT_STATIC_FILE_INLINE_MAX_BYTES = 512L * 1024L;
@@ -183,6 +185,8 @@ public class NativeBridge {
             int runtimeWorkerThreads,
             int runtimeMaxBlockingThreads,
             long runtimeThreadStackBytes,
+            long jniThreadStackBytes,
+            long serverThreadStackBytes,
             boolean http1OnlyEnabled,
             boolean keepAliveEnabled,
             int nativeLogLevel,
@@ -327,6 +331,14 @@ public class NativeBridge {
                 "reactor.rust.runtime.thread-stack-bytes",
                 DEFAULT_RUNTIME_THREAD_STACK_BYTES
         );
+        long jniThreadStackBytes = PropertiesLoader.getLong(
+                "reactor.rust.jni.thread-stack-bytes",
+                DEFAULT_JNI_THREAD_STACK_BYTES
+        );
+        long serverThreadStackBytes = PropertiesLoader.getLong(
+                "reactor.rust.server.thread-stack-bytes",
+                DEFAULT_SERVER_THREAD_STACK_BYTES
+        );
         boolean http1OnlyEnabled = PropertiesLoader.getBoolean(
                 "reactor.rust.http.http1-only-enabled",
                 DEFAULT_HTTP1_ONLY_ENABLED
@@ -408,6 +420,8 @@ public class NativeBridge {
                     runtimeWorkerThreads,
                     runtimeMaxBlockingThreads,
                     runtimeThreadStackBytes,
+                    jniThreadStackBytes,
+                    serverThreadStackBytes,
                     http1OnlyEnabled,
                     keepAliveEnabled,
                     nativeLogLevel,
@@ -431,6 +445,8 @@ public class NativeBridge {
                 + ", maxConnections=" + maxConnections
                 + ", jniWorkers=" + (jniWorkers > 0 ? jniWorkers : "auto")
                 + ", jniQueueCapacity=" + jniQueueCapacity
+                + ", jniThreadStackBytes=" + jniThreadStackBytes
+                + ", serverThreadStackBytes=" + serverThreadStackBytes
                 + ", responsePoolSmallCapacity=" + responsePoolSmallCapacity
                 + ", responsePoolMediumCapacity=" + responsePoolMediumCapacity
                 + ", responsePoolLargeCapacity=" + responsePoolLargeCapacity

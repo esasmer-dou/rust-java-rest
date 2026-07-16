@@ -147,13 +147,35 @@ Async completion buffers are heap-backed by default:
 
 ```properties
 reactor.rust.async.direct-buffer.enabled=false
+reactor.rust.async.frame-initial-bytes=8192
+reactor.rust.async.frame-pool-capacity=2
+reactor.rust.async.frame-retain-max-bytes=65536
 ```
+
+The values above are the `micro-rest` recipe. The initial size is not the maximum response size.
+Larger responses use a bounded capacity retry. Choose an initial value that covers the normal async
+payload without making every concurrent request start with a large array. The pool is process-wide,
+not thread-local, and its capacity is therefore a direct retained-memory budget.
+
+For native response pools, a bucket capacity of `0` means "do not retain completed buffers in this
+size class". It does not disable responses in that size class. `micro-rest` intentionally uses:
+
+```properties
+reactor.rust.response-pool.small-capacity=8
+reactor.rust.response-pool.medium-capacity=2
+reactor.rust.response-pool.large-capacity=0
+reactor.rust.response-pool.huge-capacity=0
+```
+
+This keeps the frequent small working set reusable while returning one-off large allocations to the
+native allocator. Do not increase large/huge retention to hide allocator churn without a mixed-route
+RSS and p99 gate.
 
 Set `reactor.rust.async.direct-buffer.enabled=true` only after a Linux smaps/anon gate. Direct async
 buffers can reduce copy work, but they can also increase retained direct/native memory after bursts.
-The current short rebuild gate with heap async frames ended near `60 MiB` cgroup current, `53 MiB`
-anon, and effectively zero direct-buffer attribution. Keep that as the default decision until your
-own route matrix proves otherwise.
+The matched minimal-production gate with heap async frames ended at `46.93 MiB` cgroup current,
+`40.52 MiB` anon, and effectively zero direct-buffer attribution. Keep heap frames as the default
+decision until your own route matrix proves otherwise.
 
 Strict low-RSS services should also ship startup indexes instead of relying on classpath scanning:
 
@@ -196,6 +218,12 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\xss_anon_matrix.ps1 `
   -XssValues "256k,192k,160k,128k" `
   -ConcurrencyValues "512"
 ```
+
+The production Docker baseline keeps `MALLOC_ARENA_MAX=2` and
+`MALLOC_TRIM_THRESHOLD_=131072`. Do not change the arena count to `1` only because it lowers an idle
+RSS snapshot. In the focused CPU=1 async-producer A/B, arena `1` reclaimed another `1.86 MiB` anon,
+but c64 RPS fell from `5,573` to `3,571` and p99 rose from `41.09 ms` to `122.74 ms`. The allocator
+became smaller but less concurrent; that violates the framework's latency/throughput objective.
 
 ## Idle Native Trim
 

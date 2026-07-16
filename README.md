@@ -1,6 +1,6 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.3.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -19,42 +19,48 @@ The model is intentionally simple:
 
 ## Current Stable Line
 
-`3.3.1` carries the current native runtime line used by `java-rust-cache:0.3.1` and
-`java-rust-dubbo:0.3.1`. The packaged native runtime reports REST ABI `23`, Dubbo ABI `5`, and Redis
-ABI `5`. It includes the native runtime updates needed by the Dubbo
-native response handle path. If your application combines these libraries, keep the versions aligned:
+`3.4.0` carries the current native runtime line used by `java-rust-cache:0.4.0` and
+`java-rust-dubbo:0.4.0`. The packaged native runtime reports REST ABI `24`, Dubbo ABI `6`, and Redis
+ABI `6`. It adds bounded async response retention, configurable native thread stacks, transport-plane
+isolation, and read/write Redis access modes. If your application combines these libraries, keep the
+versions aligned:
 
 ```xml
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.3.1</version>
+  <version>3.4.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.3.1</version>
+  <version>0.4.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.3.1</version>
+  <version>0.4.0</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.3.1` or `java-rust-dubbo:0.3.1` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.4.0` or `java-rust-dubbo:0.4.0` native mode with a DLL/SO copied from
 an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
 
-## v3.3.1 At A Glance
+## v3.4.0 At A Glance
 
-`v3.3.1` keeps the same Java programming model: handlers, services, records, database calls, and
-business rules stay in Java. The release is about choosing the right runtime profile and response
-path so Rust can remove I/O, buffering, file, and selected serialization overhead without changing
-your application structure.
+`v3.4.0` keeps the same Java programming model: handlers, services, records, database calls, and
+business rules stay in Java. The release reduces memory retained after bursts without making queues
+or pools unbounded. `micro-rest` now starts async responses with an `8 KiB` heap frame, keeps only two
+completed frames, and does not retain large or huge native response buffers. Larger responses still
+work through bounded capacity retry; a pool capacity of `0` disables retention, not the response.
+
+No REST annotation or handler signature changed. Existing DTO routes remain compatible. For hot
+large-JSON routes, prefer `JsonBodyProducer`, direct writer, raw/precomputed JSON, or native response
+handles so the JVM does not build a large temporary object graph.
 
 ### Property Layers
 
@@ -168,6 +174,20 @@ reactor.rust.native-cache.max-bytes=0
 reactor.rust.route-admission.enabled=true
 ```
 
+Native thread stacks are profile-controlled. Keep these defaults unless a Linux container benchmark
+shows a real stack or RSS problem:
+
+```properties
+# 0 means use the platform/runtime default outside a named low-memory profile.
+reactor.rust.jni.thread-stack-bytes=0
+reactor.rust.server.thread-stack-bytes=0
+```
+
+`micro-rest` and `micro-dubbo` set bounded native stacks for JNI and server threads. The accepted
+range is `131072..8388608` bytes. Reducing a stack is not a free memory optimization: deep user code,
+serialization or exception paths can overflow it. Run route smoke tests and c64/c256 p99 gates
+before changing either value. Increasing worker counts multiplies the stack budget.
+
 Hot dynamic JSON route:
 
 ```properties
@@ -237,6 +257,11 @@ JSON routes, and `micro-dubbo` only when Dubbo is actually enabled. ANTI-PATTERN
 workers, queues, or pod memory to hide one slow route. Use route budgets, producer/direct writers,
 or raw/native response paths instead.
 
+The JNI response staging pool uses a small bounded native buffer before Java writes a response. It
+keeps queue burst memory bounded without serializing buffer rental on one worker. Inspect the
+`reactor_native_response_pool_staging_*` metrics when diagnosing warm-state RSS; do not tune it by
+growing global JNI queues.
+
 Benchmark and anon memory evidence are kept later in this README under
 [Benchmark And Release Evidence](#benchmark-and-release-evidence). The top-level decision should be
 based on workload shape and configuration, not on copying benchmark numbers blindly.
@@ -249,7 +274,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.3.1</version>
+  <version>3.4.0</version>
 </dependency>
 ```
 
@@ -322,16 +347,16 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-3.3.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-3.3.1-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-3.4.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-3.4.0-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-3.3.1-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-3.4.0-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:3.3.1`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:3.4.0`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -353,7 +378,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-3.3.1-sample.jar
+java -jar sample/target/rust-java-rest-3.4.0-sample.jar
 ```
 
 ## Quick Start
@@ -893,11 +918,25 @@ bounded executor, route admission, and timeout.
 ANTI-PATTERN: wrapping every CPU-bound route in `CompletionStage` because "async is faster". That can
 increase queueing, retained buffers, and p99.
 
-Async completion buffers are heap-backed by default for low RSS:
+Async completion buffers are heap-backed and process-wide by default for low RSS:
 
 ```properties
 reactor.rust.async.direct-buffer.enabled=false
+reactor.rust.async.frame-initial-bytes=8192
+reactor.rust.async.frame-pool-capacity=2
+reactor.rust.async.frame-retain-max-bytes=65536
 ```
+
+These are the `micro-rest` starting values. `frame-initial-bytes` is the first write capacity, not a
+response hard limit. If a response is larger, the writer reports the required bounded size and the
+framework retries with a larger frame. Keep this value at or just above the normal async response
+size. Setting it below the common payload size adds another serialization pass. Setting it far above
+the common payload size increases burst allocation under concurrency.
+
+`frame-pool-capacity` is a process-wide ownership pool. It does not multiply by Java thread count.
+`frame-retain-max-bytes` prevents a rare large response from permanently replacing the small working
+set. For a different service, measure p95 response bytes, then gate `8192`, `16384`, and `65536`
+against useful `200` RPS, p99, `503%`, and Linux cgroup anon together.
 
 Enable direct async buffers only after a Linux RSS/p99 gate:
 
@@ -908,9 +947,10 @@ reactor.rust.async.direct-buffer.enabled=true
 Direct buffers can reduce one copy in some async response paths, but they can also keep direct/native
 memory warm after bursts. If `direct_buffer_mib` grows in the anon evidence gate, keep this disabled.
 
-Latest short rebuild gate with the heap default, minimal app, `micro-rest`, c256/c512: final RSS was
-about `60 MiB`, anon about `53 MiB`, and async direct-buffer usage stayed near zero. Async producer
-improved some c512 overload rows, but it is still a measured route-local choice, not a global default.
+In the matched minimal-app `micro-rest` async-producer A/B, the bounded heap-backed design finished at
+`46.93 MiB` cgroup current and `40.52 MiB` cgroup anon. smaps RSS was `72.05 MiB` because it also
+includes mapped OpenJ9/system libraries. Async producer remains a measured route-local choice, not a
+global replacement for synchronous CPU-bound handlers.
 
 ### FileResponse: Large Export Or Download
 
@@ -1449,7 +1489,7 @@ The release asset names are:
 - `librust_hyper-linux-x64.so`
 
 Java checks the native ABI and provenance schema at startup. The packaged manifest records REST ABI
-`23`, Dubbo ABI `5`, Redis ABI `5`, source revision, crate version, and a SHA-256 hash for each
+`24`, Dubbo ABI `6`, Redis ABI `6`, source revision, crate version, and a SHA-256 hash for each
 platform. If the DLL/SO does not match the Java artifact, startup fails early instead of running with
 a broken JNI contract.
 

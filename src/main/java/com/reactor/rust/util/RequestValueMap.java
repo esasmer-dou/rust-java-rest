@@ -2,7 +2,7 @@ package com.reactor.rust.util;
 
 /**
  * Ultra-fast map using Robin-Hood hashing for O(1) average lookup.
- * Optimized for small datasets (typical HTTP params: < 20 entries).
+ * Optimized for small datasets (typical HTTP params: &lt; 20 entries).
  *
  * Performance characteristics:
  * - O(1) average lookup (Robin-Hood probing)
@@ -18,6 +18,7 @@ public class RequestValueMap {
 
     // Power-of-2 capacity for fast modulo via bitmask
     private static final int DEFAULT_CAPACITY = 16;
+    private static final int MAX_RETAINED_CAPACITY = 64;
 
     // Storage arrays (grown as needed, always power-of-2)
     private int[] hashes;      // Pre-computed hash codes
@@ -199,6 +200,20 @@ public class RequestValueMap {
      * Also resets distances to enable early termination.
      */
     public void clear() {
+        if (keys.length > MAX_RETAINED_CAPACITY) {
+            hashes = new int[DEFAULT_CAPACITY];
+            keys = new String[DEFAULT_CAPACITY];
+            values = new String[DEFAULT_CAPACITY];
+            distances = new int[DEFAULT_CAPACITY];
+            usedSlots = new int[DEFAULT_CAPACITY];
+            mask = DEFAULT_CAPACITY - 1;
+            size = 0;
+            usedCount = 0;
+            for (int i = 0; i < DEFAULT_CAPACITY; i++) {
+                distances[i] = -1;
+            }
+            return;
+        }
         if (size == 0) return;
 
         // Reset only occupied slots. If a previous request forced a resize, this avoids
@@ -211,6 +226,10 @@ public class RequestValueMap {
         }
         size = 0;
         usedCount = 0;
+    }
+
+    int retainedCapacity() {
+        return keys.length;
     }
 
     /**

@@ -1,4 +1,5 @@
 param(
+    [string] $Image = "rust-java-rest:benchmark",
     [ValidateSet("micro-rest", "micro-rest-plus", "micro-dubbo", "micro-rest-cpu1", "micro-rest-cpu1-no-thp", "micro-rest-cpu1-4k", "micro-rss", "ultra-low-rss", "throughput")]
     [string] $RuntimeProfile = "micro-rest",
     [ValidateSet("sample", "minimal")]
@@ -22,6 +23,7 @@ param(
     [ValidateSet("", "256k", "192k", "160k", "128k")]
     [string] $JvmXss = "",
     [string] $ExtraJavaOpts = "",
+    [string] $JavaToolOptions = "",
     [switch] $TrimBeforeFinalIdle,
     [switch] $CollectJavacore,
     [switch] $SkipBuild,
@@ -35,7 +37,6 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $FrameworkRoot = Resolve-Path (Join-Path $ScriptDir "..")
-$Image = "rust-java-rest:benchmark"
 $RunnerImage = "reactor-benchmark-runner:local"
 $Container = "rust-java-linux-smaps-$AppMode"
 $HostBaseUrl = "http://127.0.0.1:$HostPort"
@@ -925,6 +926,11 @@ function Write-Report {
     $lines.Add("# Linux smaps RSS Breakdown")
     $lines.Add("")
     $lines.Add("- Date: $(Get-Date -Format o)")
+    $lines.Add("- Image: $Image")
+    $imageId = (& docker image inspect --format "{{.Id}}" $Image 2>$null | Select-Object -First 1)
+    if (-not [string]::IsNullOrWhiteSpace($imageId)) {
+        $lines.Add("- Image ID: $($imageId.Trim())")
+    }
     $lines.Add("- Runtime profile: $RuntimeProfile")
     $lines.Add("- App mode: $AppMode")
     if (-not [string]::IsNullOrWhiteSpace($JvmXss)) {
@@ -933,6 +939,7 @@ function Write-Report {
     if (-not [string]::IsNullOrWhiteSpace($effectiveExtraJavaOpts)) {
         $lines.Add("- Extra Java opts: $effectiveExtraJavaOpts")
     }
+    $lines.Add("- JAVA_TOOL_OPTIONS: ``$JavaToolOptions``")
     $lines.Add("- Container memory limit: $((Get-ProfileConfig).Memory)")
     $lines.Add("- Duration per load phase: ${DurationSeconds}s")
     $lines.Add("- Trim before final idle: $TrimBeforeFinalIdle")
@@ -1089,7 +1096,7 @@ try {
     }
 
     Remove-ContainerIfExists -Name $Container
-    $containerId = docker run -d --name $Container --memory $profile.Memory -p "${HostPort}:8080" -e "JAVA_OPTS=$($profile.JavaOpts)" $Image
+    $containerId = docker run -d --name $Container --memory $profile.Memory -p "${HostPort}:8080" -e "JAVA_TOOL_OPTIONS=$JavaToolOptions" -e "JAVA_OPTS=$($profile.JavaOpts)" $Image
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {
         throw "Failed to start $Container."
     }

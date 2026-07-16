@@ -45,6 +45,7 @@ benchmark/**
 !benchmark/README.md
 !benchmark/anon_evidence_gate.ps1
 !benchmark/container_benchmark.ps1
+!benchmark/compare_framework_results.ps1
 !benchmark/jitcap_gate.ps1
 !benchmark/jni_queue_matrix.ps1
 !benchmark/jvm_baseline_rss_matrix.ps1
@@ -52,6 +53,7 @@ benchmark/**
 !benchmark/memory_proof.ps1
 !benchmark/micro_runtime_rss_matrix.ps1
 !benchmark/route_admission_matrix.ps1
+!benchmark/paired_image_gate.ps1
 !benchmark/rss_breakdown.ps1
 !benchmark/startup_benchmark.ps1
 !benchmark/xss_anon_matrix.ps1
@@ -62,6 +64,9 @@ benchmark/**
 !benchmark/minimal-production/
 !benchmark/minimal-production/src/
 !benchmark/minimal-production/src/**
+!benchmark/probes/
+!benchmark/probes/src/
+!benchmark/probes/src/JlinkRuntimeSmoke.java
 !benchmark/dubbo_overhead/
 !benchmark/dubbo_overhead/*.ps1
 !benchmark/dubbo_overhead/*.js

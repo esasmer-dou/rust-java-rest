@@ -129,6 +129,7 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.java.log.level", "warn");
         properties.setProperty("reactor.rust.jni.workers", "0");
         properties.setProperty("reactor.rust.jni.queue-capacity", "1024");
+        properties.setProperty("reactor.rust.jni.thread-stack-bytes", "0");
         properties.setProperty("reactor.rust.response-pool.small-capacity", "256");
         properties.setProperty("reactor.rust.response-pool.medium-capacity", "384");
         properties.setProperty("reactor.rust.response-pool.large-capacity", "16");
@@ -150,6 +151,7 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.runtime.worker-threads", "0");
         properties.setProperty("reactor.rust.runtime.max-blocking-threads", "0");
         properties.setProperty("reactor.rust.runtime.thread-stack-bytes", "0");
+        properties.setProperty("reactor.rust.server.thread-stack-bytes", "0");
         properties.setProperty("reactor.rust.file-stream.chunk-bytes", "65536");
         properties.setProperty("reactor.rust.static-file.inline-max-bytes", "524288");
         properties.setProperty("reactor.rust.static-file.max-concurrent-streams", "128");
@@ -158,7 +160,9 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.rust.json.fail-on-service-loader-error", "true");
         properties.setProperty("reactor.rust.async.max-inflight", "1024");
         properties.setProperty("reactor.rust.async.response-timeout-ms", "2000");
+        properties.setProperty("reactor.rust.async.frame-initial-bytes", "16384");
         properties.setProperty("reactor.rust.async.frame-retain-max-bytes", "262144");
+        properties.setProperty("reactor.rust.async.frame-pool-capacity", "8");
         properties.setProperty("reactor.rust.errors.include-internal-message", "false");
         properties.setProperty("reactor.rust.errors.max-message-chars", "512");
         properties.setProperty("reactor.rust.server.startup-timeout-ms", "10000");

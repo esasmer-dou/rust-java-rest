@@ -18,7 +18,10 @@ public final class PooledMaps {
     private PooledMaps() {}
 
     // Thread-local pools for different map types
-    private static final ThreadLocal<FastMap> PARAMS_POOL =
+    private static final ThreadLocal<FastMap> PATH_PARAMS_POOL =
+        ThreadLocal.withInitial(FastMap::new);
+
+    private static final ThreadLocal<FastMap> QUERY_PARAMS_POOL =
         ThreadLocal.withInitial(FastMap::new);
 
     private static final ThreadLocal<FastMap> HEADERS_POOL =
@@ -36,7 +39,15 @@ public final class PooledMaps {
      * CALLER MUST call clear() after use.
      */
     public static FastMap getParams() {
-        return PARAMS_POOL.get();
+        return QUERY_PARAMS_POOL.get();
+    }
+
+    public static FastMap getPathParams() {
+        return PATH_PARAMS_POOL.get();
+    }
+
+    public static FastMap getQueryParams() {
+        return QUERY_PARAMS_POOL.get();
     }
 
     /**

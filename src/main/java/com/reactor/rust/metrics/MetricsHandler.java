@@ -3,6 +3,7 @@ package com.reactor.rust.metrics;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
+import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.RoutePlanRegistry;
 import com.reactor.rust.config.RuntimeFootprintGate;
 import com.reactor.rust.http.RawResponse;
@@ -33,7 +34,8 @@ public class MetricsHandler {
         if (nativeMetrics == null) {
             nativeMetrics = "";
         }
-        String javaMetrics = Metrics.getInstance().toPrometheusFormat();
+        String javaMetrics = Metrics.getInstance().toPrometheusFormat()
+                + HandlerRegistry.getInstance().asyncFramePoolMetricsPrometheus();
         return RawResponse.text(
                 nativeMetrics + "\n" + javaMetrics,
                 "text/plain; version=0.0.4; charset=utf-8"
@@ -143,6 +145,8 @@ public class MetricsHandler {
         json.append("\"runtime_gate\":").append(RuntimeFootprintGate.lastReportJson()).append(',');
         json.append("\"native\":").append(nativeDiagnostics).append(',');
         json.append("\"native_dubbo\":").append(nativeDubboMetrics).append(',');
+        json.append("\"java_async_frame_pool\":")
+                .append(HandlerRegistry.getInstance().asyncFramePoolDiagnosticsJson()).append(',');
         json.append("\"native_metrics_prometheus\":").append(jsonString(nativeMetrics));
         json.append('}');
 
@@ -179,6 +183,7 @@ public class MetricsHandler {
     public String resetMetrics() {
         NativeBridge.nativeResetMetrics();
         invokeOptionalStaticVoid("com.reactor.rust.dubbo.NativeDubboBridge", "resetMetrics");
+        HandlerRegistry.getInstance().resetAsyncFramePoolMetrics();
         Metrics.getInstance().reset();
         return "{\"status\":\"reset\"}";
     }

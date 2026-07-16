@@ -19,19 +19,24 @@ class NativeProvenanceTest {
         String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary));
         ClassLoader loader = manifestLoader("""
                 schema=2
-                rest.abi=23
-                dubbo.abi=5
-                redis.abi=5
+                rest.abi=24
+                dubbo.abi=6
+                redis.abi=6
                 crate.version=0.1.0
                 source.revision=abc123
                 windows-x64.sha256=%s
                 """.formatted(hash));
 
         NativeProvenance.Manifest manifest =
-                NativeProvenance.verifyPackagedBinary(loader, "windows-x64", binary, 23);
+                NativeProvenance.verifyPackagedBinary(
+                        loader,
+                        "windows-x64",
+                        binary,
+                        NativeBridge.EXPECTED_NATIVE_ABI_VERSION
+                );
 
-        assertEquals(5, manifest.dubboAbi());
-        assertEquals(5, manifest.redisAbi());
+        assertEquals(6, manifest.dubboAbi());
+        assertEquals(6, manifest.redisAbi());
         assertEquals(hash, manifest.sha256());
     }
 
@@ -45,14 +50,14 @@ class NativeProvenanceTest {
                 target=x86_64-pc-windows-msvc
                 profile=release
                 features=default
-                restAbi=23
-                dubboAbi=5
-                redisAbi=5
+                restAbi=24
+                dubboAbi=6
+                redisAbi=6
                 """);
 
-        assertEquals(23, info.restAbi());
-        assertEquals(5, info.dubboAbi());
-        assertEquals(5, info.redisAbi());
+        assertEquals(24, info.restAbi());
+        assertEquals(6, info.dubboAbi());
+        assertEquals(6, info.redisAbi());
         assertEquals("abc123-dirty", info.sourceRevision());
     }
 

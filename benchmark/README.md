@@ -51,6 +51,68 @@ Use these as release evidence for route isolation and memory attribution. Do not
 universal 200-only c1000 throughput claim. Heavy JSON still needs producer/direct/raw/native response
 paths and route budgets; low-memory profiles are allowed to return bounded `503` under overload.
 
+## OpenJ9 Runtime Surface Gate
+
+`smaps RSS` includes clean pages mapped from OpenJ9, libc, libstdc++, the JDK module image, and other
+files. Linux can reclaim those clean pages. Therefore a `73 MiB` process `smaps RSS` value does not
+mean that the pod owns `73 MiB` of anonymous memory. Use all three signals together:
+
+| Signal | What it answers |
+|--------|-----------------|
+| `smaps RSS` | Which resident mappings are currently present in the process? |
+| `Private_Dirty` | How many process-private pages have actually been modified? |
+| cgroup `memory.current` and `anon` | How much memory is charged to the container and how much is anonymous? |
+
+The application-specific OpenJ9 `jlink` image is defined in
+`benchmark/docker/minimal-production-jlink.Dockerfile`. Its current module set is deliberately small
+but complete for the minimal REST probe:
+
+```text
+java.base,java.logging,java.management,java.sql,jdk.charsets,jdk.crypto.ec,jdk.unsupported
+```
+
+`java.sql` is required even when the sample does not use a database directly. DSL-JSON registers Java
+time/SQL converters during initialization. The image build runs `JlinkRuntimeSmoke`; a missing runtime
+module fails the build instead of producing an image that returns HTTP 500 later.
+
+Build the diagnostic images after producing the core-runtime JAR:
+
+```powershell
+docker build -t rust-java-rest:openj9-jlink-zip0 `
+  -f benchmark/docker/minimal-production-jlink.Dockerfile `
+  --build-arg JLINK_COMPRESS=zip-0 .
+
+docker build -t rust-java-rest:openj9-jlink-zip6 `
+  -f benchmark/docker/minimal-production-jlink.Dockerfile `
+  --build-arg JLINK_COMPRESS=zip-6 .
+```
+
+Latest normalized minimal-app evidence on this host:
+
+| Runtime | Modules | Image | Final smaps RSS | Final cgroup current | Final cgroup anon |
+|---------|--------:|------:|----------------:|---------------------:|------------------:|
+| Full Semeru OpenJ9 JRE | 56 | 301.4 MiB | 70.48 MiB | 44.97 MiB | 38.23 MiB |
+| App-specific `jlink`, `zip-0` | 9 | 169.0 MiB | 82.51 MiB | 44.78 MiB | 37.80 MiB |
+| App-specific `jlink`, `zip-6` | 9 | 147.1 MiB | 75.70 MiB | 43.59 MiB | 37.11 MiB |
+
+The result is intentionally not presented as a runtime-memory win. `zip-6` reduced the container image
+by about 51% and cgroup anon by about 1.1 MiB, but increased process `smaps RSS` by about 5.2 MiB due to
+clean module-file mappings. More importantly, the normalized paired gate failed: at c64 the small
+direct JSON route had 16.37% lower useful RPS and 33.59% higher p99. The full OpenJ9 JRE remains the
+default for latency-sensitive services. Treat `jlink` as an image/startup-surface option and promote it
+only after the service's own endpoint matrix passes repeat `>=3` at c64/c256/c512.
+
+Do not remove `libj9vm`, `libj9gc`, `libj9jit`, libc, or libstdc++ manually. They are runtime components,
+not optional Java modules. Do not use `-Xnojit` as a general memory fix; previous gates showed a large
+throughput loss on Java-heavy routes. If the goal is lower pod RSS without losing RPS, continue with
+anonymous allocation, object-graph, thread/pool, and idle allocator-retention work instead.
+
+Removing the `OpenJCEPlus` provider and Semeru crypto libraries was also tested and rejected. It cut
+roughly 1.25 MiB from the system-native mapping category, but did not reduce final cgroup memory in the
+smaps run. In the paired gate, small direct JSON useful RPS fell by 22.94% at c64 and 29.74% at c256;
+p99 increased by 32% and 46.41%. It also removes an explicit Java security provider and is unsafe for
+applications that require it, TLS, FIPS behavior, or provider-specific cryptography.
+
 Primary path in this workspace is the container harness:
 
 ```powershell
@@ -792,6 +854,32 @@ Current measured sample recipe for `dynamic-producer-json` is
 `maxConcurrent=96, queueTimeoutMs=125`. A single-route matrix favored `128/125`, but a later mixed
 workload matrix showed that `96/125` is the safer production recipe for the sample app because it
 keeps useful `200` RPS high while lowering p99 and RSS when neighboring heavy routes are active.
+
+### Anon Retention Gate: Bounded Pools And Async Frames
+
+The 2026-07-16 minimal-production A/B used the same Semeru OpenJ9 JRE, `micro-rest`, one CPU,
+`c64/c256`, and `/api/v1/heavy/producer/async?items=100`. The candidate used bounded process-wide
+async frames, shrinking request maps, disabled large/huge response-pool retention, and the corrected
+async permit lifecycle.
+
+| Metric | Before | Candidate | Delta |
+|---|---:|---:|---:|
+| Final cgroup `memory.current` | `53.00 MiB` | `46.93 MiB` | `-6.07 MiB` (`-11.45%`) |
+| Final cgroup anon | `46.00 MiB` | `40.52 MiB` | `-5.48 MiB` (`-11.91%`) |
+| Final smaps RSS | `78.34 MiB` | `72.05 MiB` | `-6.29 MiB` (`-8.03%`) |
+| c64 RPS | `4,395` | `5,573` | `+26.81%` |
+| c64 p99 | `46.79 ms` | `41.09 ms` | `-12.18%` |
+| c256 useful `200` RPS | `6,708` | `6,985` | `+4.13%` |
+| c256 `503` rate | `34.10%` | `25.94%` | `-8.16 pp` |
+| c256 p99 | `63.68 ms` | `56.88 ms` | `-10.68%` |
+
+The c256 total RPS is lower because the candidate returns fewer cheap `503` responses and more
+successful `200` responses. Compare useful `200` RPS, not total response count alone.
+
+`MALLOC_ARENA_MAX=1` was also tested against the candidate. It saved another `1.86 MiB` of final
+anon, but c64 RPS fell from `5,573` to `3,571` and p99 rose from `41.09 ms` to `122.74 ms`.
+Therefore the production Docker baseline remains `MALLOC_ARENA_MAX=2`. Arena `1` is not a default
+low-RSS recommendation.
 
 Compare DTO graph vs producer/direct writer paths:
 
