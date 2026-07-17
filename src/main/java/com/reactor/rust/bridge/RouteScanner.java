@@ -447,7 +447,7 @@ public final class RouteScanner {
                         "A route cannot be both @NativeStaticRoute and @NativeStaticFileRoute: " + method
                 );
             }
-            RouteWorkload workload = method.getAnnotation(RouteWorkload.class);
+            RouteWorkload workload = effectiveRouteWorkload(bean.getClass(), method);
             boolean benchmarkOnly = method.isAnnotationPresent(BenchmarkOnlyRoute.class);
             RouteWorkload.Type workloadType = routeWorkloadType(
                     workload,
@@ -914,6 +914,11 @@ public final class RouteScanner {
             return RouteWorkload.Type.RAW_STATIC;
         }
         return RouteWorkload.Type.STANDARD;
+    }
+
+    static RouteWorkload effectiveRouteWorkload(Class<?> handlerType, Method method) {
+        RouteWorkload methodWorkload = method.getAnnotation(RouteWorkload.class);
+        return methodWorkload != null ? methodWorkload : handlerType.getAnnotation(RouteWorkload.class);
     }
 
     private static String routeBudgetKey(RouteWorkload workload, RouteWorkload.Type workloadType) {

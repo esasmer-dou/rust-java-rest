@@ -156,6 +156,11 @@ workloads are different.
 
 It builds both jars, builds local runtime images, starts both services as containers, runs the Rust `load-probe` from a separate benchmark container, and writes results to `benchmark/results/container_<timestamp>/summary.md`.
 
+`results.csv` is checkpointed atomically after every completed case. If a long matrix is interrupted,
+the completed rows remain available. `summary.md` is written only after the complete matrix finishes;
+if it is missing, treat the run as incomplete and rerun the missing partition instead of presenting the
+partial rows as a passed gate.
+
 Default comparison:
 
 - Runtime: `ibm-semeru-runtimes:open-21-jre-jammy`
@@ -387,16 +392,16 @@ powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
 ```
 
 The minimal production benchmark image now builds the same startup index shape expected from a real
-small application. Its Docker build compiles the user app, then runs `StartupIndexGenerator` for
-`com.reactor.benchmark.minimal`, producing:
+small application. Its Docker build compiles `com.reactor.benchmark.minimal` with
+`ReactorStartupProcessor`, producing:
 
 - `/app/classes/META-INF/reactor/components.idx`
 - `/app/classes/META-INF/reactor/routes.idx`
+- `/app/classes/META-INF/reactor/properties.idx`
 
-Latest smoke build produced `components=1`, `routes=6`, `reactor_startup_route_index_routes=6`, and
-the runtime log no longer emitted the strict low-RSS classpath-scan fallback warning. This matters
-for measurement hygiene: the benchmark should not pay or warn for a startup fallback that production
-apps are expected to avoid.
+The handler is registered explicitly, so it does not require a DI component scan. The route index is
+still generated and validated. This matters for measurement hygiene: the benchmark should not pay
+for a startup fallback that production apps are expected to avoid.
 
 ## Anon Evidence Gate
 

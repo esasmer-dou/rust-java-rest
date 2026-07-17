@@ -5,6 +5,7 @@ import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.metrics.Metrics;
 import com.reactor.rust.startup.StartupIndex;
 import com.reactor.rust.startup.StartupTimeline;
+import com.reactor.rust.startup.ApplicationDescriptors;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,6 +41,13 @@ final class BeanScanner {
     }
 
     private boolean scanPackageFromIndex(String packageName) {
+        int generated = ApplicationDescriptors.registerComponents(container, packageName);
+        if (generated > 0) {
+            Metrics.getInstance().setGauge("reactor.startup.generated_components", generated);
+            FrameworkLogger.info("[BeanScanner] Generated component factory used for "
+                    + packageName + ": classes=" + generated);
+            return true;
+        }
         if (!PropertiesLoader.getBoolean("reactor.startup.component-index.enabled", true)) {
             return false;
         }

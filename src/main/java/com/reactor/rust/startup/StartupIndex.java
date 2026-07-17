@@ -23,6 +23,7 @@ public final class StartupIndex {
 
     public static final String COMPONENTS_RESOURCE = "META-INF/reactor/components.idx";
     public static final String ROUTES_RESOURCE = "META-INF/reactor/routes.idx";
+    public static final String PROPERTIES_RESOURCE = "META-INF/reactor/properties.idx";
 
     private StartupIndex() {
     }
@@ -55,6 +56,12 @@ public final class StartupIndex {
             }
         }
         return IndexResult.present(routes);
+    }
+
+    /** Returns build-time property declarations as tab-separated metadata lines. */
+    public static IndexResult propertyMetadata() {
+        List<String> lines = loadLines(PROPERTIES_RESOURCE);
+        return lines == null ? IndexResult.missing() : IndexResult.present(lines);
     }
 
     private static List<String> loadLines(String resourceName) {

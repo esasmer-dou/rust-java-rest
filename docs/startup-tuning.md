@@ -196,51 +196,41 @@ reactor.startup.scan.fallback-enabled=false
 Use the strict option only after your build reliably generates the index. Otherwise startup should
 fall back to classpath scanning so production does not fail from a missing metadata file.
 
-Generate indexes from compiled application classes:
-
-```bash
-java -cp "target/classes:target/dependency/*" \
-  com.reactor.rust.startup.StartupIndexGenerator \
-  --output target/classes \
-  --packages com.example.app
-```
-
-Windows PowerShell:
-
-```powershell
-java -cp "target/classes;target/dependency/*" `
-  com.reactor.rust.startup.StartupIndexGenerator `
-  --output target/classes `
-  --packages com.example.app
-```
-
-Maven build example for an application:
+Generate indexes while Java sources compile. This is the preferred path:
 
 ```xml
 <plugin>
-  <groupId>org.codehaus.mojo</groupId>
-  <artifactId>exec-maven-plugin</artifactId>
-  <version>3.3.0</version>
-  <executions>
-    <execution>
-      <id>reactor-startup-index</id>
-      <phase>process-classes</phase>
-      <goals>
-        <goal>java</goal>
-      </goals>
-      <configuration>
-        <mainClass>com.reactor.rust.startup.StartupIndexGenerator</mainClass>
-        <arguments>
-          <argument>--output</argument>
-          <argument>${project.build.outputDirectory}</argument>
-          <argument>--packages</argument>
-          <argument>com.example.app</argument>
-        </arguments>
-      </configuration>
-    </execution>
-  </executions>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-compiler-plugin</artifactId>
+  <version>3.13.0</version>
+  <configuration>
+    <annotationProcessorPaths>
+      <path>
+        <groupId>com.reactor</groupId>
+        <artifactId>rust-java-rest</artifactId>
+        <version>4.0.0</version>
+        <classifier>codegen</classifier>
+      </path>
+    </annotationProcessorPaths>
+    <annotationProcessors>
+      <annotationProcessor>com.reactor.rust.codegen.ReactorStartupProcessor</annotationProcessor>
+    </annotationProcessors>
+    <compilerArgs>
+      <arg>-Areactor.codegen.excludePackages=com.example.app.benchmark,com.example.app.alternative</arg>
+      <arg>-Areactor.codegen.excludeClasses=com.example.app.handler.LegacyHandler</arg>
+    </compilerArgs>
+  </configuration>
 </plugin>
 ```
+
+The processor writes deterministic component, route, and property indexes. It also creates an
+application descriptor with direct constructors for public no-argument components. Other component
+shapes use the existing DI registration path. Duplicate HTTP method/path pairs fail compilation.
+
+Use `reactor.codegen.handlers` for handlers supplied by another source set. Use package and class
+exclusions when one repository builds multiple runtime shapes. The annotation processor is the only
+supported index generator, which keeps duplicate-route validation and generated factories in one
+deterministic build step.
 
 ## Route Index Gate
 
@@ -268,6 +258,10 @@ When validation is enabled, startup reports both:
 
 - routes that are present in the index but missing from runtime registration
 - routes that runtime registered but are missing from the index
+
+The generated files are build artifacts. Do not maintain them by hand. Run
+`ReactorStartupProcessor` during Java compilation, package the resulting files, and fail the build
+or startup gate when the selected surface and runtime registration diverge.
 
 With `reactor.startup.route-index.required=true`, either mismatch fails startup. This is a
 production gate and visibility feature. It does not replace handler method registration yet.

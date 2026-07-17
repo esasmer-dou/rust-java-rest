@@ -201,17 +201,6 @@ public class HandlerRegistry {
             this.compiledInvoker = CompiledRouteInvoker.compile(handle, metadata);
         }
 
-        // Legacy constructor for backwards compatibility
-        public HandlerDescriptor(Object bean,
-                Method method,
-                Class<?> requestType,
-                Class<?> responseType,
-                MethodHandle handle) {
-            this(bean, method, requestType, responseType, handle, false, false,
-                    false, false, false, false, false, false, false, false, false, 200,
-                    DEFAULT_JSON_CONTENT_TYPE_HEADER);
-        }
-
         void recordInvocation() {
             if (RoutePlanRegistry.getInstance().runtimeMetricsEnabled()) {
                 invocationCount.increment();

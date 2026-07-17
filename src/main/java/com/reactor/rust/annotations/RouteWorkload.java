@@ -12,7 +12,7 @@ import java.lang.annotation.Target;
  * it to report route intent and to resolve optional profile-level route budgets
  * before the route is registered with Rust.</p>
  */
-@Target(ElementType.METHOD)
+@Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface RouteWorkload {
 
@@ -32,6 +32,11 @@ public @interface RouteWorkload {
         RAW_STATIC,
         FILE_STREAM,
         BLOCKING_IO,
-        RPC
+        RPC,
+        CACHE_READ,
+        RPC_READ,
+        RPC_COMMAND,
+        DB_READ,
+        DB_WRITE
     }
 }

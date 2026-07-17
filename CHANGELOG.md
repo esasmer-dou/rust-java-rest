@@ -11,6 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.0] - 2026-07-17
+
+### Added
+
+- Added build-time startup, route, direct JSON writer, and JDBC record mapper generation in a
+  separate `codegen` classifier.
+- Added explicit application descriptors, runtime profile plans, dependency health probes, and
+  compile-verified standalone examples.
+- Added English and Turkish configuration, operations, troubleshooting, and declarative development
+  guides.
+- Made generated default package names safe when an artifact segment is a Java keyword.
+
+### Changed
+
+- Kept runtime and core-runtime artifacts free of annotation processor and sample classes.
+- Replaced handwritten startup indexes and repeated framework wiring with generated artifacts.
+- Tightened route validation, component construction, low-allocation parameter binding, and native
+  idle-memory configuration.
+
+### Removed
+
+- Removed obsolete `FastMapV2`, `CleanerUtils`, `MemoryOptimizedConfig`, manual
+  `StartupIndexGenerator`, and `RestApplication.sleepForever()` compatibility APIs.
+- Removed duplicate allocation-based primitive parser helpers and the old native trim property alias.
+
+### Compatibility
+
+- Java handlers, services, records, REST annotations, business rules, and native ABI `24/7/6` remain
+  unchanged.
+- Applications using a removed compatibility helper must migrate using the table in the README.
+
+---
+
 ## [3.4.1] - 2026-07-16
 
 ### Changed
@@ -645,6 +678,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[4.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.1...v4.0.0
 [3.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.0...v3.4.1
 [3.2.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.4...v3.2.5
 [3.2.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.1...v3.2.2

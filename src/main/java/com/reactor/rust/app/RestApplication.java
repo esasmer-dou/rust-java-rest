@@ -5,6 +5,7 @@ import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.config.RuntimeFootprintGate;
+import com.reactor.rust.config.RuntimeProfilePlan;
 import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.logging.FrameworkLogger;
@@ -96,6 +97,11 @@ public final class RestApplication {
             builder.scan(basePackage);
             return this;
         }
+
+        public ModuleContext profile(RuntimeProfilePlan plan) {
+            Objects.requireNonNull(plan, "plan").apply();
+            return this;
+        }
     }
 
     public static void start(String basePackage, Class<?>... handlerTypes) {
@@ -131,16 +137,6 @@ public final class RestApplication {
             builder.module(Objects.requireNonNull(module, "module"));
         }
         return builder;
-    }
-
-    /** @deprecated Use {@link Builder#start()} or {@link Builder#startAsync()} for owned shutdown. */
-    @Deprecated(forRemoval = true)
-    public static void sleepForever() {
-        try {
-            new CountDownLatch(1).await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     public static final class Builder {

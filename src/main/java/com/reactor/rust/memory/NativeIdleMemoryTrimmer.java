@@ -39,7 +39,6 @@ public final class NativeIdleMemoryTrimmer implements AutoCloseable {
     static final String METRIC_LAST_DURATION_MS = "reactor.native_trim.last_duration_ms";
     static final String METRIC_LAST_EPOCH_MS = "reactor.native_trim.last_epoch_ms";
 
-    private static final String LEGACY_HOT_PATH_INTERVAL_KEY = "rust.native.trim.interval";
     private static final long MIN_INTERVAL_MS = 1_000L;
     private static final long PRODUCTION_INITIAL_DELAY_MS = 30_000L;
     private static final long PRODUCTION_INTERVAL_MS = 60_000L;
@@ -74,8 +73,6 @@ public final class NativeIdleMemoryTrimmer implements AutoCloseable {
     }
 
     public static NativeIdleMemoryTrimmer startFromProperties() {
-        warnIfLegacyHotPathTrimIsConfigured();
-
         Metrics metrics = Metrics.getInstance();
         boolean enabled = PropertiesLoader.getBoolean(ENABLED_KEY, false);
         metrics.setGauge(METRIC_ENABLED, enabled ? 1 : 0);
@@ -109,15 +106,6 @@ public final class NativeIdleMemoryTrimmer implements AutoCloseable {
                 + ", retainHuge=" + config.retainHuge
                 + ", allocatorTrimEnabled=" + config.allocatorTrimEnabled);
         return trimmer;
-    }
-
-    private static void warnIfLegacyHotPathTrimIsConfigured() {
-        String legacy = System.getProperty(LEGACY_HOT_PATH_INTERVAL_KEY);
-        if (legacy != null && !legacy.isBlank()) {
-            FrameworkLogger.warn("[JAVA] " + LEGACY_HOT_PATH_INTERVAL_KEY
-                    + " is no longer executed from request handlers. Use reactor.rust.native-trim.* "
-                    + "for idle-only native memory trimming.");
-        }
     }
 
     private static void warnIfRiskyProductionConfig(Config config) {

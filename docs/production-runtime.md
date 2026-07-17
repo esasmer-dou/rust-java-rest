@@ -185,9 +185,16 @@ META-INF/reactor/routes.idx
 ```
 
 The minimal production benchmark image follows this rule during Docker build: it compiles the user
-classes, runs `StartupIndexGenerator`, and starts with the generated index on the classpath. If your
+classes with `ReactorStartupProcessor` and starts with the generated index on the classpath. If your
 application logs a `classpath scan fallback is enabled and no component index is present` warning,
 fix the build first; do not treat that run as the clean production RSS baseline.
+
+Generate the index for the exact runnable surface. Explicitly constructed route handlers are included
+even when they are not DI components. Multi-surface applications should use the
+`reactor.codegen.excludePackages` and `reactor.codegen.excludeClasses` compiler options per Maven
+profile. Duplicate HTTP method/path pairs fail compilation. This prevents
+alternative sample, benchmark, or legacy handlers from polluting the production route index and its
+loaded-class/RSS measurements.
 
 For `micro-rest` and `micro-dubbo`, properties alone are not enough. The JVM must also be prevented
 from sizing internal workers from a large host CPU count:
@@ -297,8 +304,8 @@ Observability:
   trimmed.
 - `reactor_native_trim_last_duration_ms`: last trim duration.
 
-`-Drust.native.trim.interval` is deprecated. It used a request-count trigger and could attach native
-trim cost to an arbitrary user request. Use `reactor.rust.native-trim.*` instead.
+Automatic native trimming is supported only through `reactor.rust.native-trim.*`. The policy runs
+after an idle window and never attaches allocator trim work to an arbitrary user request.
 
 Current gate signal: with a focused retained-floor soft trim policy, minimal `micro-rest` recovered
 about `14.6 MiB` final cgroup anon, but p99 still regressed on part of the matrix. Treat idle trim as
@@ -322,18 +329,9 @@ Operational decision: enable this only for services where idle RSS matters more 
 next-burst throughput. For high-throughput pods, run the endpoint matrix first and keep it disabled
 if c512/c1000 p99 or `503` behavior regresses.
 
-For applications that use startup indexes, generate the component index for the actual feature set.
-For a tiny REST-only service, exclude optional WebSocket/static-file components from the index:
-
-```bash
-java -cp "app.jar:lib/*" com.reactor.rust.startup.StartupIndexGenerator \
-  --output target/classes \
-  --packages com.example.api \
-  --exclude-websocket \
-  --exclude-static-files
-```
-
-If WebSocket or `@StaticFiles` is part of the service contract, do not exclude it.
+For applications that use startup indexes, compile only the source/profile surface that will run.
+For a tiny REST-only service, keep WebSocket and static-file components out of that Maven profile.
+If they are part of the service contract, include them and enable the matching runtime property.
 
 ## Production Artifact Rule
 

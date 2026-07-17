@@ -1,6 +1,8 @@
 # Rust-Java REST Framework
 
-[![Version](https://img.shields.io/badge/version-3.4.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[English](README.md) | [Türkçe](README.tr.md)
+
+[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -17,50 +19,70 @@ The model is intentionally simple:
 - The framework is not a Spring Boot clone. It gives you familiar REST annotations with a much
   smaller runtime surface.
 
+Start with the document that matches your task:
+
+- [Quick project shapes and generated wiring](docs/declarative-development.md)
+- [Configuration reference](docs/configuration.md)
+- [Operations runbook](docs/operations.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Production runtime and memory profiles](docs/production-runtime.md)
+- [Startup and OpenJ9 tuning](docs/startup-tuning.md)
+- [Compile-verified standalone examples](examples/README.md)
+
 ## Current Stable Line
 
-`3.4.1` carries the current native runtime line used by `java-rust-cache:0.4.1` and
-`java-rust-dubbo:0.4.1`. The packaged native runtime reports REST ABI `24`, Dubbo ABI `7`, and Redis
-ABI `6`. It adds bounded async response retention, configurable native thread stacks, transport-plane
-isolation, and read/write Redis access modes. If your application combines these libraries, keep the
-versions aligned:
+`4.0.0` is the declarative runtime line used by `java-rust-cache:0.5.0` and
+`java-rust-dubbo:0.5.0`. The packaged native runtime still reports REST ABI `24`, Dubbo ABI `7`, and
+Redis ABI `6`; this release does not change the JNI contract or require a new native binary. It moves
+startup indexes, route metadata, direct JSON writers, and JDBC mappers to build-time generation and
+removes obsolete compatibility APIs. If your application combines these libraries, keep the versions
+aligned:
 
 ```xml
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.1</version>
+  <version>4.0.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.4.1</version>
+  <version>0.5.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.4.1</version>
+  <version>0.5.0</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.4.1` or `java-rust-dubbo:0.4.1` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.5.0` or `java-rust-dubbo:0.5.0` native mode with a DLL/SO copied from
 an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
 
-## v3.4.1 At A Glance
+## v4.0.0 At A Glance
 
-`v3.4.1` keeps the same Java programming model: handlers, services, records, database calls, and
-business rules stay in Java. REST-only services do not need a code or configuration change. When the
-same process uses native Dubbo, the shared runtime now expires old idle sockets, validates pooled
-connections before reuse, and rejects a stale ABI at startup. The bounded response-memory defaults
-introduced in `3.4.0` remain unchanged.
+`v4.0.0` keeps business code in Java: handlers, services, records, validation, database calls, and
+business rules use the same model. The main change is startup and build wiring. The `codegen`
+classifier creates indexes and direct generated helpers at compile time, so production startup does
+less scanning and applications carry less handwritten infrastructure.
 
-No REST annotation or handler signature changed. Existing DTO routes remain compatible. For hot
-large-JSON routes, prefer `JsonBodyProducer`, direct writer, raw/precomputed JSON, or native response
-handles so the JVM does not build a large temporary object graph.
+This is a major version because obsolete public compatibility helpers were removed. Most applications
+only need a dependency version change. Applications that imported one of the removed helpers should
+use the explicit replacement below.
+
+| Removed API | Use instead | Reason |
+|-------------|-------------|--------|
+| `FastMapV2` | `RequestValueMap` or the typed route parameter APIs | Keeps request binding explicit and allocation-aware. |
+| manual `StartupIndexGenerator` | `ReactorStartupProcessor` from the `codegen` classifier | Moves scanning and index generation to compilation. |
+| `RestApplication.sleepForever()` | `RestApplication.run(...)`, `start(...)`, or `startAsync(...)` | Makes lifecycle ownership explicit. |
+| allocation-based primitive parser helpers | typed/direct path and query binding | Avoids duplicate hot-path parsing APIs. |
+
+For hot large-JSON routes, prefer `JsonBodyProducer`, generated direct writers, raw/precomputed JSON,
+or native response handles so the JVM does not build a large temporary object graph.
 
 ### Property Layers
 
@@ -274,7 +296,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>3.4.1</version>
+  <version>4.0.0</version>
 </dependency>
 ```
 
@@ -347,16 +369,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-3.4.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-3.4.1-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-4.0.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.0.0-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.0.0-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-3.4.1-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-4.0.0-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:3.4.1`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.0.0`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -378,7 +401,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-3.4.1-sample.jar
+java -jar sample/target/rust-java-rest-4.0.0-sample.jar
 ```
 
 ## Quick Start
@@ -1030,9 +1053,9 @@ not start fully cold; medium/large/huge are normally reclaimed in memory-first s
 The idle-window request counter is `reactor_native_http_user_requests_total`: `/health`, `/metrics`,
 `/metrics/*`, and `/diagnostics/*` are excluded, so Kubernetes probes and Prometheus scrapes do not
 prevent a genuinely idle pod from trimming.
-The manual `/diagnostics/native/trim` endpoint remains a full diagnostic trim. The old
-`-Drust.native.trim.interval` request-count trim path is deprecated because it can attach allocator
-trim latency to a user request.
+The manual `/diagnostics/native/trim` endpoint remains a full diagnostic trim. Automatic trimming
+is supported only through the idle-only `reactor.rust.native-trim.*` policy, so allocator work is not
+attached to a user request.
 
 `micro-rest` and `micro-dubbo` are memory-first profiles. They disable WebSocket registration and the
 annotation-based static-file scanner unless you explicitly enable them. If your service needs one of
@@ -1043,16 +1066,10 @@ reactor.runtime.profile=micro-rest
 reactor.websocket.enabled=true
 ```
 
-For build-time startup indexes, generate the index for the feature set you really deploy. A REST-only
-service can keep optional components out of the index:
-
-```bash
-java -cp "app.jar:lib/*" com.reactor.rust.startup.StartupIndexGenerator \
-  --output target/classes \
-  --packages com.example.api \
-  --exclude-websocket \
-  --exclude-static-files
-```
+Use the build-time `ReactorStartupProcessor` for startup indexes. It creates `components.idx`,
+`routes.idx`, `properties.idx`, and an application component factory while Java sources compile.
+It also fails the build when two selected handlers own the same HTTP method and path. This annotation
+processor is the supported index-generation path; do not maintain index files manually.
 
 Small REST service with Dubbo consumer:
 
@@ -1198,6 +1215,37 @@ public JsonProducerResponse heavyReport(int items) {
 profile a named place to apply measured settings without hardcoding every route path. This is useful
 when the same application has a small JSON route, a heavy direct writer, and a producer-writer route
 that each need different overload behavior.
+
+The annotation can be placed on a handler class. A method-level annotation overrides the class
+default. This keeps a handler declarative without repeating the same metadata on every method:
+
+```java
+@RequestMapping("/customers")
+@RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = "rpc-customer-read")
+public final class CustomerHandler {
+
+    @GetMapping(value = "/{id}", responseType = CustomerResponse.class)
+    public CustomerResponse get(@PathVariable("id") long id) { /* Java business logic */ }
+
+    @PostMapping(responseType = CustomerResponse.class)
+    @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = "rpc-customer-create")
+    public CustomerResponse create(@RequestBody CreateCustomer request) { /* Java business logic */ }
+}
+```
+
+Choose the type by the resource that constrains the route:
+
+| Type | Use it for |
+|------|------------|
+| `STANDARD`, `SMALL_JSON`, `HEAVY_JSON` | Local Java work and JSON response shape. |
+| `RAW_STATIC`, `FILE_STREAM` | Precomputed/native static bodies and streamed files. |
+| `CACHE_READ` | Redis/native cache reads with a bounded cache budget. |
+| `RPC`, `RPC_READ`, `RPC_COMMAND` | General RPC, read-only RPC, or side-effecting RPC routes. |
+| `DB_READ`, `DB_WRITE` | Routes whose capacity is constrained directly by a database pool. |
+| `BLOCKING_IO` | Legacy or unavoidable blocking I/O that must have an explicit small budget. |
+
+This metadata is resolved during route registration. It does not add reflection, map lookup, or an
+extra wrapper to the request hot path.
 
 For heavy JSON, direct primitive binding is not enough by itself. `@DirectQueryInt` or `@DirectPathInt`
 only removes scalar parameter parsing and string allocation. If the handler still returns a large
@@ -1364,6 +1412,8 @@ Startup features:
 
 - optional component index: `META-INF/reactor/components.idx`;
 - optional route index validation: `META-INF/reactor/routes.idx`;
+- optional property metadata: `META-INF/reactor/properties.idx`;
+- generated application descriptor and component factory through Java `ServiceLoader`;
 - native extraction cache keyed by ABI, platform, and SHA-256;
 - startup prewarm hooks;
 - OpenJ9/Semeru option files;

@@ -154,6 +154,17 @@ public final class BeanContainer {
     }
 
     /**
+     * Registers a build-time constructed component without constructor reflection.
+     */
+    public <T> BeanContainer registerGeneratedBean(
+            Class<T> type,
+            T instance,
+            String name,
+            boolean primary) {
+        return registerBean(type, instance, name, primary);
+    }
+
+    /**
      * Internal method to register bean with wildcard class type.
      * Used by component scanning and @Bean processing.
      */

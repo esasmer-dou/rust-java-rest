@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, for example 3.2.0 or 3.2.0-rc1"
+        description: "Release version, for example 4.0.0 or 4.0.0-rc1"
         required: true
         type: string
 
@@ -119,6 +119,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p "release-assets"
           cp "target/rust-java-rest-${VERSION}.jar" "release-assets/"
+          cp "target/rust-java-rest-${VERSION}-codegen.jar" "release-assets/"
           cp "sample/target/rust-java-rest-${VERSION}-sample.jar" "release-assets/"
           cp "target/rust-java-rest-${VERSION}-core-runtime.jar" "release-assets/"
           cp "target/rust-java-rest-${VERSION}-sources.jar" "release-assets/"

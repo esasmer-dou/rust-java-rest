@@ -182,18 +182,6 @@ public final class FastMap {
         return values[index];
     }
 
-    /**
-     * Convert to standard HashMap (for compatibility).
-     * Only use when HashMap API is required.
-     */
-    public java.util.Map<String, String> toHashMap() {
-        java.util.Map<String, String> map = new java.util.HashMap<>(size);
-        for (int i = 0; i < size; i++) {
-            map.put(keys[i], values[i]);
-        }
-        return map;
-    }
-
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("{");

@@ -1100,6 +1100,19 @@ function Write-Summary {
     return $summary
 }
 
+function Save-ResultCheckpoint {
+    param([object[]] $Rows)
+
+    if ($Rows.Count -eq 0) {
+        return
+    }
+
+    $resultsCsv = Join-Path $ResultsDir "results.csv"
+    $temporaryCsv = "$resultsCsv.tmp"
+    $Rows | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $temporaryCsv
+    Move-Item -LiteralPath $temporaryCsv -Destination $resultsCsv -Force
+}
+
 function Save-RouteDiagnostics {
     $jsonPath = Join-Path $ResultsDir "rust_java_routes.json"
     $summaryPath = Join-Path $ResultsDir "rust_java_routes_summary.md"
@@ -1459,6 +1472,7 @@ try {
                 -RunId $run `
                 -LuaScript $endpoint.Lua
             $rows.Add($row)
+            Save-ResultCheckpoint -Rows $rows.ToArray()
         }
     }
 
@@ -1470,8 +1484,7 @@ try {
     }
     Save-RouteDiagnostics
 
-    $resultsCsv = Join-Path $ResultsDir "results.csv"
-    $rows.ToArray() | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $resultsCsv
+    Save-ResultCheckpoint -Rows $rows.ToArray()
     $summary = Write-Summary -Rows $rows.ToArray()
     Write-Host "Benchmark complete: $summary"
 } finally {

@@ -5,6 +5,7 @@ FROM ibm-semeru-runtimes:open-21-jdk-jammy AS builder
 WORKDIR /build
 
 ARG CORE_JAR=target/rust-java-rest-*-core-runtime.jar
+ARG CODEGEN_JAR=target/rust-java-rest-*-codegen.jar
 ARG JAVA_MODULES=java.base,java.logging,java.management,java.sql,jdk.charsets,jdk.crypto.ec,jdk.unsupported
 
 RUN apt-get update \
@@ -12,21 +13,17 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ${CORE_JAR} /build/framework.jar
+COPY ${CODEGEN_JAR} /build/codegen.jar
 COPY benchmark/minimal-production/src /build/src
 COPY benchmark/probes/src/JlinkRuntimeSmoke.java /build/probes/JlinkRuntimeSmoke.java
 
 RUN mkdir -p /build/classes && \
     javac -encoding UTF-8 \
-      -proc:none \
       -cp /build/framework.jar \
+      -processorpath /build/codegen.jar:/build/framework.jar \
+      -processor com.reactor.rust.codegen.ReactorStartupProcessor \
       -d /build/classes \
       $(find /build/src -name '*.java') && \
-    java -cp /build/classes:/build/framework.jar \
-      com.reactor.rust.startup.StartupIndexGenerator \
-      --output /build/classes \
-      --packages com.reactor.benchmark.minimal \
-      --exclude-websocket \
-      --exclude-static-files && \
     mkdir -p /build/probe-classes && \
     javac -encoding UTF-8 \
       -proc:none \

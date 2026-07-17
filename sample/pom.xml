@@ -6,7 +6,7 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest-sample</artifactId>
-    <version>3.4.1</version>
+    <version>4.0.0</version>
     <name>Rust-Java REST Sample</name>
     <description>Runnable sample and benchmark application for rust-java-rest.</description>
 
@@ -39,34 +39,19 @@
                             <artifactId>dsl-json</artifactId>
                             <version>2.0.2</version>
                         </path>
+                        <path>
+                            <groupId>com.reactor</groupId>
+                            <artifactId>rust-java-rest</artifactId>
+                            <version>${rust-java-rest.version}</version>
+                            <classifier>codegen</classifier>
+                        </path>
                     </annotationProcessorPaths>
+                    <annotationProcessors>
+                        <annotationProcessor>com.dslplatform.json.processor.CompiledJsonAnnotationProcessor</annotationProcessor>
+                        <annotationProcessor>com.reactor.rust.codegen.ReactorStartupProcessor</annotationProcessor>
+                        <annotationProcessor>com.reactor.rust.codegen.DirectJsonWriterProcessor</annotationProcessor>
+                    </annotationProcessors>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.5.0</version>
-                <executions>
-                    <execution>
-                        <id>generate-sample-startup-index</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>java</goal>
-                        </goals>
-                        <configuration>
-                            <mainClass>com.reactor.rust.startup.StartupIndexGenerator</mainClass>
-                            <classpathScope>runtime</classpathScope>
-                            <arguments>
-                                <argument>--output</argument>
-                                <argument>${project.build.outputDirectory}</argument>
-                                <argument>--packages</argument>
-                                <argument>com.reactor.rust.example</argument>
-                                <argument>--exclude-websocket</argument>
-                                <argument>--exclude-static-files</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
