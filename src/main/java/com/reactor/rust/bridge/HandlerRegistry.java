@@ -15,6 +15,7 @@ import com.reactor.rust.annotations.DirectQueryShort;
 import com.reactor.rust.async.AsyncHandlerExecutor;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.exception.HttpErrorMapper;
+import com.reactor.rust.exception.ExceptionHandlerRegistry;
 import com.reactor.rust.http.DirectJsonResponse;
 import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.JsonProducerResponse;
@@ -198,7 +199,11 @@ public class HandlerRegistry {
             this.defaultContentTypeHeader =
                     defaultContentTypeHeader != null ? defaultContentTypeHeader : DEFAULT_JSON_CONTENT_TYPE_HEADER;
             this.metadata = metadata;
-            this.compiledInvoker = CompiledRouteInvoker.compile(handle, metadata);
+            this.compiledInvoker = CompiledRouteInvoker.compile(
+                    handle,
+                    metadata,
+                    bean,
+                    GeneratedRouteInvokers.find(method));
         }
 
         void recordInvocation() {
@@ -310,13 +315,18 @@ public class HandlerRegistry {
         return desc != null && desc.compiledInvoker.usesExactAdapter();
     }
 
+    public boolean usesGeneratedInvoker(int handlerId) {
+        HandlerDescriptor desc = handlers.get(handlerId);
+        return desc != null && desc.compiledInvoker.usesGeneratedInvoker();
+    }
+
     public int registerHandler(Object bean,
             Method method,
             Class<?> requestType,
             Class<?> responseType) {
 
         try {
-            MethodHandle mh = MethodHandles.lookup()
+            MethodHandle mh = MethodHandles.privateLookupIn(method.getDeclaringClass(), MethodHandles.lookup())
                     .unreflect(method)
                     .bindTo(bean);
 
@@ -365,6 +375,12 @@ public class HandlerRegistry {
                                 + MAX_EXACT_ANNOTATED_PARAMS
                                 + ". Use a request DTO instead of many scalar parameters."
                 );
+            }
+            if (usesAnnotatedParams
+                    && PropertiesLoader.getBoolean("reactor.codegen.route-invoker.required", false)
+                    && GeneratedRouteInvokers.find(method) == null) {
+                throw new IllegalStateException(
+                        "Generated route invoker is required but missing for " + method);
             }
 
             // Check if method returns CompletableFuture (async)
@@ -1480,6 +1496,10 @@ public class HandlerRegistry {
     }
 
     private int writeError(ByteBuffer out, int offset, Throwable error) {
+        Object handled = ExceptionHandlerRegistry.getInstance().handleException(error);
+        if (handled != null) {
+            return writeExceptionHandlerResult(handled, out, offset);
+        }
         HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(error);
         return writeFrameWithBytes(
                 mapped.status(),
@@ -1488,6 +1508,41 @@ public class HandlerRegistry {
                 out,
                 offset
         );
+    }
+
+    private int writeExceptionHandlerResult(Object result, ByteBuffer out, int offset) {
+        if (result instanceof ResponseEntity<?> responseEntity) {
+            return writeResponseEntity(responseEntity, DEFAULT_JSON_CONTENT_TYPE_HEADER, out, offset);
+        }
+        if (result instanceof RawResponse rawResponse) {
+            return writeRawResponse(rawResponse, 500, EMPTY_BYTES, out, offset);
+        }
+        if (result instanceof DirectJsonResponse<?> directJsonResponse) {
+            return writeDirectJsonResponse(
+                    directJsonResponse,
+                    directJsonResponse.getStatusCode(),
+                    EMPTY_BYTES,
+                    out,
+                    offset);
+        }
+        if (result instanceof JsonProducerResponse producerResponse) {
+            return writeJsonProducerResponse(
+                    producerResponse,
+                    producerResponse.getStatusCode(),
+                    EMPTY_BYTES,
+                    out,
+                    offset);
+        }
+        if (result instanceof JsonBodyProducer producer) {
+            return writeJsonBodyProducer(
+                    producer,
+                    500,
+                    EMPTY_BYTES,
+                    DEFAULT_JSON_CONTENT_TYPE_HEADER,
+                    out,
+                    offset);
+        }
+        return writeObjectFrame(500, result, DEFAULT_JSON_CONTENT_TYPE_HEADER, out, offset);
     }
 
     private int writeObjectFrame(
@@ -2001,12 +2056,35 @@ public class HandlerRegistry {
                     "[HandlerRegistry] Async error: " + e.getClass().getName(),
                     e);
         }
-        HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(e);
         ByteBuffer buffer = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
-        buffer.clear();
-        byte[] body = HttpErrorMapper.toJsonBytes(mapped);
-        int written = writeFrameWithBytes(mapped.status(), DEFAULT_JSON_CONTENT_TYPE_HEADER, body, buffer, 0);
-        return new AsyncResponseFrame(buffer, written);
+        try {
+            for (int attempt = 0; attempt < 3; attempt++) {
+                buffer.clear();
+                int written = writeError(buffer, 0, e);
+                if (written >= 0) {
+                    return new AsyncResponseFrame(buffer, written);
+                }
+                int required = -written;
+                if (required <= 0 || required > MAX_ASYNC_RESPONSE_FRAME_BYTES) {
+                    throw new IllegalStateException("async error frame too large: " + required);
+                }
+                buffer = ASYNC_FRAME_POOL.grow(buffer, required);
+            }
+            throw new IllegalStateException("async error frame retry exceeded");
+        } catch (Throwable encodingFailure) {
+            ASYNC_FRAME_POOL.release(buffer);
+            HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(encodingFailure);
+            ByteBuffer fallback = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
+            fallback.clear();
+            byte[] body = HttpErrorMapper.toJsonBytes(mapped);
+            int written = writeFrameWithBytes(
+                    mapped.status(),
+                    DEFAULT_JSON_CONTENT_TYPE_HEADER,
+                    body,
+                    fallback,
+                    0);
+            return new AsyncResponseFrame(fallback, written);
+        }
     }
 
     @SuppressWarnings("unchecked")

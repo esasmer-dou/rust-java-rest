@@ -142,6 +142,13 @@ public final class RouteScanner {
         RequestMapping classMapping = clazz.getAnnotation(RequestMapping.class);
         if (classMapping != null) {
             basePath = classMapping.value();
+        } else {
+            RestController controller = clazz.getAnnotation(RestController.class);
+            if (controller != null) {
+                basePath = controller.value();
+            }
+        }
+        if (!basePath.isEmpty()) {
             if (!basePath.isEmpty() && !basePath.startsWith("/")) {
                 basePath = "/" + basePath;
             }
@@ -681,67 +688,67 @@ public final class RouteScanner {
         // Legacy @RustRoute annotation
         RustRoute rustRoute = method.getAnnotation(RustRoute.class);
         if (rustRoute != null) {
-            return withLimits(method, new RouteInfo(
+            return inferredRoute(method,
                     rustRoute.method(),
                     rustRoute.path(),
                     rustRoute.requestType(),
                     rustRoute.responseType()
-            ));
+            );
         }
 
         // @GetMapping
         GetMapping getMapping = method.getAnnotation(GetMapping.class);
         if (getMapping != null) {
-            return withLimits(method, new RouteInfo(
+            return inferredRoute(method,
                     "GET",
                     buildPath(basePath, getMapping.value()),
                     getMapping.requestType(),
                     getMapping.responseType()
-            ));
+            );
         }
 
         // @PostMapping
         PostMapping postMapping = method.getAnnotation(PostMapping.class);
         if (postMapping != null) {
-            return withLimits(method, new RouteInfo(
+            return inferredRoute(method,
                     "POST",
                     buildPath(basePath, postMapping.value()),
                     postMapping.requestType(),
                     postMapping.responseType()
-            ));
+            );
         }
 
         // @PutMapping
         PutMapping putMapping = method.getAnnotation(PutMapping.class);
         if (putMapping != null) {
-            return withLimits(method, new RouteInfo(
+            return inferredRoute(method,
                     "PUT",
                     buildPath(basePath, putMapping.value()),
                     putMapping.requestType(),
                     putMapping.responseType()
-            ));
+            );
         }
 
         // @DeleteMapping
         DeleteMapping deleteMapping = method.getAnnotation(DeleteMapping.class);
         if (deleteMapping != null) {
-            return withLimits(method, new RouteInfo(
+            return inferredRoute(method,
                     "DELETE",
                     buildPath(basePath, deleteMapping.value()),
                     deleteMapping.requestType(),
                     deleteMapping.responseType()
-            ));
+            );
         }
 
         // @PatchMapping
         PatchMapping patchMapping = method.getAnnotation(PatchMapping.class);
         if (patchMapping != null) {
-            return withLimits(method, new RouteInfo(
+            return inferredRoute(method,
                     "PATCH",
                     buildPath(basePath, patchMapping.value()),
                     patchMapping.requestType(),
                     patchMapping.responseType()
-            ));
+            );
         }
 
         return null;
@@ -773,6 +780,71 @@ public final class RouteScanner {
                 maxRequest != null ? maxRequest.value() : 0L,
                 maxResponse != null ? maxResponse.value() : 0L
         );
+    }
+
+    private static RouteInfo inferredRoute(
+            Method method,
+            String httpMethod,
+            String path,
+            Class<?> declaredRequestType,
+            Class<?> declaredResponseType) {
+        return withLimits(method, new RouteInfo(
+                httpMethod,
+                path,
+                inferRequestType(method, declaredRequestType),
+                inferResponseType(method, declaredResponseType)
+        ));
+    }
+
+    private static Class<?> inferRequestType(Method method, Class<?> declaredType) {
+        if (!isVoidRequestType(declaredType)) {
+            return declaredType;
+        }
+        for (java.lang.reflect.Parameter parameter : method.getParameters()) {
+            if (parameter.isAnnotationPresent(RequestBody.class)) {
+                return parameter.getType();
+            }
+        }
+        return Void.class;
+    }
+
+    private static Class<?> inferResponseType(Method method, Class<?> declaredType) {
+        if (declaredType != Void.class && declaredType != void.class) {
+            return declaredType;
+        }
+        return rawResponseClass(method.getGenericReturnType());
+    }
+
+    private static Class<?> rawResponseClass(Type type) {
+        if (type instanceof Class<?> rawClass) {
+            return rawClass == void.class ? Void.class : box(rawClass);
+        }
+        if (!(type instanceof ParameterizedType parameterized)) {
+            return Object.class;
+        }
+        Type rawType = parameterized.getRawType();
+        if (rawType instanceof Class<?> rawClass
+                && (CompletionStage.class.isAssignableFrom(rawClass)
+                || com.reactor.rust.http.ResponseEntity.class.isAssignableFrom(rawClass))) {
+            Type[] arguments = parameterized.getActualTypeArguments();
+            return arguments.length == 1 ? rawResponseClass(arguments[0]) : Object.class;
+        }
+        return rawType instanceof Class<?> rawClass ? rawClass : Object.class;
+    }
+
+    private static Class<?> box(Class<?> type) {
+        if (!type.isPrimitive()) {
+            return type;
+        }
+        if (type == int.class) return Integer.class;
+        if (type == long.class) return Long.class;
+        if (type == boolean.class) return Boolean.class;
+        if (type == double.class) return Double.class;
+        if (type == short.class) return Short.class;
+        if (type == byte.class) return Byte.class;
+        if (type == float.class) return Float.class;
+        if (type == char.class) return Character.class;
+        return Void.class;
     }
 
     private static boolean isVoidRequestType(Class<?> requestType) {

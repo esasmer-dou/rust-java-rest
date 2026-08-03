@@ -97,6 +97,7 @@ public final class BeanContainer {
     private final Map<Class<?>, String> beanNames = new ConcurrentHashMap<>(64);
     private final Set<Class<?>> primaryBeans = ConcurrentHashMap.newKeySet();
     private final List<Runnable> preDestroyCallbacks = new ArrayList<>();
+    private final Set<Object> processedConfigurations = Collections.newSetFromMap(new IdentityHashMap<>());
 
     // State tracking
     private volatile boolean initialized = false;
@@ -164,6 +165,37 @@ public final class BeanContainer {
         return registerBean(type, instance, name, primary);
     }
 
+    /** Registers a generated bean without reflective hierarchy discovery. */
+    public <T> BeanContainer registerGeneratedBean(
+            Class<T> type,
+            T instance,
+            String name,
+            boolean primary,
+            Class<?>... exposedTypes) {
+        Objects.requireNonNull(type, "Bean type cannot be null");
+        Objects.requireNonNull(instance, "Bean instance cannot be null");
+        Objects.requireNonNull(name, "Bean name cannot be null");
+        beansByType.put(type, instance);
+        beansByName.put(name, instance);
+        beanNames.put(type, name);
+        if (primary) {
+            primaryBeans.add(type);
+        }
+        if (exposedTypes != null) {
+            for (Class<?> exposedType : exposedTypes) {
+                if (exposedType != null && exposedType != Object.class) {
+                    beansByType.putIfAbsent(exposedType, instance);
+                }
+            }
+        }
+        return this;
+    }
+
+    /** Prevents the compatibility reflection path from invoking generated {@code @Bean} methods twice. */
+    public void markGeneratedConfiguration(Object configuration) {
+        processedConfigurations.add(Objects.requireNonNull(configuration, "configuration"));
+    }
+
     /**
      * Internal method to register bean with wildcard class type.
      * Used by component scanning and @Bean processing.
@@ -192,25 +224,50 @@ public final class BeanContainer {
      * Register a lazy bean supplier.
      */
     public <T> BeanContainer registerLazy(Class<T> type, Supplier<T> supplier, String name) {
+        return registerGeneratedFactory(type, supplier, name, false);
+    }
+
+    /**
+     * Registers a build-time generated factory and its generated type aliases.
+     * The factory is resolved once during startup without constructor reflection.
+     */
+    public <T> BeanContainer registerGeneratedFactory(
+            Class<T> type,
+            Supplier<T> supplier,
+            String name,
+            boolean primary,
+            Class<?>... exposedTypes) {
         Objects.requireNonNull(type, "Bean type cannot be null");
         Objects.requireNonNull(supplier, "Supplier cannot be null");
-
-        // Lazy wrapper
-        Supplier<T> lazySupplier = () -> {
-            T instance = supplier.get();
-            beansByType.put(type, instance);
-            beansByName.put(name, instance);
-            return instance;
-        };
-
-        // Store supplier temporarily (will be resolved on first access)
-        lazySuppliers.put(type, lazySupplier);
+        Objects.requireNonNull(name, "Bean name cannot be null");
+        Class<?>[] aliases = exposedTypes == null ? new Class<?>[0] : exposedTypes.clone();
+        LazyBean<T> definition = new LazyBean<>(type, supplier, name, primary, aliases);
+        LazyBean<?> previousName = lazySuppliersByName.get(name);
+        if (previousName != null) {
+            throw new BeanCreationException("Generated bean name already registered: " + name);
+        }
+        if (lazySuppliers.containsKey(type)) {
+            throw new BeanCreationException("Generated bean type already registered: " + type.getName());
+        }
+        for (Class<?> exposedType : aliases) {
+            if (exposedType != null && exposedType != Object.class) {
+                validateLazyAlias(exposedType, definition);
+            }
+        }
+        lazySuppliersByName.put(name, definition);
+        registerLazyConcreteType(type, definition);
         beanNames.put(type, name);
-
+        for (Class<?> exposedType : aliases) {
+            if (exposedType != null && exposedType != Object.class) {
+                registerLazyAlias(exposedType, definition);
+            }
+        }
         return this;
     }
 
-    private final Map<Class<?>, Supplier<?>> lazySuppliers = new ConcurrentHashMap<>();
+    private final Map<Class<?>, LazyBean<?>> lazySuppliers = new ConcurrentHashMap<>();
+    private final Map<String, LazyBean<?>> lazySuppliersByName = new ConcurrentHashMap<>();
+    private final Set<Class<?>> ambiguousGeneratedAliases = ConcurrentHashMap.newKeySet();
 
     // ========================================
     // Bean Lookup (Zero-Overhead)
@@ -227,16 +284,15 @@ public final class BeanContainer {
     public <T> T getBean(Class<T> type) {
         Objects.requireNonNull(type, "Bean type cannot be null");
 
-        // Check resolved beans first
-        Object bean = beansByType.get(type);
+        if (ambiguousGeneratedAliases.contains(type)) {
+            throw new BeanCreationException(
+                    "Multiple generated beans expose " + type.getName() + "; declare one @Primary or use @Qualifier");
+        }
 
-        // Check lazy suppliers
+        LazyBean<?> supplier = lazySuppliers.get(type);
+        Object bean = supplier == null ? beansByType.get(type) : resolveLazy(supplier);
         if (bean == null) {
-            Supplier<?> supplier = lazySuppliers.get(type);
-            if (supplier != null) {
-                bean = supplier.get();
-                lazySuppliers.remove(type);
-            }
+            bean = beansByType.get(type);
         }
 
         if (bean == null) {
@@ -259,6 +315,10 @@ public final class BeanContainer {
 
         Object bean = beansByName.get(name);
         if (bean == null) {
+            LazyBean<?> definition = lazySuppliersByName.get(name);
+            if (definition != null) bean = resolveLazy(definition);
+        }
+        if (bean == null) {
             throw new NoSuchBeanException("No bean with name '" + name + "' found");
         }
         return (T) bean;
@@ -269,25 +329,28 @@ public final class BeanContainer {
      */
     @SuppressWarnings("unchecked")
     public <T> T getBean(Class<T> type, String name) {
-        Object bean = beansByName.get(name);
-        if (bean != null && type.isInstance(bean)) {
-            return (T) bean;
+        Object bean = getBean(name);
+        if (!type.isInstance(bean)) {
+            throw new NoSuchBeanException(
+                    "Bean '" + name + "' is not assignable to " + type.getName());
         }
-        return getBean(type);
+        return (T) bean;
     }
 
     /**
      * Check if a bean exists.
      */
     public boolean hasBean(Class<?> type) {
-        return beansByType.containsKey(type) || lazySuppliers.containsKey(type);
+        return beansByType.containsKey(type)
+                || lazySuppliers.containsKey(type)
+                || ambiguousGeneratedAliases.contains(type);
     }
 
     /**
      * Check if a bean exists by name.
      */
     public boolean hasBean(String name) {
-        return beansByName.containsKey(name);
+        return beansByName.containsKey(name) || lazySuppliersByName.containsKey(name);
     }
 
     /**
@@ -296,8 +359,9 @@ public final class BeanContainer {
     @SuppressWarnings("unchecked")
     public <T> List<T> getBeansOfType(Class<T> type) {
         List<T> result = new ArrayList<>();
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Map.Entry<Class<?>, Object> entry : beansByType.entrySet()) {
-            if (type.isAssignableFrom(entry.getKey())) {
+            if (type.isAssignableFrom(entry.getKey()) && seen.add(entry.getValue())) {
                 result.add((T) entry.getValue());
             }
         }
@@ -343,7 +407,8 @@ public final class BeanContainer {
 
             // Process @Configuration classes
             for (Object configBean : new ArrayList<>(beansByType.values())) {
-                if (configBean.getClass().isAnnotationPresent(Configuration.class)) {
+                if (configBean.getClass().isAnnotationPresent(Configuration.class)
+                        && processedConfigurations.add(configBean)) {
                     processConfiguration(configBean);
                 }
             }
@@ -364,17 +429,23 @@ public final class BeanContainer {
         }
 
         // Resolve all lazy suppliers first
-        for (Map.Entry<Class<?>, Supplier<?>> entry : new ArrayList<>(lazySuppliers.entrySet())) {
-            if (!beansByType.containsKey(entry.getKey())) {
-                Object bean = entry.getValue().get();
-                beansByType.put(entry.getKey(), bean);
-                String name = beanNames.get(entry.getKey());
-                if (name != null) {
-                    beansByName.put(name, bean);
-                }
+        Set<LazyBean<?>> generatedDefinitions = Collections.newSetFromMap(new IdentityHashMap<>());
+        generatedDefinitions.addAll(lazySuppliers.values());
+        for (LazyBean<?> definition : generatedDefinitions) {
+            if (definition.type.isAnnotationPresent(Configuration.class)) {
+                resolveLazy(definition);
             }
         }
-        lazySuppliers.clear();
+
+        for (Object configBean : new ArrayList<>(beansByType.values())) {
+            if (configBean.getClass().isAnnotationPresent(Configuration.class)
+                    && processedConfigurations.add(configBean)) {
+                processConfiguration(configBean);
+            }
+        }
+        for (LazyBean<?> definition : generatedDefinitions) {
+            resolveLazy(definition);
+        }
 
         // Inject @RustProperty values into all beans (Constraint #8)
         injectProperties();
@@ -415,6 +486,10 @@ public final class BeanContainer {
         beansByName.clear();
         beanNames.clear();
         primaryBeans.clear();
+        lazySuppliers.clear();
+        lazySuppliersByName.clear();
+        ambiguousGeneratedAliases.clear();
+        processedConfigurations.clear();
         initialized = false;
 
         FrameworkLogger.info("[BeanContainer] Shutdown complete");
@@ -437,6 +512,109 @@ public final class BeanContainer {
                 }
             }
             current = current.getSuperclass();
+        }
+    }
+
+    private void registerLazyConcreteType(Class<?> type, LazyBean<?> definition) {
+        LazyBean<?> previous = lazySuppliers.putIfAbsent(type, definition);
+        if (previous != null && previous != definition) {
+            throw new BeanCreationException("Generated bean type already registered: " + type.getName());
+        }
+    }
+
+    private void registerLazyAlias(Class<?> type, LazyBean<?> definition) {
+        if (ambiguousGeneratedAliases.contains(type)) {
+            if (definition.primary) {
+                lazySuppliers.put(type, definition);
+                ambiguousGeneratedAliases.remove(type);
+            }
+            return;
+        }
+        LazyBean<?> previous = lazySuppliers.putIfAbsent(type, definition);
+        if (previous == null || previous == definition) return;
+        if (previous.primary && definition.primary) {
+            throw new BeanCreationException("Multiple @Primary generated beans expose: " + type.getName());
+        }
+        if (definition.primary) {
+            lazySuppliers.replace(type, previous, definition);
+        } else if (!previous.primary) {
+            lazySuppliers.remove(type, previous);
+            ambiguousGeneratedAliases.add(type);
+        }
+    }
+
+    private void validateLazyAlias(Class<?> type, LazyBean<?> definition) {
+        LazyBean<?> previous = lazySuppliers.get(type);
+        if (previous != null && previous != definition && previous.primary && definition.primary) {
+            throw new BeanCreationException("Multiple @Primary generated beans expose: " + type.getName());
+        }
+    }
+
+    private Object resolveLazy(LazyBean<?> definition) {
+        Object instance = definition.resolve();
+        if (!beansByType.containsKey(definition.type)) {
+            synchronized (definition) {
+                if (!beansByType.containsKey(definition.type)) {
+                    beansByType.put(definition.type, instance);
+                    beansByName.put(definition.name, instance);
+                    beanNames.put(definition.type, definition.name);
+                    if (definition.primary) {
+                        primaryBeans.add(definition.type);
+                    }
+                    for (Class<?> exposedType : definition.exposedTypes) {
+                        if (exposedType != null && exposedType != Object.class
+                                && lazySuppliers.get(exposedType) == definition
+                                && !ambiguousGeneratedAliases.contains(exposedType)) {
+                            beansByType.putIfAbsent(exposedType, instance);
+                        }
+                    }
+                    lazySuppliers.entrySet().removeIf(entry -> entry.getValue() == definition);
+                    lazySuppliersByName.remove(definition.name, definition);
+                }
+            }
+        }
+        return instance;
+    }
+
+    private static final class LazyBean<T> {
+        private final Class<T> type;
+        private final Supplier<T> supplier;
+        private final String name;
+        private final boolean primary;
+        private final Class<?>[] exposedTypes;
+        private T instance;
+        private boolean creating;
+
+        private LazyBean(
+                Class<T> type,
+                Supplier<T> supplier,
+                String name,
+                boolean primary,
+                Class<?>[] exposedTypes) {
+            this.type = type;
+            this.supplier = supplier;
+            this.name = name;
+            this.primary = primary;
+            this.exposedTypes = exposedTypes;
+        }
+
+        private synchronized T resolve() {
+            if (instance != null) {
+                return instance;
+            }
+            if (creating) {
+                throw new CircularDependencyException(
+                        "Circular generated constructor dependency detected for: " + type.getName());
+            }
+            creating = true;
+            try {
+                instance = Objects.requireNonNull(
+                        supplier.get(),
+                        "Generated bean factory returned null for " + type.getName());
+                return instance;
+            } finally {
+                creating = false;
+            }
         }
     }
 
@@ -464,7 +642,7 @@ public final class BeanContainer {
                             ? method.getName()
                             : beanAnnotation.value();
 
-                    Object beanInstance = method.invoke(configBean);
+                    Object beanInstance = method.invoke(configBean, resolveMethodArguments(method));
 
                     if (beanInstance != null) {
                         Class<?> returnType = method.getReturnType();
@@ -480,6 +658,22 @@ public final class BeanContainer {
                 }
             }
         }
+    }
+
+    private Object[] resolveMethodArguments(Method method) {
+        Parameter[] parameters = method.getParameters();
+        if (parameters.length == 0) {
+            return new Object[0];
+        }
+        Object[] arguments = new Object[parameters.length];
+        for (int index = 0; index < parameters.length; index++) {
+            Parameter parameter = parameters[index];
+            Qualifier qualifier = parameter.getAnnotation(Qualifier.class);
+            arguments[index] = qualifier == null
+                    ? getBean(parameter.getType())
+                    : getBean(parameter.getType(), qualifier.value());
+        }
+        return arguments;
     }
 
     /**

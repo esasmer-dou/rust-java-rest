@@ -8,7 +8,7 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>4.0.0</version>
+    <version>4.1.0</version>
     <name>Rust-Java REST Framework</name>
     <description>Low-latency REST API framework with Rust Hyper HTTP I/O, Java handlers, low-RSS runtime profiles, route admission, and native response paths</description>
 
@@ -82,6 +82,24 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-codegen-services</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                            <resources>
+                                <resource><directory>src/codegen/resources</directory></resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
 
             <!-- Compiler Plugin with DSL-JSON annotation processor -->
             <plugin>
@@ -117,6 +135,7 @@
                                 <exclude>com/reactor/rust/benchmark/**</exclude>
                                 <exclude>com/reactor/rust/dubbo/sample/**</exclude>
                                 <exclude>META-INF/reactor/**</exclude>
+                                <exclude>META-INF/services/javax.annotation.processing.Processor</exclude>
                             </excludes>
                         </configuration>
                     </execution>
@@ -130,6 +149,7 @@
                             <classifier>codegen</classifier>
                             <includes>
                                 <include>com/reactor/rust/codegen/**</include>
+                                <include>META-INF/services/javax.annotation.processing.Processor</include>
                             </includes>
                         </configuration>
                     </execution>
@@ -164,6 +184,7 @@
                                         <exclude>com/reactor/rust/benchmark/**</exclude>
                                         <exclude>com/reactor/rust/dubbo/sample/**</exclude>
                                         <exclude>META-INF/reactor/**</exclude>
+                                        <exclude>META-INF/services/javax.annotation.processing.Processor</exclude>
                                     </excludes>
                                 </filter>
                                 <filter>

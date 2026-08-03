@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-4.1.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -31,37 +31,54 @@ Start with the document that matches your task:
 
 ## Current Stable Line
 
-`4.0.0` is the declarative runtime line used by `java-rust-cache:0.5.0` and
-`java-rust-dubbo:0.5.0`. The packaged native runtime still reports REST ABI `24`, Dubbo ABI `7`, and
-Redis ABI `6`; this release does not change the JNI contract or require a new native binary. It moves
-startup indexes, route metadata, direct JSON writers, and JDBC mappers to build-time generation and
-removes obsolete compatibility APIs. If your application combines these libraries, keep the versions
-aligned:
+`4.1.0` is the declarative runtime line used by `java-rust-cache:0.6.0` and
+`java-rust-dubbo:0.6.0`. The packaged native runtime still reports REST ABI `24`, Dubbo ABI `7`, and
+Redis ABI `6`; this release does not change the JNI contract or require a new native binary. It adds
+generated application wiring and route invokers while keeping Java handlers and business services
+unchanged. If your application combines these libraries, keep the versions aligned:
 
 ```xml
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.0.0</version>
+  <version>4.1.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.5.0</version>
+  <version>0.6.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.5.0</version>
+  <version>0.6.0</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.5.0` or `java-rust-dubbo:0.5.0` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.6.0` or `java-rust-dubbo:0.6.0` native mode with a DLL/SO copied from
 an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
+
+## v4.1.0 At A Glance
+
+`v4.1.0` reduces application wiring without moving business logic out of Java. Use
+`@ReactorApplication`, `@RestController`, constructor injection, and `@Bean`; the codegen artifact
+creates direct component factories and route invokers during compilation. The production runtime
+does not load annotation processors and the request path does not gain runtime reflection.
+
+- Multiple beans for one interface require an explicit `@Primary` or `@Qualifier` decision.
+- Generated constructor and `@Bean` failures keep the bean name and original cause.
+- `scanBasePackages` uses only the explicit roots when supplied; otherwise it uses the application
+  package.
+- `LongKeyAdmission` provides bounded per-key command admission without sample-specific boilerplate.
+- The project generator can create REST, cache reader/writer, static Dubbo, and ZooKeeper Dubbo
+  project shapes with build-time processor discovery.
+
+Existing REST annotations, handler signatures, response types, native ABI values, and Java business
+services remain compatible with `4.0.0`.
 
 ## v4.0.0 At A Glance
 
@@ -125,28 +142,40 @@ your own endpoint matrix before tightening memory limits.
 
 ### Minimal Application Bootstrap
 
-`RestApplication.run(...)` is the normal entry point. The `main` class selects one explicit module;
-the module declares the active package and handlers:
+`@ReactorApplication` is the normal entry point. Build-time codegen creates constructor factories,
+configuration beans, route indexes, and direct route invokers. The request path does not scan classes
+or invoke handlers through reflection:
 
 ```java
+@ReactorApplication(scanBasePackages = "com.example.orders")
 public final class OrdersApplication {
     public static void main(String[] args) {
-        RestApplication.run(OrdersModule.INSTANCE);
+        RestApplication.run(OrdersApplication.class, args);
     }
 }
 
-public final class OrdersModule implements RestApplication.Module {
-    public static final OrdersModule INSTANCE = new OrdersModule();
+@RestController("/api/v1/orders")
+public final class OrderHandler {
+    private final OrderService orders;
 
-    private OrdersModule() {}
+    public OrderHandler(OrderService orders) {
+        this.orders = orders;
+    }
 
-    @Override
-    public void configure(RestApplication.ModuleContext context) {
-        context.scan("com.example.orders")
-                .handlerTypes(HealthHandler.class, OrderHandler.class, CustomerHandler.class);
+    @GetMapping("/{id}")
+    public OrderResponse order(@PathVariable("id") long id) {
+        return orders.find(id);
     }
 }
 ```
+
+If `scanBasePackages` is omitted, the package containing the application class is scanned. If it is
+set, only the listed package roots are scanned. Use the common application root when handlers and
+services live in sibling packages such as `app`, `handler`, and `service`.
+
+Use an explicit `RestApplication.Module` only when one artifact intentionally ships different
+runtime surfaces, such as a full consumer and a smaller `native-static` classifier. Modules remain a
+supported low-level composition API; they are not the default for ordinary applications.
 
 When a handler depends on a resource created from runtime properties, use a startup module. The
 framework loads properties and applies the runtime profile first. It then runs the module and owns
@@ -296,7 +325,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.0.0</version>
+  <version>4.1.0</version>
 </dependency>
 ```
 
@@ -369,17 +398,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.0.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.0.0-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.0.0-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-4.1.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.1.0-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.1.0-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.0.0-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-4.1.0-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.0.0`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.1.0`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -401,7 +430,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.0.0-sample.jar
+java -jar sample/target/rust-java-rest-4.1.0-sample.jar
 ```
 
 ## Quick Start

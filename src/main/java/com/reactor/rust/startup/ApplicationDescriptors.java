@@ -1,6 +1,7 @@
 package com.reactor.rust.startup;
 
 import com.reactor.rust.di.BeanContainer;
+import com.reactor.rust.bridge.HandlerRegistry;
 
 import java.util.List;
 import java.util.ServiceLoader;
@@ -16,6 +17,25 @@ public final class ApplicationDescriptors {
         int registered = 0;
         for (ApplicationDescriptor descriptor : DESCRIPTORS) {
             registered += descriptor.registerComponents(container, basePackage);
+        }
+        return registered;
+    }
+
+    public static int registerHandlers(
+            BeanContainer container,
+            HandlerRegistry registry,
+            String basePackage) {
+        int registered = 0;
+        for (ApplicationDescriptor descriptor : DESCRIPTORS) {
+            registered += descriptor.registerHandlers(container, registry, basePackage);
+        }
+        return registered;
+    }
+
+    public static int registerConfigurationBeans(BeanContainer container, String basePackage) {
+        int registered = 0;
+        for (ApplicationDescriptor descriptor : DESCRIPTORS) {
+            registered += descriptor.registerConfigurationBeans(container, basePackage);
         }
         return registered;
     }

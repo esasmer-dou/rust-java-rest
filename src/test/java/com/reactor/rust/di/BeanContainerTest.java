@@ -1,6 +1,7 @@
 package com.reactor.rust.di;
 
 import com.reactor.rust.di.annotation.*;
+import com.reactor.rust.di.exception.BeanCreationException;
 import com.reactor.rust.di.exception.NoSuchBeanException;
 import org.junit.jupiter.api.*;
 
@@ -190,6 +191,63 @@ class BeanContainerTest {
         assertTrue(container.hasBean(String.class));
         assertTrue(container.hasBean("test"));
         assertFalse(container.hasBean(Integer.class));
+    }
+
+    @Test
+    @DisplayName("Should resolve generated lazy bean by name and return each instance once")
+    void testGeneratedBeanAliases() {
+        TestImpl impl = new TestImpl();
+        container.registerGeneratedFactory(
+                TestImpl.class,
+                () -> impl,
+                "generatedTest",
+                false,
+                TestInterface.class);
+
+        assertTrue(container.hasBean("generatedTest"));
+        assertSame(impl, container.getBean("generatedTest"));
+        assertSame(impl, container.getBean(TestInterface.class));
+        assertEquals(1, container.getBeansOfType(Object.class).size());
+    }
+
+    @Test
+    @DisplayName("Should resolve generated interface by primary and qualifier")
+    void testGeneratedPrimaryAndQualifier() {
+        TestImpl regular = new TestImpl();
+        AnotherImpl primary = new AnotherImpl();
+        container.registerGeneratedFactory(
+                TestImpl.class, () -> regular, "regular", false, TestInterface.class);
+        container.registerGeneratedFactory(
+                AnotherImpl.class, () -> primary, "primary", true, TestInterface.class);
+
+        assertSame(primary, container.getBean(TestInterface.class));
+        assertSame(regular, container.getBean(TestInterface.class, "regular"));
+        assertSame(primary, container.getBean(TestInterface.class, "primary"));
+    }
+
+    @Test
+    @DisplayName("Should reject ambiguous generated interface injection")
+    void testGeneratedAmbiguousInterface() {
+        container.registerGeneratedFactory(
+                TestImpl.class, TestImpl::new, "first", false, TestInterface.class);
+        container.registerGeneratedFactory(
+                AnotherImpl.class, AnotherImpl::new, "second", false, TestInterface.class);
+
+        assertThrows(BeanCreationException.class, () -> container.getBean(TestInterface.class));
+        assertInstanceOf(TestImpl.class, container.getBean(TestInterface.class, "first"));
+        assertInstanceOf(AnotherImpl.class, container.getBean(TestInterface.class, "second"));
+    }
+
+    @Test
+    @DisplayName("Should reject multiple generated primary implementations")
+    void testGeneratedMultiplePrimaryInterface() {
+        container.registerGeneratedFactory(
+                TestImpl.class, TestImpl::new, "first", true, TestInterface.class);
+
+        assertThrows(BeanCreationException.class, () -> container.registerGeneratedFactory(
+                AnotherImpl.class, AnotherImpl::new, "second", true, TestInterface.class));
+        assertFalse(container.hasBean("second"));
+        assertFalse(container.hasBean(AnotherImpl.class));
     }
 
     @Test

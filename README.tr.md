@@ -12,25 +12,30 @@ request parse, response yazma, dosya stream, WebSocket ve backpressure işleri R
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.0.0</version>
+  <version>4.1.0</version>
 </dependency>
 ```
 
 ```java
+@ReactorApplication(scanBasePackages = "com.example.app")
 public final class Application {
     public static void main(String[] args) {
-        RestApplication.run(context -> context.handlers(new HealthHandler()));
+        RestApplication.run(Application.class, args);
     }
 }
 
+@RestController
 public final class HealthHandler {
-    @GetMapping(value = "/app/health", responseType = RawResponse.class)
+    @GetMapping("/app/health")
     public ResponseEntity<RawResponse> health() {
         return ResponseEntity.ok(RawResponse.text(
                 "{\"status\":\"UP\"}", "application/json"));
     }
 }
 ```
+
+`scanBasePackages` yazılmazsa main sınıfının paketi taranır. Bu alan yazılırsa yalnızca belirtilen
+paket kökleri taranır. `app`, `handler` ve `service` kardeş paketlerse ortak uygulama kökünü yazın.
 
 ```properties
 server.host=0.0.0.0
@@ -59,6 +64,23 @@ reactor.runtime.profile=micro-rest
 
 Profil bir garanti değildir. Kendi endpoint setinizle p99, `503` oranı ve container RSS ölçün.
 
+## 4.1.0 ile Gelen Sade Kullanım
+
+`4.1.0`, business logic kodunu değiştirmeden uygulama bağlantı kodunu azaltır.
+`@ReactorApplication`, `@RestController`, constructor injection ve `@Bean` tanımları build sırasında
+doğrudan factory ve route invoker sınıflarına çevrilir. Annotation processor sınıfları production
+JAR'a girmez. Request sırasında yeni runtime reflection çalışmaz.
+
+- Aynı interface'i iki bean sağlıyorsa birini `@Primary` seçin veya `@Qualifier` kullanın.
+- Constructor veya `@Bean` başlangıçta hata verirse bean adı ve asıl hata korunur.
+- `scanBasePackages` verilirse yalnız yazılan paketler kullanılır. Verilmezse application paketi
+  kullanılır.
+- Per-key command sınırı için sample'a özel sınıf yazmak yerine `LongKeyAdmission` kullanılabilir.
+- Proje generator REST, cache reader/writer, static Dubbo ve ZooKeeper Dubbo başlangıç projeleri
+  oluşturabilir.
+
+Handler, service, record, validation, response tipi ve native ABI `4.0.0` ile uyumludur.
+
 ## 4.0.0 Geçiş Notu
 
 Handler, service, record, validation ve REST annotation kullanımı değişmedi. `4.0.0`, artık gerekli
@@ -83,27 +105,32 @@ build almaktır.
   <path>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>4.0.0</version>
+    <version>4.1.0</version>
     <classifier>codegen</classifier>
   </path>
 </annotationProcessorPaths>
-<annotationProcessors>
-  <annotationProcessor>com.reactor.rust.codegen.ReactorStartupProcessor</annotationProcessor>
-  <annotationProcessor>com.reactor.rust.codegen.DirectJsonWriterProcessor</annotationProcessor>
-</annotationProcessors>
 ```
 
-Processor şu dosyaları üretir:
+`codegen` JAR gerekli processor'ları otomatik bulur. Processor sınıflarını tek tek yazmanız gerekmez.
+Bu metadata production JAR'a girmez.
+
+Processor'lar şu dosyaları ve sınıfları üretir:
 
 - `components.idx`: component listesi.
 - `routes.idx`: HTTP method ve path listesi.
 - `properties.idx`: `@RustProperty` metadata listesi.
 - `ReactorApplicationDescriptor`: component factory ve startup descriptor.
+- Constructor injection ve `@Bean` metotları için doğrudan factory sınıfları.
+- Route metotları için doğrudan Java invoker sınıfları.
 - `@GenerateDirectJsonWriter` ile işaretlenen scalar record'lar için direct JSON writer.
 
 Bu yaklaşım runtime classpath taramasını ve tekrar eden reflection maliyetini azaltır. Processor
 çalışmazsa framework mevcut uyumlu fallback yolunu kullanabilir. Production'da diagnostics üzerinden
 fallback sayısını takip edin ve strict gate'i yalnız temiz ölçümden sonra açın.
+
+Normal uygulamada `@ReactorApplication`, `@RestController` ve constructor injection kullanın. Bir
+artefact içinde birbirinden farklı ve bilinçli olarak küçültülmüş runtime yüzeyleri dağıtıyorsanız
+`RestApplication.Module` kullanabilirsiniz. Module yolu ileri seviye bir composition seçeneğidir.
 
 ## Yeni Proje Oluşturma
 

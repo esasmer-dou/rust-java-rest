@@ -1,5 +1,6 @@
 package com.reactor.rust.app;
 
+import com.reactor.rust.annotations.ReactorApplication;
 import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
@@ -9,8 +10,10 @@ import com.reactor.rust.config.RuntimeProfilePlan;
 import com.reactor.rust.config.RuntimeProfiles;
 import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.exception.ExceptionHandlerRegistry;
 import com.reactor.rust.memory.NativeIdleMemoryTrimmer;
 import com.reactor.rust.startup.InstantOnCheckpoint;
+import com.reactor.rust.startup.ApplicationDescriptors;
 import com.reactor.rust.startup.StartupPrewarmer;
 import com.reactor.rust.startup.StartupTimeline;
 import com.reactor.rust.staticfiles.StaticFileScanner;
@@ -45,6 +48,18 @@ public final class RestApplication {
      */
     public static void runStandard(Module... modules) {
         configureModules(builder().standardRuntimeFeatures(), modules).start();
+    }
+
+    /**
+     * Runs a build-time indexed application without an application-owned module.
+     */
+    public static void run(Class<?> applicationType, String... args) {
+        configureApplication(builder(), applicationType).start();
+    }
+
+    /** Starts a build-time indexed application and returns its lifecycle handle. */
+    public static RunningApplication startAsync(Class<?> applicationType, String... args) {
+        return configureApplication(builder(), applicationType).startAsync();
     }
 
     public static RunningApplication startAsync(Module... modules) {
@@ -139,13 +154,38 @@ public final class RestApplication {
         return builder;
     }
 
+    private static Builder configureApplication(Builder builder, Class<?> applicationType) {
+        Objects.requireNonNull(applicationType, "applicationType");
+        ReactorApplication application = applicationType.getAnnotation(ReactorApplication.class);
+        if (application == null) {
+            throw new IllegalArgumentException(
+                    "Application entry point must declare @ReactorApplication: " + applicationType.getName());
+        }
+        String packageName = applicationType.getPackageName();
+        if (packageName.isBlank()) {
+            throw new IllegalArgumentException("Application entry point must be declared in a named package");
+        }
+        String[] configuredPackages = application.scanBasePackages();
+        if (configuredPackages.length == 0) {
+            builder.scan(packageName);
+        } else {
+            for (String configuredPackage : configuredPackages) {
+                builder.scan(configuredPackage);
+            }
+        }
+        if (application.standardRuntime()) {
+            builder.standardRuntimeFeatures();
+        }
+        return builder;
+    }
+
     public static final class Builder {
 
         private final List<Class<?>> handlerTypes = new ArrayList<>();
         private final List<Object> handlerInstances = new ArrayList<>();
         private final List<AutoCloseable> closeables = new ArrayList<>();
         private final List<Module> modules = new ArrayList<>();
-        private String basePackage;
+        private final List<String> basePackages = new ArrayList<>();
         private BeanContainer container;
         private String shutdownThreadName = "reactor-rest-shutdown";
         private String portProperty = "server.port";
@@ -159,7 +199,10 @@ public final class RestApplication {
         private Builder() {}
 
         public Builder scan(String basePackage) {
-            this.basePackage = requireText(basePackage, "basePackage");
+            String normalized = requireText(basePackage, "basePackage");
+            if (!basePackages.contains(normalized)) {
+                basePackages.add(normalized);
+            }
             return this;
         }
 
@@ -312,12 +355,23 @@ public final class RestApplication {
 
         private InitializedHandlers initializeHandlers() {
             BeanContainer activeContainer = container;
-            if (basePackage != null || !handlerTypes.isEmpty()) {
+            if (!basePackages.isEmpty() || !handlerTypes.isEmpty()) {
                 activeContainer = activeContainer == null ? BeanContainer.getInstance() : activeContainer;
-                if (basePackage != null) {
+                if (!basePackages.isEmpty()) {
                     BeanContainer containerToStart = activeContainer;
-                    phase("di.scan", () -> containerToStart.scan(basePackage));
+                    phase("di.scan", () -> containerToStart.scan(basePackages.toArray(String[]::new)));
+                    phase("di.configuration", () -> {
+                        for (String basePackage : basePackages) {
+                            ApplicationDescriptors.registerConfigurationBeans(containerToStart, basePackage);
+                        }
+                    });
                     phase("di.start", containerToStart::start);
+                    phase("exceptions.register", () -> ExceptionHandlerRegistry.getInstance()
+                            .scanAndRegister(containerToStart));
+                    HandlerRegistry registry = HandlerRegistry.getInstance();
+                    for (String basePackage : basePackages) {
+                        ApplicationDescriptors.registerHandlers(containerToStart, registry, basePackage);
+                    }
                 }
                 HandlerRegistry registry = HandlerRegistry.getInstance();
                 for (Class<?> handlerType : handlerTypes) {

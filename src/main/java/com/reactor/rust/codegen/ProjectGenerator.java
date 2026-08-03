@@ -14,9 +14,9 @@ import javax.lang.model.SourceVersion;
 /** Small, dependency-free project generator for the supported production shapes. */
 public final class ProjectGenerator {
 
-    private static final String REST_VERSION = "4.0.0";
-    private static final String CACHE_VERSION = "0.5.0";
-    private static final String DUBBO_VERSION = "0.5.0";
+    private static final String REST_VERSION = "4.1.0";
+    private static final String CACHE_VERSION = "0.6.0";
+    private static final String DUBBO_VERSION = "0.6.0";
     private static final String ZOOKEEPER_VERSION = "3.7.2";
     private static final Pattern MAVEN_ID = Pattern.compile("[A-Za-z0-9_.-]+");
     private static final Pattern JAVA_PACKAGE = Pattern.compile(
@@ -55,25 +55,29 @@ public final class ProjectGenerator {
         write(javaRoot.resolve("Application.java"), """
                 package %s;
 
+                import com.reactor.rust.annotations.ReactorApplication;
                 import com.reactor.rust.app.RestApplication;
 
+                @ReactorApplication(scanBasePackages = "%s")
                 public final class Application {
                     private Application() {}
                     public static void main(String[] args) {
-                        RestApplication.run(context -> context.handlers(new HelloHandler()));
+                        RestApplication.run(Application.class, args);
                     }
                 }
-                """.formatted(options.packageName()));
+                """.formatted(options.packageName(), options.packageName()));
         write(javaRoot.resolve("HelloHandler.java"), """
                 package %s;
 
                 import com.reactor.rust.annotations.GetMapping;
+                import com.reactor.rust.annotations.RestController;
                 import com.reactor.rust.http.JsonResponses;
                 import com.reactor.rust.http.RawResponse;
                 import com.reactor.rust.http.ResponseEntity;
 
+                @RestController("/api/v1")
                 public final class HelloHandler {
-                    @GetMapping(value = "/api/v1/hello", responseType = RawResponse.class)
+                    @GetMapping("/hello")
                     public ResponseEntity<RawResponse> hello() {
                         return ResponseEntity.ok(JsonResponses.stringField("message", "hello"));
                     }
@@ -87,38 +91,52 @@ public final class ProjectGenerator {
         write(javaRoot.resolve("Application.java"), """
                 package %s;
 
+                import com.reactor.rust.annotations.ReactorApplication;
                 import com.reactor.rust.app.RestApplication;
-                import com.reactor.rust.cache.config.CacheProperties;
-                import com.reactor.rust.cache.core.RustCaches;
-                import com.reactor.rust.health.HealthStarter;
+                import com.reactor.rust.cache.integration.EnableRustCache;
 
+                @EnableRustCache
+                @ReactorApplication(scanBasePackages = "%s")
                 public final class Application {
                     private Application() {}
                     public static void main(String[] args) {
-                        RestApplication.run(context -> {
-                            CacheProperties properties = CacheProperties.from(context.properties());
-                            var cache = context.manage(RustCaches.create(properties.asProperties()));
-                            context.handlers(
-                                    HealthStarter.application("%s").build(),
-                                    new CacheHandler(cache));
-                        });
+                        RestApplication.run(Application.class, args);
                     }
                 }
-                """.formatted(options.packageName(), options.artifactId()));
+                """.formatted(options.packageName(), options.packageName()));
+        write(javaRoot.resolve("CacheReads.java"), """
+                package %s;
+
+                import com.reactor.rust.cache.projection.CacheMetricsRead;
+                import com.reactor.rust.cache.projection.GenerateProjectionReader;
+
+                @GenerateProjectionReader(
+                        rootPrefix = "app.cache",
+                        generatedName = "CacheReader",
+                        restBean = true)
+                public interface CacheReads {
+                    @CacheMetricsRead
+                    String metricsJson();
+                }
+                """.formatted(options.packageName()));
         write(javaRoot.resolve("CacheHandler.java"), """
                 package %s;
 
                 import com.reactor.rust.annotations.GetMapping;
-                import com.reactor.rust.cache.core.RustCache;
+                import com.reactor.rust.annotations.RestController;
                 import com.reactor.rust.http.MediaType;
                 import com.reactor.rust.http.RawResponse;
                 import com.reactor.rust.http.ResponseEntity;
 
+                @RestController("/api/v1/cache")
                 public final class CacheHandler {
-                    private final RustCache cache;
-                    public CacheHandler(RustCache cache) { this.cache = cache; }
+                    private final CacheReads cache;
 
-                    @GetMapping(value = "/api/v1/cache/metrics", responseType = RawResponse.class)
+                    public CacheHandler(CacheReads cache) {
+                        this.cache = cache;
+                    }
+
+                    @GetMapping("/metrics")
                     public ResponseEntity<RawResponse> metrics() {
                         return ResponseEntity.ok(RawResponse.text(
                                 cache.metricsJson(), MediaType.APPLICATION_JSON_UTF8));
@@ -208,48 +226,46 @@ public final class ProjectGenerator {
                 package %s;
                 public interface EchoService { byte[] echo(); }
                 """.formatted(options.packageName()));
-        write(javaRoot.resolve("EchoClientDefinition.java"), """
+        write(javaRoot.resolve("DubboClients.java"), """
                 package %s;
+                import com.reactor.rust.dubbo.codegen.EnableNativeDubboClients;
                 import com.reactor.rust.dubbo.codegen.GenerateNativeDubboClient;
+
+                @EnableNativeDubboClients(discoveryProperty = "app.dubbo.discovery")
                 @GenerateNativeDubboClient(service = EchoService.class, generatedName = "EchoClient")
-                final class EchoClientDefinition { private EchoClientDefinition() {} }
+                final class DubboClients { private DubboClients() {} }
                 """.formatted(options.packageName()));
         write(javaRoot.resolve("Application.java"), """
                 package %s;
 
+                import com.reactor.rust.annotations.ReactorApplication;
                 import com.reactor.rust.app.RestApplication;
-                import com.reactor.rust.config.PropertiesLoader;
-                import com.reactor.rust.dubbo.NativeDubboConsumers;
-                import com.reactor.rust.dubbo.support.DubboConsumerSupport;
 
+                @ReactorApplication(scanBasePackages = "%s")
                 public final class Application {
                     private Application() {}
                     public static void main(String[] args) {
-                        RestApplication.run(context -> {
-                            DubboConsumerSupport support = DubboConsumerSupport
-                                    .fromProperties(PropertiesLoader.getAll())
-                                    .discoveryProperty("app.dubbo.discovery");
-                            var transport = context.manage(NativeDubboConsumers.create(support.config()));
-                            context.handlers(new EchoHandler(EchoClient.create(transport, support)));
-                        });
+                        RestApplication.run(Application.class, args);
                     }
                 }
-                """.formatted(options.packageName()));
+                """.formatted(options.packageName(), options.packageName()));
         write(javaRoot.resolve("EchoHandler.java"), """
                 package %s;
 
                 import com.reactor.rust.annotations.GetMapping;
+                import com.reactor.rust.annotations.RestController;
                 import com.reactor.rust.http.HttpStatus;
                 import com.reactor.rust.http.RawResponse;
                 import com.reactor.rust.http.ResponseEntity;
                 import java.nio.charset.StandardCharsets;
                 import java.util.concurrent.CompletableFuture;
 
+                @RestController("/api/v1/dubbo")
                 public final class EchoHandler {
                     private final EchoClient client;
                     public EchoHandler(EchoClient client) { this.client = client; }
 
-                    @GetMapping(value = "/api/v1/dubbo/echo", responseType = RawResponse.class)
+                    @GetMapping("/echo")
                     public CompletableFuture<ResponseEntity<RawResponse>> echo() {
                         return client.echoNativeJsonAsync()
                                 .thenApply(handle -> ResponseEntity.ok(
@@ -282,6 +298,10 @@ public final class ProjectGenerator {
         StringBuilder dependencies = new StringBuilder();
         if (rest) dependencies.append(dependency("com.reactor", "rust-java-rest", REST_VERSION, null, null));
         if (cache) dependencies.append(dependency("com.reactor", "java-rust-cache", CACHE_VERSION, null, null));
+        if (cache && rest) {
+            dependencies.append(dependency(
+                    "com.reactor", "java-rust-cache", CACHE_VERSION, "codegen", "provided"));
+        }
         if (dubbo) {
             String classifier = options.mode() == Mode.DUBBO_STATIC ? "native-static" : null;
             dependencies.append(dependency("com.reactor", "java-rust-dubbo", DUBBO_VERSION, classifier, null));
@@ -292,16 +312,16 @@ public final class ProjectGenerator {
             }
         }
         StringBuilder processorPaths = new StringBuilder();
-        StringBuilder processors = new StringBuilder();
         if (rest) {
             processorPaths.append(path("com.reactor", "rust-java-rest", REST_VERSION, "codegen"));
-            processors.append("<annotationProcessor>com.reactor.rust.codegen.ReactorStartupProcessor</annotationProcessor>");
+        }
+        if (cache && rest) {
+            processorPaths.append(path("com.reactor", "java-rust-cache", CACHE_VERSION, "codegen"));
         }
         if (dubbo) {
             processorPaths.append(path("com.reactor", "java-rust-dubbo", DUBBO_VERSION, "codegen"));
-            processors.append("<annotationProcessor>com.reactor.rust.dubbo.codegen.NativeDubboClientProcessor</annotationProcessor>");
         }
-        String compilerPlugin = processors.isEmpty() ? "" : """
+        String compilerPlugin = processorPaths.isEmpty() ? "" : """
                   <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
@@ -309,10 +329,9 @@ public final class ProjectGenerator {
                     <configuration>
                       <release>21</release>
                       <annotationProcessorPaths>%s</annotationProcessorPaths>
-                      <annotationProcessors>%s</annotationProcessors>
                     </configuration>
                   </plugin>
-                """.formatted(processorPaths, processors);
+                """.formatted(processorPaths);
         return """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <project xmlns="http://maven.apache.org/POM/4.0.0"

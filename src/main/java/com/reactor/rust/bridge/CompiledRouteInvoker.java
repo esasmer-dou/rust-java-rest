@@ -24,21 +24,36 @@ final class CompiledRouteInvoker {
 
     private final MethodHandle handle;
     private final MethodHandle exactHandle;
+    private final Object bean;
+    private final GeneratedRouteInvoker generatedInvoker;
     private final ArgumentResolver[] resolvers;
 
-    private CompiledRouteInvoker(MethodHandle handle, ArgumentResolver[] resolvers) {
+    private CompiledRouteInvoker(
+            MethodHandle handle,
+            Object bean,
+            GeneratedRouteInvoker generatedInvoker,
+            ArgumentResolver[] resolvers) {
         this.handle = handle;
-        this.exactHandle = adaptExactHandle(handle, resolvers.length);
+        this.exactHandle = generatedInvoker == null ? adaptExactHandle(handle, resolvers.length) : null;
+        this.bean = bean;
+        this.generatedInvoker = generatedInvoker;
         this.resolvers = resolvers;
     }
 
-    static CompiledRouteInvoker compile(MethodHandle handle, MethodMetadata metadata) {
+    static CompiledRouteInvoker compile(
+            MethodHandle handle,
+            MethodMetadata metadata,
+            Object bean,
+            GeneratedRouteInvoker generatedInvoker) {
         MethodMetadata.ParamInfo[] infos = metadata.paramInfos;
         ArgumentResolver[] resolvers = new ArgumentResolver[infos.length];
         for (int i = 0; i < infos.length; i++) {
             resolvers[i] = resolverFor(infos[i]);
         }
-        return new CompiledRouteInvoker(handle, resolvers);
+        if (generatedInvoker != null && generatedInvoker.arity() != resolvers.length) {
+            throw new IllegalStateException("Generated route invoker arity mismatch");
+        }
+        return new CompiledRouteInvoker(handle, bean, generatedInvoker, resolvers);
     }
 
     int arity() {
@@ -46,7 +61,11 @@ final class CompiledRouteInvoker {
     }
 
     boolean usesExactAdapter() {
-        return exactHandle != null;
+        return generatedInvoker != null || exactHandle != null;
+    }
+
+    boolean usesGeneratedInvoker() {
+        return generatedInvoker != null;
     }
 
     boolean acceptsSingleRawValue() {
@@ -176,6 +195,9 @@ final class CompiledRouteInvoker {
     }
 
     private Object invokeResolved() throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke0(bean);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact();
         }
@@ -183,6 +205,9 @@ final class CompiledRouteInvoker {
     }
 
     private Object invokeResolved(Object arg0) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke1(bean, arg0);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0);
         }
@@ -190,6 +215,9 @@ final class CompiledRouteInvoker {
     }
 
     private Object invokeResolved(Object arg0, Object arg1) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke2(bean, arg0, arg1);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0, arg1);
         }
@@ -197,6 +225,9 @@ final class CompiledRouteInvoker {
     }
 
     private Object invokeResolved(Object arg0, Object arg1, Object arg2) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke3(bean, arg0, arg1, arg2);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0, arg1, arg2);
         }
@@ -204,6 +235,9 @@ final class CompiledRouteInvoker {
     }
 
     private Object invokeResolved(Object arg0, Object arg1, Object arg2, Object arg3) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke4(bean, arg0, arg1, arg2, arg3);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0, arg1, arg2, arg3);
         }
@@ -211,6 +245,9 @@ final class CompiledRouteInvoker {
     }
 
     private Object invokeResolved(Object arg0, Object arg1, Object arg2, Object arg3, Object arg4) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke5(bean, arg0, arg1, arg2, arg3, arg4);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0, arg1, arg2, arg3, arg4);
         }
@@ -225,6 +262,9 @@ final class CompiledRouteInvoker {
             Object arg4,
             Object arg5
     ) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke6(bean, arg0, arg1, arg2, arg3, arg4, arg5);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0, arg1, arg2, arg3, arg4, arg5);
         }
@@ -240,6 +280,9 @@ final class CompiledRouteInvoker {
             Object arg5,
             Object arg6
     ) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke7(bean, arg0, arg1, arg2, arg3, arg4, arg5, arg6);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
         }
@@ -256,6 +299,9 @@ final class CompiledRouteInvoker {
             Object arg6,
             Object arg7
     ) throws Throwable {
+        if (generatedInvoker != null) {
+            return generatedInvoker.invoke8(bean, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+        }
         if (exactHandle != null) {
             return (Object) exactHandle.invokeExact(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
         }

@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.1.0] - 2026-08-03
+
+### Added
+
+- Added `@ReactorApplication` and `@RestController` as the normal declarative application model.
+- Added build-time constructor, `@Bean`, and direct route invoker generation.
+- Added strict generated DI selection with `@Primary` and `@Qualifier` support.
+- Added `LongKeyAdmission` for bounded per-key command concurrency.
+- Added generated project shapes for REST, cache reader/writer, static Dubbo, and ZooKeeper Dubbo
+  applications.
+
+### Changed
+
+- Kept annotation processor classes and processor service metadata in the build-only `codegen` JAR.
+- Made explicit `scanBasePackages` replace, rather than extend, the application package root.
+- Improved generated startup errors for ambiguous beans and checked constructor or `@Bean` failures.
+- Reduced handwritten wiring in the Dubbo and cache sample applications.
+
+### Compatibility
+
+- Java handlers, services, records, REST annotations, response types, and native ABI `24/7/6` are
+  unchanged.
+- Existing `RestApplication.Module` configurations remain supported for intentionally isolated
+  runtime artifacts.
+
+---
+
 ## [4.0.0] - 2026-07-17
 
 ### Added

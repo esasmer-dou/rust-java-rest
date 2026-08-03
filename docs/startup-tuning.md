@@ -208,13 +208,10 @@ Generate indexes while Java sources compile. This is the preferred path:
       <path>
         <groupId>com.reactor</groupId>
         <artifactId>rust-java-rest</artifactId>
-        <version>4.0.0</version>
+        <version>4.1.0</version>
         <classifier>codegen</classifier>
       </path>
     </annotationProcessorPaths>
-    <annotationProcessors>
-      <annotationProcessor>com.reactor.rust.codegen.ReactorStartupProcessor</annotationProcessor>
-    </annotationProcessors>
     <compilerArgs>
       <arg>-Areactor.codegen.excludePackages=com.example.app.benchmark,com.example.app.alternative</arg>
       <arg>-Areactor.codegen.excludeClasses=com.example.app.handler.LegacyHandler</arg>
@@ -222,6 +219,10 @@ Generate indexes while Java sources compile. This is the preferred path:
   </configuration>
 </plugin>
 ```
+
+The `codegen` classifier registers its processors through build-only service metadata. Do not repeat
+processor class names in every application POM. The production JAR excludes both processor classes
+and their service metadata.
 
 The processor writes deterministic component, route, and property indexes. It also creates an
 application descriptor with direct constructors for public no-argument components. Other component

@@ -48,10 +48,22 @@ public final class ExceptionHandlerRegistry {
      * Scan and register all @ExceptionHandler methods from beans.
      */
     public void scanAndRegister() {
-        for (Object bean : BeanContainer.getInstance().getBeansOfType(Object.class)) {
+        scanAndRegister(BeanContainer.getInstance());
+    }
+
+    /** Registers handlers from the active application container. */
+    public synchronized void scanAndRegister(BeanContainer container) {
+        handlers.clear();
+        globalHandlers.clear();
+        for (Object bean : container.getBeansOfType(Object.class)) {
             registerExceptionHandlers(bean);
         }
         FrameworkLogger.info("[ExceptionHandlerRegistry] Registered " + handlers.size() + " exception handlers");
+    }
+
+    public synchronized void clear() {
+        handlers.clear();
+        globalHandlers.clear();
     }
 
     /**

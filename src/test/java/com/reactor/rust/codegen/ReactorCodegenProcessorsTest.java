@@ -49,7 +49,127 @@ class ReactorCodegenProcessorsTest {
                 .contains("sample.limit\tint\t8"));
         assertTrue(Files.readString(output.generated().resolve(
                         "com/reactor/generated/ReactorApplicationDescriptor.java"))
-                .contains("new generated.fixture.Handler()"));
+                .contains("generated.fixture.Handler__ReactorFactory.register(container)"));
+        String factory = Files.readString(output.generated().resolve(
+                "generated/fixture/Handler__ReactorFactory.java"));
+        assertTrue(factory.contains("registerGeneratedFactory"));
+        assertTrue(factory.contains("GeneratedRouteInvokers.register"));
+        assertTrue(factory.contains("((generated.fixture.Handler) bean).get()"));
+    }
+
+    @Test
+    void generatesConstructorInjectionControllerAndConfigurationFactories() throws Exception {
+        Path source = source("generated/fixture/DeclarativeApplication.java", """
+                package generated.fixture;
+
+                import com.reactor.rust.annotations.GetMapping;
+                import com.reactor.rust.annotations.PathVariable;
+                import com.reactor.rust.annotations.RestController;
+                import com.reactor.rust.di.annotation.Bean;
+                import com.reactor.rust.di.annotation.Component;
+                import com.reactor.rust.di.annotation.Configuration;
+
+                @Component
+                final class Repository {}
+
+                final class Service {
+                    Service(Repository repository) {}
+                }
+
+                final class StatusEndpoint {
+                    @GetMapping("/status")
+                    String status() { return "UP"; }
+                }
+
+                @Configuration
+                final class AppConfiguration {
+                    @Bean
+                    Service service(Repository repository) {
+                        return new Service(repository);
+                    }
+
+                    @Bean
+                    StatusEndpoint statusEndpoint() {
+                        return new StatusEndpoint();
+                    }
+                }
+
+                @RestController("/customers")
+                final class CustomerController {
+                    private final Service service;
+
+                    CustomerController(Service service) {
+                        this.service = service;
+                    }
+
+                    @GetMapping("/{id}")
+                    String customer(@PathVariable("id") long id) {
+                        return Long.toString(id);
+                    }
+                }
+
+                public final class DeclarativeApplication {}
+                """);
+
+        Compilation output = compile(source, new ReactorStartupProcessor());
+
+        String configurationFactory = Files.readString(output.generated().resolve(
+                "generated/fixture/AppConfiguration__ReactorFactory.java"));
+        assertTrue(configurationFactory.contains(
+                "configuration.service(container.getBean(generated.fixture.Repository.class))"));
+        assertTrue(configurationFactory.contains("registerGeneratedFactory"));
+        assertTrue(configurationFactory.contains(
+                "registry.registerBean(container.getBean(generated.fixture.StatusEndpoint.class))"));
+        assertTrue(configurationFactory.contains(
+                "GeneratedRouteInvokers.register(generated.fixture.StatusEndpoint.class"));
+        String controllerFactory = Files.readString(output.generated().resolve(
+                "generated/fixture/CustomerController__ReactorFactory.java"));
+        assertTrue(controllerFactory.contains(
+                "new generated.fixture.CustomerController(container.getBean(generated.fixture.Service.class))"));
+        assertTrue(controllerFactory.contains(".customer(((Long) arg0).longValue())"));
+        assertTrue(Files.readString(output.classes().resolve("META-INF/reactor/routes.idx"))
+                .contains("GET /customers/{id}"));
+        assertTrue(Files.readString(output.classes().resolve("META-INF/reactor/routes.idx"))
+                .contains("GET /status"));
+    }
+
+    @Test
+    void generatedFactoriesSupportCheckedExceptionsWithoutReflection() throws Exception {
+        Path source = source("generated/fixture/CheckedApplication.java", """
+                package generated.fixture;
+
+                import com.reactor.rust.di.annotation.Bean;
+                import com.reactor.rust.di.annotation.Component;
+                import com.reactor.rust.di.annotation.Configuration;
+
+                @Component
+                final class CheckedRepository {
+                    CheckedRepository() throws java.io.IOException {}
+                }
+
+                final class CheckedService {}
+
+                @Configuration
+                final class CheckedConfiguration {
+                    @Bean
+                    CheckedService checkedService() throws java.io.IOException {
+                        return new CheckedService();
+                    }
+                }
+
+                public final class CheckedApplication {}
+                """);
+
+        Compilation output = compile(source, new ReactorStartupProcessor());
+
+        String repositoryFactory = Files.readString(output.generated().resolve(
+                "generated/fixture/CheckedRepository__ReactorFactory.java"));
+        assertTrue(repositoryFactory.contains("GeneratedBeanFactories.create"));
+        assertTrue(repositoryFactory.contains("new generated.fixture.CheckedRepository()"));
+        String configurationFactory = Files.readString(output.generated().resolve(
+                "generated/fixture/CheckedConfiguration__ReactorFactory.java"));
+        assertTrue(configurationFactory.contains(
+                "GeneratedBeanFactories.create(\"generated.fixture.CheckedConfiguration#checkedService\""));
     }
 
     @Test
@@ -126,7 +246,7 @@ class ReactorCodegenProcessorsTest {
                     null,
                     List.of(
                             "--release", "21",
-                            "-proc:only",
+                            "-proc:full",
                             "-classpath", System.getProperty("java.class.path"),
                             "-d", classes.toString(),
                             "-s", generated.toString()),

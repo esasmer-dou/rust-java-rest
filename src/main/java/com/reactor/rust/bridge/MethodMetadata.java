@@ -122,7 +122,7 @@ public final class MethodMetadata {
         // Check return type once
         this.returnsResponseEntity = com.reactor.rust.http.ResponseEntity.class
             .isAssignableFrom(method.getReturnType());
-        this.isAsync = java.util.concurrent.CompletableFuture.class
+        this.isAsync = java.util.concurrent.CompletionStage.class
             .isAssignableFrom(method.getReturnType());
 
         // Check for @ResponseStatus annotation
