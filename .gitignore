@@ -43,6 +43,7 @@ benchmark/
 benchmark/**
 !benchmark/.dockerignore
 !benchmark/README.md
+!benchmark/README.tr.md
 !benchmark/anon_evidence_gate.ps1
 !benchmark/container_benchmark.ps1
 !benchmark/compare_framework_results.ps1

@@ -12,6 +12,15 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ReactorApplication {
 
+    /** Human-readable application name used by generated documentation. */
+    String name() default "";
+
+    /** Application API version used by generated documentation. */
+    String version() default "1.0.0";
+
+    /** Short application description used by generated documentation. */
+    String description() default "";
+
     /** Packages to scan. When empty, the application package is used. */
     String[] scanBasePackages() default {};
 

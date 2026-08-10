@@ -10,7 +10,7 @@ param(
 
     [string]$CacheResourcesDirectory = (Join-Path $PSScriptRoot "..\..\java-rust-cache\src\main\resources\native"),
 
-    [int]$RestAbi = 24,
+    [int]$RestAbi = 26,
 
     [int]$DubboAbi = 7,
 

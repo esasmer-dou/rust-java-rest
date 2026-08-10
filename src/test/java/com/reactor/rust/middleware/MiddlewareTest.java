@@ -3,6 +3,8 @@ package com.reactor.rust.middleware;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -254,5 +256,47 @@ class MiddlewareTest {
     void testDefaultMiddlewareOrder() {
         Middleware middleware = (context, chain) -> chain.next(context);
         assertEquals(100, middleware.getOrder());
+    }
+
+    @Test
+    void registryUsesPublishedOrderAndEmptyFastPath() {
+        MiddlewareRegistry registry = MiddlewareRegistry.getInstance();
+        registry.clear();
+        try {
+            List<Integer> order = new ArrayList<>();
+            Middleware later = ordered(20, order);
+            Middleware earlier = ordered(10, order);
+            registry.register(later);
+            registry.register(earlier);
+
+            MiddlewareChain.Result result = registry.process(
+                    new MiddlewareContext("GET", "/", null, Map.of(), Map.of(), null),
+                    context -> MiddlewareChain.Result.Continue.INSTANCE);
+
+            assertEquals(List.of(10, 20), order);
+            assertTrue(result instanceof MiddlewareChain.Result.Continue);
+
+            registry.clear();
+            assertSame(MiddlewareChain.Result.Continue.INSTANCE, registry.process(
+                    new MiddlewareContext("GET", "/", null, Map.of(), Map.of(), null),
+                    context -> MiddlewareChain.Result.Continue.INSTANCE));
+        } finally {
+            registry.clear();
+        }
+    }
+
+    private static Middleware ordered(int value, List<Integer> values) {
+        return new Middleware() {
+            @Override
+            public MiddlewareChain.Result process(MiddlewareContext context, MiddlewareChain chain) {
+                values.add(value);
+                return chain.next(context);
+            }
+
+            @Override
+            public int getOrder() {
+                return value;
+            }
+        };
     }
 }

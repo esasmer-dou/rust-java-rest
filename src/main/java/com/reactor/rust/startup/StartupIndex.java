@@ -52,6 +52,16 @@ public final class StartupIndex {
         for (String line : lines) {
             String[] parts = line.split("\\s+", 3);
             if (parts.length >= 2) {
+                if (parts.length == 3) {
+                    String owner = parts[2];
+                    int methodSeparator = owner.indexOf('#');
+                    if (methodSeparator > 0) {
+                        owner = owner.substring(0, methodSeparator);
+                    }
+                    if (!ApplicationDescriptors.isComponentEnabled(owner)) {
+                        continue;
+                    }
+                }
                 routes.add(parts[0].toUpperCase(java.util.Locale.ROOT) + " " + parts[1]);
             }
         }

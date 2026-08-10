@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-platform-bom</artifactId>
+    <version>4.2.0</version>
+    <packaging>pom</packaging>
+    <name>Rust-Java Platform BOM</name>
+
+    <properties>
+        <rust-java-rest.version>4.2.0</rust-java-rest.version>
+        <java-rust-dubbo.version>0.7.0</java-rust-dubbo.version>
+        <java-rust-cache.version>0.7.0</java-rust-cache.version>
+        <rust-sample-model.version>0.4.0</rust-sample-model.version>
+        <rest-sample-utility.version>0.4.0</rest-sample-utility.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-rest</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-rest-compat</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-rest</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-websocket</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-openapi</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-security</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-tracing</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-scheduler</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-http-client</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-dubbo</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-cache-reader</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-cache-writer</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-test</artifactId><version>${rust-java-rest.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>java-rust-dubbo</artifactId><version>${java-rust-dubbo.version}</version></dependency>
+            <dependency><groupId>com.reactor</groupId><artifactId>java-rust-cache</artifactId><version>${java-rust-cache.version}</version></dependency>
+            <dependency><groupId>com.reactor.sample</groupId><artifactId>rust-sample-model</artifactId><version>${rust-sample-model.version}</version></dependency>
+            <dependency><groupId>com.reactor.sample</groupId><artifactId>rest-sample-utility</artifactId><version>${rest-sample-utility.version}</version></dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

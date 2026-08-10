@@ -1,11 +1,15 @@
 package com.reactor.rust.di;
 
+import com.reactor.rust.annotations.Profile;
+import com.reactor.rust.annotations.RequiresProperty;
+import com.reactor.rust.config.ConfigurationBinder;
 import com.reactor.rust.config.PropertyInjector;
 import com.reactor.rust.di.annotation.*;
 import com.reactor.rust.di.exception.BeanCreationException;
 import com.reactor.rust.di.exception.CircularDependencyException;
 import com.reactor.rust.di.exception.NoSuchBeanException;
 import com.reactor.rust.logging.FrameworkLogger;
+import com.reactor.rust.startup.StartupMode;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
@@ -61,23 +65,14 @@ public final class BeanContainer {
     // Singleton Instance
     // ========================================
 
-    private static volatile BeanContainer instance;
-    private static final Object LOCK = new Object();
+    private static final BeanContainer COMPATIBILITY_INSTANCE = new BeanContainer();
+    private static volatile BeanContainer active = COMPATIBILITY_INSTANCE;
 
     /**
      * Get the global singleton container instance.
      */
     public static BeanContainer getInstance() {
-        BeanContainer result = instance;
-        if (result == null) {
-            synchronized (LOCK) {
-                result = instance;
-                if (result == null) {
-                    instance = result = new BeanContainer();
-                }
-            }
-        }
-        return result;
+        return active;
     }
 
     /**
@@ -85,6 +80,17 @@ public final class BeanContainer {
      */
     public static BeanContainer create() {
         return new BeanContainer();
+    }
+
+    /** Publishes the application-owned container for compatibility integrations. */
+    public static void activate(BeanContainer container) {
+        active = Objects.requireNonNull(container, "container");
+    }
+
+    public static void deactivate(BeanContainer container) {
+        if (active == container) {
+            active = COMPATIBILITY_INSTANCE;
+        }
     }
 
     // ========================================
@@ -96,6 +102,7 @@ public final class BeanContainer {
     private final Map<String, Object> beansByName = new ConcurrentHashMap<>(64);
     private final Map<Class<?>, String> beanNames = new ConcurrentHashMap<>(64);
     private final Set<Class<?>> primaryBeans = ConcurrentHashMap.newKeySet();
+    private final Set<Class<?>> reflectionFreeGeneratedTypes = ConcurrentHashMap.newKeySet();
     private final List<Runnable> preDestroyCallbacks = new ArrayList<>();
     private final Set<Object> processedConfigurations = Collections.newSetFromMap(new IdentityHashMap<>());
 
@@ -196,6 +203,27 @@ public final class BeanContainer {
         processedConfigurations.add(Objects.requireNonNull(configuration, "configuration"));
     }
 
+    /** Marks a generated constructor-injection type with no compatibility reflection surface. */
+    public void markGeneratedReflectionFree(Class<?> type) {
+        reflectionFreeGeneratedTypes.add(Objects.requireNonNull(type, "type"));
+    }
+
+    /** Rejects generated beans that still require reflective field/property injection in AOT mode. */
+    public void requireCompatibilitySurface(Class<?> type) {
+        Objects.requireNonNull(type, "type");
+        if (StartupMode.isAot()) {
+            throw new BeanCreationException(
+                    "AOT bean " + type.getName()
+                            + " still requires reflective field/property injection. "
+                            + "Use constructor injection and @ConfigurationProperties records, or select compatibility mode.");
+        }
+    }
+
+    /** Registers a build-time generated destruction callback without method reflection. */
+    public void registerGeneratedPreDestroy(Runnable callback) {
+        preDestroyCallbacks.add(Objects.requireNonNull(callback, "callback"));
+    }
+
     /**
      * Internal method to register bean with wildcard class type.
      * Used by component scanning and @Bean processing.
@@ -237,11 +265,35 @@ public final class BeanContainer {
             String name,
             boolean primary,
             Class<?>... exposedTypes) {
+        return registerGeneratedFactory(type, supplier, name, primary, true, exposedTypes);
+    }
+
+    /**
+     * Registers generated infrastructure that is created only when another generated bean
+     * requests it. Unlike application components, this definition is not eagerly resolved by
+     * {@link #start()}.
+     */
+    public <T> BeanContainer registerGeneratedOnDemandFactory(
+            Class<T> type,
+            Supplier<T> supplier,
+            String name,
+            boolean primary,
+            Class<?>... exposedTypes) {
+        return registerGeneratedFactory(type, supplier, name, primary, false, exposedTypes);
+    }
+
+    private <T> BeanContainer registerGeneratedFactory(
+            Class<T> type,
+            Supplier<T> supplier,
+            String name,
+            boolean primary,
+            boolean eager,
+            Class<?>... exposedTypes) {
         Objects.requireNonNull(type, "Bean type cannot be null");
         Objects.requireNonNull(supplier, "Supplier cannot be null");
         Objects.requireNonNull(name, "Bean name cannot be null");
         Class<?>[] aliases = exposedTypes == null ? new Class<?>[0] : exposedTypes.clone();
-        LazyBean<T> definition = new LazyBean<>(type, supplier, name, primary, aliases);
+        LazyBean<T> definition = new LazyBean<>(type, supplier, name, primary, eager, aliases);
         LazyBean<?> previousName = lazySuppliersByName.get(name);
         if (previousName != null) {
             throw new BeanCreationException("Generated bean name already registered: " + name);
@@ -406,7 +458,7 @@ public final class BeanContainer {
             }
 
             // Process @Configuration classes
-            for (Object configBean : new ArrayList<>(beansByType.values())) {
+            for (Object configBean : uniqueBeans()) {
                 if (configBean.getClass().isAnnotationPresent(Configuration.class)
                         && processedConfigurations.add(configBean)) {
                     processConfiguration(configBean);
@@ -437,14 +489,14 @@ public final class BeanContainer {
             }
         }
 
-        for (Object configBean : new ArrayList<>(beansByType.values())) {
+        for (Object configBean : uniqueBeans()) {
             if (configBean.getClass().isAnnotationPresent(Configuration.class)
                     && processedConfigurations.add(configBean)) {
                 processConfiguration(configBean);
             }
         }
         for (LazyBean<?> definition : generatedDefinitions) {
-            resolveLazy(definition);
+            if (definition.eager) resolveLazy(definition);
         }
 
         // Inject @RustProperty values into all beans (Constraint #8)
@@ -465,8 +517,10 @@ public final class BeanContainer {
      * Inject @RustProperty values into all beans.
      */
     private void injectProperties() {
-        for (Object bean : new ArrayList<>(beansByType.values())) {
-            PropertyInjector.inject(bean);
+        for (Object bean : uniqueBeans()) {
+            if (!reflectionFreeGeneratedTypes.contains(bean.getClass())) {
+                PropertyInjector.inject(bean);
+            }
         }
     }
 
@@ -490,6 +544,7 @@ public final class BeanContainer {
         lazySuppliersByName.clear();
         ambiguousGeneratedAliases.clear();
         processedConfigurations.clear();
+        reflectionFreeGeneratedTypes.clear();
         initialized = false;
 
         FrameworkLogger.info("[BeanContainer] Shutdown complete");
@@ -581,6 +636,7 @@ public final class BeanContainer {
         private final Supplier<T> supplier;
         private final String name;
         private final boolean primary;
+        private final boolean eager;
         private final Class<?>[] exposedTypes;
         private T instance;
         private boolean creating;
@@ -590,11 +646,13 @@ public final class BeanContainer {
                 Supplier<T> supplier,
                 String name,
                 boolean primary,
+                boolean eager,
                 Class<?>[] exposedTypes) {
             this.type = type;
             this.supplier = supplier;
             this.name = name;
             this.primary = primary;
+            this.eager = eager;
             this.exposedTypes = exposedTypes;
         }
 
@@ -633,7 +691,7 @@ public final class BeanContainer {
         Class<?> configClass = configBean.getClass();
 
         for (Method method : configClass.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(Bean.class)) {
+            if (method.isAnnotationPresent(Bean.class) && matchesConditions(method)) {
                 try {
                     method.setAccessible(true);
 
@@ -667,13 +725,46 @@ public final class BeanContainer {
         }
         Object[] arguments = new Object[parameters.length];
         for (int index = 0; index < parameters.length; index++) {
-            Parameter parameter = parameters[index];
-            Qualifier qualifier = parameter.getAnnotation(Qualifier.class);
-            arguments[index] = qualifier == null
-                    ? getBean(parameter.getType())
-                    : getBean(parameter.getType(), qualifier.value());
+            arguments[index] = resolveParameter(parameters[index]);
         }
         return arguments;
+    }
+
+    private Object resolveParameter(Parameter parameter) {
+        Qualifier qualifier = parameter.getAnnotation(Qualifier.class);
+        if (parameter.getType() == Optional.class) {
+            Type genericType = parameter.getParameterizedType();
+            if (!(genericType instanceof ParameterizedType parameterized)
+                    || parameterized.getActualTypeArguments().length != 1
+                    || !(parameterized.getActualTypeArguments()[0] instanceof Class<?> dependencyType)) {
+                throw new BeanCreationException(
+                        "Optional injection requires one concrete bean type: " + parameter);
+            }
+            boolean present = qualifier == null
+                    ? hasBean(dependencyType)
+                    : hasBean(qualifier.value());
+            if (!present) {
+                return Optional.empty();
+            }
+            Object dependency = qualifier == null
+                    ? getBean(dependencyType)
+                    : getBean(dependencyType, qualifier.value());
+            return Optional.of(dependency);
+        }
+        return qualifier == null
+                ? getBean(parameter.getType())
+                : getBean(parameter.getType(), qualifier.value());
+    }
+
+    private static boolean matchesConditions(AnnotatedElement element) {
+        for (RequiresProperty condition : element.getAnnotationsByType(RequiresProperty.class)) {
+            if (!ConfigurationBinder.matches(
+                    condition.name(), condition.value(), condition.matchIfMissing())) {
+                return false;
+            }
+        }
+        Profile profile = element.getAnnotation(Profile.class);
+        return profile == null || ConfigurationBinder.profileMatches(profile.value());
     }
 
     /**
@@ -683,8 +774,12 @@ public final class BeanContainer {
         Set<Object> injected = Collections.newSetFromMap(new IdentityHashMap<>());
         Set<Object> beingInjected = Collections.newSetFromMap(new IdentityHashMap<>());
 
-        for (Object bean : new ArrayList<>(beansByType.values())) {
-            injectDependencies(bean, injected, beingInjected);
+        for (Object bean : uniqueBeans()) {
+            if (reflectionFreeGeneratedTypes.contains(bean.getClass())) {
+                injected.add(bean);
+            } else {
+                injectDependencies(bean, injected, beingInjected);
+            }
         }
     }
 
@@ -783,9 +878,17 @@ public final class BeanContainer {
      * Call @PostConstruct methods on all beans.
      */
     private void invokePostConstruct() {
-        for (Object bean : new ArrayList<>(beansByType.values())) {
-            invokePostConstruct(bean);
+        for (Object bean : uniqueBeans()) {
+            if (!reflectionFreeGeneratedTypes.contains(bean.getClass())) {
+                invokePostConstruct(bean);
+            }
         }
+    }
+
+    private Set<Object> uniqueBeans() {
+        Set<Object> unique = Collections.newSetFromMap(new IdentityHashMap<>());
+        unique.addAll(beansByType.values());
+        return unique;
     }
 
     /**
@@ -840,6 +943,9 @@ public final class BeanContainer {
      */
     public void registerBeanClass(Class<?> beanClass) {
         try {
+            if (!matchesConditions(beanClass)) {
+                return;
+            }
             // Check for stereotype annotation
             Component component = findComponentAnnotation(beanClass);
             if (component == null) {
@@ -913,17 +1019,14 @@ public final class BeanContainer {
         selectedConstructor.setAccessible(true);
 
         // Resolve constructor parameters
-        Class<?>[] paramTypes = selectedConstructor.getParameterTypes();
-        if (paramTypes.length == 0) {
+        Parameter[] parameters = selectedConstructor.getParameters();
+        if (parameters.length == 0) {
             return selectedConstructor.newInstance();
         }
 
-        Object[] args = new Object[paramTypes.length];
-        for (int i = 0; i < paramTypes.length; i++) {
-            args[i] = resolveDependency(paramTypes[i]);
-            if (args[i] == null) {
-                throw new NoSuchBeanException("Constructor dependency not found: " + paramTypes[i].getName());
-            }
+        Object[] args = new Object[parameters.length];
+        for (int i = 0; i < parameters.length; i++) {
+            args[i] = resolveParameter(parameters[i]);
         }
 
         return selectedConstructor.newInstance(args);

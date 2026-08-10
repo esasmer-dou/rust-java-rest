@@ -24,6 +24,12 @@ public interface GeneratedRouteInvoker {
             Object bean, Object arg0, Object arg1, Object arg2, Object arg3,
             Object arg4, Object arg5, Object arg6, Object arg7) throws Throwable { return unsupported(); }
 
+    default Object invokeInt(Object bean, int value) throws Throwable { return invoke1(bean, value); }
+    default Object invokeLong(Object bean, long value) throws Throwable { return invoke1(bean, value); }
+    default Object invokeBoolean(Object bean, boolean value) throws Throwable { return invoke1(bean, value); }
+    default Object invokeDouble(Object bean, double value) throws Throwable { return invoke1(bean, value); }
+    default Object invokeShort(Object bean, short value) throws Throwable { return invoke1(bean, value); }
+
     private static Object unsupported() {
         throw new IllegalStateException("Generated route invoker arity mismatch");
     }

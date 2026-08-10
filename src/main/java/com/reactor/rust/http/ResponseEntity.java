@@ -3,7 +3,8 @@ package com.reactor.rust.http;
 import com.reactor.rust.json.DslJsonService;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -22,18 +23,20 @@ public class ResponseEntity<T> {
 
     private final T body;
     private final HttpStatus status;
-    private final Map<String, String> headers;
+    private Map<String, String> headers;
 
     public ResponseEntity(T body, HttpStatus status) {
         this.body = body;
         this.status = status;
-        this.headers = new HashMap<>();
+        this.headers = Collections.emptyMap();
     }
 
     public ResponseEntity(T body, HttpStatus status, Map<String, String> headers) {
         this.body = body;
         this.status = status;
-        this.headers = headers != null ? headers : new HashMap<>();
+        this.headers = headers == null || headers.isEmpty()
+                ? Collections.emptyMap()
+                : new LinkedHashMap<>(headers);
     }
 
     public T getBody() {
@@ -45,10 +48,24 @@ public class ResponseEntity<T> {
     }
 
     public Map<String, String> getHeaders() {
+        if (headers.isEmpty()) {
+            headers = new LinkedHashMap<>(4);
+        }
+        return headers;
+    }
+
+    /**
+     * Returns the current header map without materializing an empty mutable map.
+     * Framework encoders use this view so headerless responses stay allocation-free.
+     */
+    public final Map<String, String> readOnlyHeaders() {
         return headers;
     }
 
     public ResponseEntity<T> header(String name, String value) {
+        if (headers.isEmpty()) {
+            headers = new LinkedHashMap<>(4);
+        }
         this.headers.put(name, value);
         return this;
     }

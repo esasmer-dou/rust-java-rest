@@ -18,10 +18,25 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class WebSocketRegistry {
 
-    private static final WebSocketRegistry INSTANCE = new WebSocketRegistry();
+    private static final WebSocketRegistry COMPATIBILITY_INSTANCE = new WebSocketRegistry();
+    private static volatile WebSocketRegistry active = COMPATIBILITY_INSTANCE;
 
     public static WebSocketRegistry getInstance() {
-        return INSTANCE;
+        return active;
+    }
+
+    public static WebSocketRegistry create() {
+        return new WebSocketRegistry();
+    }
+
+    public static void activate(WebSocketRegistry registry) {
+        active = Objects.requireNonNull(registry, "registry");
+    }
+
+    public static void deactivate(WebSocketRegistry registry) {
+        if (active == registry) {
+            active = COMPATIBILITY_INSTANCE;
+        }
     }
 
     // path -> handler info
@@ -58,7 +73,11 @@ public final class WebSocketRegistry {
      * Scan and register all @WebSocket beans from container.
      */
     public void scanAndRegister() {
-        for (Object bean : BeanContainer.getInstance().getBeansOfType(Object.class)) {
+        scanAndRegister(BeanContainer.getInstance());
+    }
+
+    public void scanAndRegister(BeanContainer container) {
+        for (Object bean : container.getBeansOfType(Object.class)) {
             if (bean.getClass().isAnnotationPresent(WebSocket.class)) {
                 register(bean);
             }

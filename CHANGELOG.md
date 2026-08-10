@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.2.0] - 2026-08-10
+
+### Added
+
+- Added the `rust-java-platform-parent`, BOM, focused starters, Maven build gates, and integration
+  smoke module.
+- Added generated configuration binding, validation, exception handlers, primitive bindings,
+  request guards, health contributors, OpenAPI routes, HTTP clients, schedulers, security, and
+  tracing extension points.
+- Added `HttpResponse` and `ProblemDetail` for explicit typed success and error responses.
+- Added bilingual project, platform, example, sample, benchmark, and native maintainer guides.
+
+### Changed
+
+- Made generated startup descriptors and immutable native route lookup the normal production path.
+- Moved optional compatibility scanning behind the separate `rust-java-platform-compat` module.
+- Updated the project generator to use the platform parent and the smallest starter for each service
+  shape.
+- Advanced REST native ABI from `24` to `26`; Dubbo ABI remains `7` and Redis ABI remains `6`.
+
+### Compatibility
+
+- Java handlers, services, records, REST annotations, validation rules, and business logic remain in
+  Java.
+- Existing explicit `RestApplication.Module` applications remain supported.
+- The packaged DLL/SO must be upgraded with the Java artifact because REST ABI `26` is startup-gated.
+
+---
+
 ## [4.1.0] - 2026-08-03
 
 ### Added

@@ -111,6 +111,13 @@ final class AsyncFrameBufferPool {
         dropped.reset();
     }
 
+    void clear() {
+        for (int index = 0; index < buffers.length(); index++) {
+            buffers.getAndSet(index, null);
+        }
+        retainedCount.set(0);
+    }
+
     private int normalizedCapacity(int requiredCapacity) {
         int capacity = initialBufferBytes;
         while (capacity < requiredCapacity && capacity <= frameMaxBytes / 2) {

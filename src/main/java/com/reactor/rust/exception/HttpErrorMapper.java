@@ -15,6 +15,10 @@ import java.util.concurrent.TimeoutException;
 public final class HttpErrorMapper {
 
     private static final String INTERNAL_ERROR_MESSAGE = "Internal server error";
+    private static final byte[] JSON_HEADER =
+            "Content-Type: application/json; charset=utf-8\n".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] PROBLEM_JSON_HEADER =
+            "Content-Type: application/problem+json; charset=utf-8\n".getBytes(StandardCharsets.UTF_8);
 
     private HttpErrorMapper() {
     }
@@ -29,6 +33,12 @@ public final class HttpErrorMapper {
         }
         if (root instanceof NotFoundException) {
             return mapped(404, "not_found", publicMessage(root, "Resource not found"));
+        }
+        if (root instanceof UnauthorizedException) {
+            return mapped(401, "unauthorized", publicMessage(root, "Authentication required"));
+        }
+        if (root instanceof ForbiddenException) {
+            return mapped(403, "forbidden", publicMessage(root, "Access denied"));
         }
         if (root instanceof MethodNotAllowedException) {
             return mapped(405, "method_not_allowed", publicMessage(root, "Method not allowed"));
@@ -52,6 +62,27 @@ public final class HttpErrorMapper {
     }
 
     public static byte[] toJsonBytes(MappedError error) {
+        if (problemDetailsEnabled()) {
+            String title = switch (error.status()) {
+                case 400 -> "Bad Request";
+                case 404 -> "Not Found";
+                case 401 -> "Unauthorized";
+                case 403 -> "Forbidden";
+                case 405 -> "Method Not Allowed";
+                case 503 -> "Service Unavailable";
+                case 504 -> "Gateway Timeout";
+                default -> "Internal Server Error";
+            };
+            StringBuilder json = new StringBuilder(error.message().length() + error.code().length() + 96);
+            json.append("{\"type\":\"about:blank\",\"title\":\"");
+            appendJsonString(json, title);
+            json.append("\",\"status\":").append(error.status()).append(",\"detail\":\"");
+            appendJsonString(json, error.message());
+            json.append("\",\"code\":\"");
+            appendJsonString(json, error.code());
+            json.append("\"}");
+            return json.toString().getBytes(StandardCharsets.UTF_8);
+        }
         StringBuilder json = new StringBuilder(error.message().length() + error.code().length() + 32);
         json.append("{\"error\":\"");
         appendJsonString(json, error.message());
@@ -59,6 +90,15 @@ public final class HttpErrorMapper {
         appendJsonString(json, error.code());
         json.append("\"}");
         return json.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    public static byte[] contentTypeHeader() {
+        return problemDetailsEnabled() ? PROBLEM_JSON_HEADER : JSON_HEADER;
+    }
+
+    private static boolean problemDetailsEnabled() {
+        return "problem-details".equalsIgnoreCase(
+                PropertiesLoader.get("reactor.rust.errors.format", "problem-details"));
     }
 
     public static Throwable unwrap(Throwable error) {

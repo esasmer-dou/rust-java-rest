@@ -35,13 +35,13 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -54,30 +54,11 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public class HandlerRegistry {
 
-    private static final HandlerRegistry INSTANCE = new HandlerRegistry();
+    private static final HandlerRegistry COMPATIBILITY_INSTANCE =
+            new HandlerRegistry(ExceptionHandlerRegistry.getInstance());
+    private static volatile HandlerRegistry active = COMPATIBILITY_INSTANCE;
 
-    private static final int INITIAL_ASYNC_FRAME_BYTES = Math.max(
-            1024,
-            PropertiesLoader.getInt("reactor.rust.async.frame-initial-bytes", 16 * 1024)
-    );
-    private static final boolean ASYNC_DIRECT_BUFFER_ENABLED =
-            PropertiesLoader.getBoolean("reactor.rust.async.direct-buffer.enabled", false);
     private static final int MAX_ASYNC_RESPONSE_FRAME_BYTES = 8 * 1024 * 1024 + 64 * 1024;
-    private static final int ASYNC_FRAME_RETAIN_MAX_BYTES = Math.max(
-            INITIAL_ASYNC_FRAME_BYTES,
-            PropertiesLoader.getInt("reactor.rust.async.frame-retain-max-bytes", 256 * 1024)
-    );
-    private static final int ASYNC_FRAME_POOL_CAPACITY = Math.max(
-            0,
-            PropertiesLoader.getInt("reactor.rust.async.frame-pool-capacity", 8)
-    );
-    private static final AsyncFrameBufferPool ASYNC_FRAME_POOL = new AsyncFrameBufferPool(
-            ASYNC_FRAME_POOL_CAPACITY,
-            INITIAL_ASYNC_FRAME_BYTES,
-            ASYNC_FRAME_RETAIN_MAX_BYTES,
-            MAX_ASYNC_RESPONSE_FRAME_BYTES,
-            ASYNC_DIRECT_BUFFER_ENABLED
-    );
 
     // Thread-confined maps avoid request-level allocation after the first use on a worker.
     private static final ThreadLocal<RequestValueMap> PARAM_MAP_POOL =
@@ -100,14 +81,40 @@ public class HandlerRegistry {
     private static final Object SINGLE_VALUE_FAST_PATH_MISS = new Object();
     private static final byte[] DEFAULT_JSON_CONTENT_TYPE_HEADER =
             ("Content-Type: " + MediaType.APPLICATION_JSON_UTF8 + "\n").getBytes(StandardCharsets.UTF_8);
+    private static final byte[] PROBLEM_JSON_CONTENT_TYPE_HEADER =
+            ("Content-Type: " + MediaType.APPLICATION_PROBLEM_JSON_UTF8 + "\n")
+                    .getBytes(StandardCharsets.UTF_8);
+    private static final byte[] OPTIONAL_NOT_FOUND_BODY =
+            "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404}"
+                    .getBytes(StandardCharsets.UTF_8);
 
     public static HandlerRegistry getInstance() {
-        return INSTANCE;
+        return active;
     }
 
-    private final Map<Integer, HandlerDescriptor> handlers = new ConcurrentHashMap<>();
-    private final List<Object> handlerBeans = new CopyOnWriteArrayList<>();
+    public static HandlerRegistry create(ExceptionHandlerRegistry exceptionHandlers) {
+        return new HandlerRegistry(exceptionHandlers);
+    }
+
+    public static void activate(HandlerRegistry registry) {
+        active = java.util.Objects.requireNonNull(registry, "registry");
+    }
+
+    public static void deactivate(HandlerRegistry registry) {
+        if (active == registry) {
+            active = COMPATIBILITY_INSTANCE;
+        }
+    }
+
+    private final List<HandlerDescriptor> buildingHandlers = new ArrayList<>();
+    private final List<Object> buildingHandlerBeans = new ArrayList<>();
+    private volatile HandlerDescriptor[] frozenHandlers;
+    private volatile List<Object> frozenHandlerBeans;
     private final AtomicInteger idGenerator = new AtomicInteger(1);
+    private final ExceptionHandlerRegistry exceptionHandlers;
+    private final int initialAsyncFrameBytes;
+    private final AsyncFrameBufferPool asyncFramePool;
+    private volatile AsyncHandlerExecutor asyncExecutor;
 
     public static class HandlerDescriptor {
         public final Object bean;
@@ -126,8 +133,10 @@ public class HandlerRegistry {
         public final boolean usesDirectBodylessOutput;
         public final boolean returnsResponseEntity;
         public final boolean isAsync;
+        public final GeneratedPrimitiveBinding generatedPrimitiveBinding;
         public final int customResponseStatus;
         public final byte[] defaultContentTypeHeader;
+        private RequestGuard guard;
         private final LongAdder invocationCount = new LongAdder();
 
         // Cached metadata for fast parameter resolution
@@ -195,6 +204,7 @@ public class HandlerRegistry {
             this.usesDirectBodylessOutput = usesDirectBodylessOutput;
             this.returnsResponseEntity = returnsResponseEntity;
             this.isAsync = isAsync;
+            this.generatedPrimitiveBinding = GeneratedPrimitiveBindings.find(method);
             this.customResponseStatus = customResponseStatus;
             this.defaultContentTypeHeader =
                     defaultContentTypeHeader != null ? defaultContentTypeHeader : DEFAULT_JSON_CONTENT_TYPE_HEADER;
@@ -247,12 +257,12 @@ public class HandlerRegistry {
 
     void releaseAsyncResponseFrame(AsyncResponseFrame frame) {
         if (frame != null) {
-            ASYNC_FRAME_POOL.release(frame.buffer);
+            asyncFramePool.release(frame.buffer);
         }
     }
 
     public String asyncFramePoolDiagnosticsJson() {
-        AsyncFrameBufferPool.Snapshot snapshot = ASYNC_FRAME_POOL.snapshot();
+        AsyncFrameBufferPool.Snapshot snapshot = asyncFramePool.snapshot();
         return "{\"capacity\":" + snapshot.capacity()
                 + ",\"size\":" + snapshot.size()
                 + ",\"initial_buffer_bytes\":" + snapshot.initialBufferBytes()
@@ -266,7 +276,7 @@ public class HandlerRegistry {
     }
 
     public String asyncFramePoolMetricsPrometheus() {
-        AsyncFrameBufferPool.Snapshot snapshot = ASYNC_FRAME_POOL.snapshot();
+        AsyncFrameBufferPool.Snapshot snapshot = asyncFramePool.snapshot();
         return "reactor_java_async_frame_pool_capacity " + snapshot.capacity() + '\n'
                 + "reactor_java_async_frame_pool_size " + snapshot.size() + '\n'
                 + "reactor_java_async_frame_pool_retain_max_bytes " + snapshot.retainMaxBytes() + '\n'
@@ -277,22 +287,97 @@ public class HandlerRegistry {
     }
 
     public void resetAsyncFramePoolMetrics() {
-        ASYNC_FRAME_POOL.resetMetrics();
+        asyncFramePool.resetMetrics();
     }
 
-    private HandlerRegistry() {}
-
-    public List<Object> getHandlers() {
-        return handlerBeans;
+    public void releaseRetainedBuffers() {
+        asyncFramePool.clear();
+        AsyncHandlerExecutor executor = asyncExecutor;
+        if (executor != null) {
+            executor.shutdown();
+            asyncExecutor = null;
+        }
     }
 
-    public List<HandlerDescriptor> descriptorsSnapshot() {
-        return List.copyOf(handlers.values());
+    private AsyncHandlerExecutor asyncExecutor() {
+        AsyncHandlerExecutor current = asyncExecutor;
+        if (current != null) return current;
+        synchronized (this) {
+            current = asyncExecutor;
+            if (current == null) {
+                current = AsyncHandlerExecutor.create();
+                asyncExecutor = current;
+            }
+            return current;
+        }
     }
 
-    public void registerBean(Object bean) {
-        if (!handlerBeans.contains(bean)) {
-            handlerBeans.add(bean);
+    private HandlerRegistry(ExceptionHandlerRegistry exceptionHandlers) {
+        this.exceptionHandlers = java.util.Objects.requireNonNull(exceptionHandlers, "exceptionHandlers");
+        this.initialAsyncFrameBytes = Math.max(
+                1024,
+                PropertiesLoader.getInt("reactor.rust.async.frame-initial-bytes", 16 * 1024));
+        int retainMaxBytes = Math.max(
+                initialAsyncFrameBytes,
+                PropertiesLoader.getInt("reactor.rust.async.frame-retain-max-bytes", 256 * 1024));
+        int poolCapacity = Math.max(
+                0,
+                PropertiesLoader.getInt("reactor.rust.async.frame-pool-capacity", 8));
+        boolean direct = PropertiesLoader.getBoolean("reactor.rust.async.direct-buffer.enabled", false);
+        this.asyncFramePool = new AsyncFrameBufferPool(
+                poolCapacity,
+                initialAsyncFrameBytes,
+                retainMaxBytes,
+                MAX_ASYNC_RESPONSE_FRAME_BYTES,
+                direct);
+        buildingHandlers.add(null); // Handler ids start at one; index zero is intentionally empty.
+    }
+
+    public synchronized List<Object> getHandlers() {
+        List<Object> frozen = frozenHandlerBeans;
+        return frozen != null ? frozen : List.copyOf(buildingHandlerBeans);
+    }
+
+    public synchronized List<HandlerDescriptor> descriptorsSnapshot() {
+        HandlerDescriptor[] frozen = frozenHandlers;
+        if (frozen != null) {
+            return List.copyOf(java.util.Arrays.asList(frozen).subList(1, frozen.length));
+        }
+        return List.copyOf(buildingHandlers.subList(1, buildingHandlers.size()));
+    }
+
+    /** Publishes an allocation-free handler-id lookup table before native traffic starts. */
+    public synchronized void freeze() {
+        if (frozenHandlers != null) return;
+        frozenHandlers = buildingHandlers.toArray(HandlerDescriptor[]::new);
+        frozenHandlerBeans = List.copyOf(buildingHandlerBeans);
+    }
+
+    private HandlerDescriptor descriptor(int handlerId) {
+        HandlerDescriptor[] frozen = frozenHandlers;
+        if (frozen != null) {
+            return handlerId > 0 && handlerId < frozen.length ? frozen[handlerId] : null;
+        }
+        synchronized (this) {
+            return handlerId > 0 && handlerId < buildingHandlers.size()
+                    ? buildingHandlers.get(handlerId)
+                    : null;
+        }
+    }
+
+    private void requireMutable() {
+        if (frozenHandlers != null) {
+            throw new IllegalStateException("Handler registry is frozen");
+        }
+    }
+
+    public synchronized void registerBean(Object bean) {
+        requireMutable();
+        if (!buildingHandlerBeans.contains(bean)) {
+            if (bean instanceof GeneratedRouteContributor contributor) {
+                contributor.registerGeneratedRouteInvokers();
+            }
+            buildingHandlerBeans.add(bean);
             if (DEBUG) {
                 FrameworkLogger.debug("[HandlerRegistry] bean registered = " + bean.getClass().getName());
             }
@@ -300,32 +385,66 @@ public class HandlerRegistry {
     }
 
     public boolean isBodyless(int handlerId) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
         if (desc == null) return false;
         return (desc.requestType == Void.class) || (desc.method.getParameterCount() == 0);
     }
 
     public long getInvocationCount(int handlerId) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
         return desc != null ? desc.invocationCount() : 0L;
     }
 
     public boolean usesExactInvoker(int handlerId) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
         return desc != null && desc.compiledInvoker.usesExactAdapter();
     }
 
     public boolean usesGeneratedInvoker(int handlerId) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
         return desc != null && desc.compiledInvoker.usesGeneratedInvoker();
     }
 
-    public int registerHandler(Object bean,
+    public synchronized void attachGuard(int handlerId, RequestGuard guard) {
+        requireMutable();
+        HandlerDescriptor descriptor = descriptor(handlerId);
+        if (descriptor == null) throw new IllegalArgumentException("Unknown handlerId: " + handlerId);
+        descriptor.guard = java.util.Objects.requireNonNull(guard, "guard");
+    }
+
+    public boolean isGuarded(int handlerId) {
+        HandlerDescriptor descriptor = descriptor(handlerId);
+        return descriptor != null && descriptor.guard != null;
+    }
+
+    private static void enterGuard(
+            HandlerDescriptor descriptor,
+            String pathParams,
+            String queryString,
+            String headers,
+            byte[] body) {
+        if (descriptor.guard != null) {
+            descriptor.guard.before(new RequestGuardContext(pathParams, queryString, headers, body));
+        }
+    }
+
+    private static void exitGuard(HandlerDescriptor descriptor, Throwable failure) {
+        if (descriptor.guard != null) descriptor.guard.after(failure);
+    }
+
+    private static <T> CompletionStage<T> exitGuardAsync(
+            HandlerDescriptor descriptor,
+            CompletionStage<T> stage) {
+        return descriptor.guard == null ? stage : descriptor.guard.afterAsync(stage);
+    }
+
+    public synchronized int registerHandler(Object bean,
             Method method,
             Class<?> requestType,
             Class<?> responseType) {
 
         try {
+            requireMutable();
             MethodHandle mh = MethodHandles.privateLookupIn(method.getDeclaringClass(), MethodHandles.lookup())
                     .unreflect(method)
                     .bindTo(bean);
@@ -337,21 +456,32 @@ public class HandlerRegistry {
             boolean legacyV4 = isLegacyV4(method);
             boolean directV5 = isDirectV5(method);
             boolean directScalarInt = isDirectScalarInt(method);
+            GeneratedPrimitiveBinding generatedBinding = GeneratedPrimitiveBindings.find(method);
             boolean directQueryInt = (isDirectInt(method) || directScalarInt)
                     && (method.isAnnotationPresent(DirectQueryInt.class)
                     || method.isAnnotationPresent(DirectPathInt.class));
+            directQueryInt |= generatedBinding != null
+                    && generatedBinding.kind() == GeneratedPrimitiveBinding.Kind.INT;
             boolean directQueryLong = isDirectLong(method)
                     && (method.isAnnotationPresent(DirectQueryLong.class)
                     || method.isAnnotationPresent(DirectPathLong.class));
+            directQueryLong |= generatedBinding != null
+                    && generatedBinding.kind() == GeneratedPrimitiveBinding.Kind.LONG;
             boolean directQueryBoolean = isDirectBoolean(method)
                     && (method.isAnnotationPresent(DirectQueryBoolean.class)
                     || method.isAnnotationPresent(DirectPathBoolean.class));
+            directQueryBoolean |= generatedBinding != null
+                    && generatedBinding.kind() == GeneratedPrimitiveBinding.Kind.BOOLEAN;
             boolean directQueryDouble = isDirectDouble(method)
                     && (method.isAnnotationPresent(DirectQueryDouble.class)
                     || method.isAnnotationPresent(DirectPathDouble.class));
+            directQueryDouble |= generatedBinding != null
+                    && generatedBinding.kind() == GeneratedPrimitiveBinding.Kind.DOUBLE;
             boolean directQueryShort = isDirectShort(method)
                     && (method.isAnnotationPresent(DirectQueryShort.class)
                     || method.isAnnotationPresent(DirectPathShort.class));
+            directQueryShort |= generatedBinding != null
+                    && generatedBinding.kind() == GeneratedPrimitiveBinding.Kind.SHORT;
             boolean directBodylessOutput = isDirectBodylessOutput(method);
 
             // Modern handlers may be no-arg, annotated, or return ResponseEntity.
@@ -411,13 +541,17 @@ public class HandlerRegistry {
             byte[] defaultContentTypeHeader = defaultContentTypeHeader(method);
 
             int id = idGenerator.getAndIncrement();
-            handlers.put(id, new HandlerDescriptor(
+            HandlerDescriptor descriptor = new HandlerDescriptor(
                 bean, method, requestType, responseType, mh,
                 usesAnnotatedParams, directV5, directQueryInt, directQueryLong, directQueryBoolean,
                 directQueryDouble, directQueryShort, directScalarInt, directBodylessOutput,
                 returnsResponseEntity, isAsync, customResponseStatus,
                 defaultContentTypeHeader
-            ));
+            );
+            if (id != buildingHandlers.size()) {
+                throw new IllegalStateException("Handler id sequence is not contiguous: " + id);
+            }
+            buildingHandlers.add(descriptor);
 
             if (DEBUG) {
                 FrameworkLogger.debug("[HandlerRegistry] Handler registered: id=" + id
@@ -574,7 +708,7 @@ public class HandlerRegistry {
             String queryString,
             String headers
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -582,16 +716,25 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
-            // Choose invocation strategy based on method signature
-            if (desc.usesAnnotatedParams) {
-                return invokeAnnotatedFast(desc, out, offset, inBytes, pathParams, queryString, headers);
-            } else if (desc.usesDirectBodyBuffer) {
-                return invokeV5Direct(desc, out, offset, null, 0,
-                        pathParams, queryString, headers);
-            } else if (desc.usesDirectBodylessOutput) {
-                return invokeBodylessOutput(desc, out, offset);
-            } else {
-                return invokeV4(desc, out, offset, inBytes, pathParams, queryString, headers);
+            enterGuard(desc, pathParams, queryString, headers, inBytes);
+            Throwable guardFailure = null;
+            try {
+                // Choose invocation strategy based on method signature
+                if (desc.usesAnnotatedParams) {
+                    return invokeAnnotatedFast(desc, out, offset, inBytes, pathParams, queryString, headers);
+                } else if (desc.usesDirectBodyBuffer) {
+                    return invokeV5Direct(desc, out, offset, null, 0,
+                            pathParams, queryString, headers);
+                } else if (desc.usesDirectBodylessOutput) {
+                    return invokeBodylessOutput(desc, out, offset);
+                } else {
+                    return invokeV4(desc, out, offset, inBytes, pathParams, queryString, headers);
+                }
+            } catch (Throwable failure) {
+                guardFailure = failure;
+                throw failure;
+            } finally {
+                exitGuard(desc, guardFailure);
             }
 
         } catch (Throwable e) {
@@ -613,7 +756,7 @@ public class HandlerRegistry {
             String queryString,
             String headers
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -621,17 +764,26 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
-            if (desc.usesAnnotatedParams) {
-                return invokeAnnotatedFastDirect(desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
-            }
-            if (desc.usesDirectBodyBuffer) {
-                return invokeV5Direct(desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
-            }
-            if (desc.usesDirectBodylessOutput) {
-                return invokeBodylessOutput(desc, out, offset);
-            }
+            enterGuard(desc, pathParams, queryString, headers, null);
+            Throwable guardFailure = null;
+            try {
+                if (desc.usesAnnotatedParams) {
+                    return invokeAnnotatedFastDirect(desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
+                }
+                if (desc.usesDirectBodyBuffer) {
+                    return invokeV5Direct(desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
+                }
+                if (desc.usesDirectBodylessOutput) {
+                    return invokeBodylessOutput(desc, out, offset);
+                }
 
-            return invokeV4(desc, out, offset, toByteArray(inBuffer, inLength), pathParams, queryString, headers);
+                return invokeV4(desc, out, offset, toByteArray(inBuffer, inLength), pathParams, queryString, headers);
+            } catch (Throwable failure) {
+                guardFailure = failure;
+                throw failure;
+            } finally {
+                exitGuard(desc, guardFailure);
+            }
         } catch (Throwable e) {
             return writeError(out, offset, e);
         }
@@ -643,7 +795,7 @@ public class HandlerRegistry {
             int offset,
             int queryInt
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -654,6 +806,10 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
+            if (desc.generatedPrimitiveBinding != null) {
+                Object result = desc.compiledInvoker.invokeInt(queryInt);
+                return writeAnnotatedResult(desc, result, out, offset);
+            }
             Object result = desc.usesDirectScalarInt
                     ? desc.handle.invoke(queryInt)
                     : desc.handle.invoke(out, offset, queryInt);
@@ -669,7 +825,7 @@ public class HandlerRegistry {
             int offset,
             long queryLong
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -680,6 +836,10 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
+            if (desc.generatedPrimitiveBinding != null) {
+                Object result = desc.compiledInvoker.invokeLong(queryLong);
+                return writeAnnotatedResult(desc, result, out, offset);
+            }
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryLong), out, offset);
         } catch (Throwable e) {
             return writeError(out, offset, e);
@@ -692,7 +852,7 @@ public class HandlerRegistry {
             int offset,
             boolean queryBoolean
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -703,6 +863,10 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
+            if (desc.generatedPrimitiveBinding != null) {
+                Object result = desc.compiledInvoker.invokeBoolean(queryBoolean);
+                return writeAnnotatedResult(desc, result, out, offset);
+            }
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryBoolean), out, offset);
         } catch (Throwable e) {
             return writeError(out, offset, e);
@@ -715,7 +879,7 @@ public class HandlerRegistry {
             int offset,
             double queryDouble
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -726,6 +890,10 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
+            if (desc.generatedPrimitiveBinding != null) {
+                Object result = desc.compiledInvoker.invokeDouble(queryDouble);
+                return writeAnnotatedResult(desc, result, out, offset);
+            }
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryDouble), out, offset);
         } catch (Throwable e) {
             return writeError(out, offset, e);
@@ -738,7 +906,7 @@ public class HandlerRegistry {
             int offset,
             short queryShort
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -749,6 +917,10 @@ public class HandlerRegistry {
         desc.recordInvocation();
 
         try {
+            if (desc.generatedPrimitiveBinding != null) {
+                Object result = desc.compiledInvoker.invokeShort(queryShort);
+                return writeAnnotatedResult(desc, result, out, offset);
+            }
             return processDirectResult(desc, desc.handle.invoke(out, offset, queryShort), out, offset);
         } catch (Throwable e) {
             return writeError(out, offset, e);
@@ -760,7 +932,7 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return writeError(out, offset, "Unknown handlerId");
@@ -837,6 +1009,12 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
+        if (result instanceof Optional<?> optional) {
+            if (optional.isEmpty()) {
+                return writeOptionalNotFound(out, offset);
+            }
+            result = optional.get();
+        }
         if (result instanceof Integer) {
             return (Integer) result;
         }
@@ -991,6 +1169,12 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
+        if (result instanceof Optional<?> optional) {
+            if (optional.isEmpty()) {
+                return writeOptionalNotFound(out, offset);
+            }
+            result = optional.get();
+        }
         if (result instanceof Integer) {
             return (Integer) result;
         }
@@ -1450,8 +1634,8 @@ public class HandlerRegistry {
                 : 200;
         Object body = responseEntity.getBody();
         byte[] headerBytes = body != null && !(body instanceof FileResponse) && !(body instanceof RawResponse)
-                ? encodeHeadersWithDefaultContentType(responseEntity.getHeaders(), defaultContentTypeHeader)
-                : encodeHeaders(responseEntity.getHeaders());
+                ? encodeHeadersWithDefaultContentType(responseEntity.readOnlyHeaders(), defaultContentTypeHeader)
+                : encodeHeaders(responseEntity.readOnlyHeaders());
         int frameAndHeadersSize = RESPONSE_FRAME_HEADER_SIZE + headerBytes.length;
 
         if (body == null) {
@@ -1496,14 +1680,14 @@ public class HandlerRegistry {
     }
 
     private int writeError(ByteBuffer out, int offset, Throwable error) {
-        Object handled = ExceptionHandlerRegistry.getInstance().handleException(error);
+        Object handled = exceptionHandlers.handleException(error);
         if (handled != null) {
             return writeExceptionHandlerResult(handled, out, offset);
         }
         HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(error);
         return writeFrameWithBytes(
                 mapped.status(),
-                DEFAULT_JSON_CONTENT_TYPE_HEADER,
+                HttpErrorMapper.contentTypeHeader(),
                 HttpErrorMapper.toJsonBytes(mapped),
                 out,
                 offset
@@ -1909,7 +2093,7 @@ public class HandlerRegistry {
             String queryString,
             String headers
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return CompletableFuture.completedFuture(
@@ -1920,29 +2104,52 @@ public class HandlerRegistry {
 
         if (desc.isAsync) {
             try {
-                Object raw = invokeAsyncRaw(desc, inBytes, pathParams, queryString, headers);
-                return encodeAsyncRawResult(desc, raw);
+                enterGuard(desc, pathParams, queryString, headers, inBytes);
+                boolean transferred = false;
+                try {
+                    Object raw = invokeAsyncRaw(desc, inBytes, pathParams, queryString, headers);
+                    if (raw instanceof CompletionStage<?> stage) {
+                        raw = exitGuardAsync(desc, stage);
+                        transferred = true;
+                    } else {
+                        exitGuard(desc, null);
+                        transferred = true;
+                    }
+                    return encodeAsyncRawResult(desc, raw);
+                } catch (Throwable failure) {
+                    if (!transferred) exitGuard(desc, failure);
+                    throw failure;
+                }
             } catch (Throwable e) {
                 return CompletableFuture.completedFuture(encodeAsyncErrorFrame(e));
             }
         }
 
-        return AsyncHandlerExecutor.getInstance().submit(() -> {
-            ByteBuffer buffer = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
+        return asyncExecutor().submit(() -> {
+            ByteBuffer buffer = asyncFramePool.acquire(initialAsyncFrameBytes);
             try {
-                buffer.clear();
+                enterGuard(desc, pathParams, queryString, headers, inBytes);
+                Throwable guardFailure = null;
+                try {
+                    buffer.clear();
 
-                int written;
-                if (desc.usesAnnotatedParams) {
-                    written = invokeAnnotatedFast(desc, buffer, 0, inBytes, pathParams, queryString, headers);
-                } else {
-                    written = invokeV4Async(desc, buffer, 0, inBytes, pathParams, queryString, headers);
+                    int written;
+                    if (desc.usesAnnotatedParams) {
+                        written = invokeAnnotatedFast(desc, buffer, 0, inBytes, pathParams, queryString, headers);
+                    } else {
+                        written = invokeV4Async(desc, buffer, 0, inBytes, pathParams, queryString, headers);
+                    }
+
+                    return new AsyncResponseFrame(buffer, written);
+                } catch (Throwable failure) {
+                    guardFailure = failure;
+                    throw failure;
+                } finally {
+                    exitGuard(desc, guardFailure);
                 }
 
-                return new AsyncResponseFrame(buffer, written);
-
             } catch (Throwable e) {
-                ASYNC_FRAME_POOL.release(buffer);
+                asyncFramePool.release(buffer);
                 return encodeAsyncErrorFrame(e);
             }
         });
@@ -1952,7 +2159,7 @@ public class HandlerRegistry {
             int handlerId,
             int queryInt
     ) {
-        HandlerDescriptor desc = handlers.get(handlerId);
+        HandlerDescriptor desc = descriptor(handlerId);
 
         if (desc == null) {
             return CompletableFuture.completedFuture(
@@ -2023,7 +2230,7 @@ public class HandlerRegistry {
     }
 
     private AsyncResponseFrame encodeAsyncResultFrame(HandlerDescriptor desc, Object result) {
-        ByteBuffer buffer = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
+        ByteBuffer buffer = asyncFramePool.acquire(initialAsyncFrameBytes);
         try {
             if (result instanceof Integer written) {
                 if (written < 0) {
@@ -2041,11 +2248,11 @@ public class HandlerRegistry {
                 if (required <= 0 || required > MAX_ASYNC_RESPONSE_FRAME_BYTES) {
                     throw new IllegalStateException("async response frame too large: " + required);
                 }
-                buffer = ASYNC_FRAME_POOL.grow(buffer, required);
+                buffer = asyncFramePool.grow(buffer, required);
             }
             throw new IllegalStateException("async response frame retry exceeded");
         } catch (Throwable e) {
-            ASYNC_FRAME_POOL.release(buffer);
+            asyncFramePool.release(buffer);
             return encodeAsyncErrorFrame(e);
         }
     }
@@ -2056,7 +2263,7 @@ public class HandlerRegistry {
                     "[HandlerRegistry] Async error: " + e.getClass().getName(),
                     e);
         }
-        ByteBuffer buffer = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
+        ByteBuffer buffer = asyncFramePool.acquire(initialAsyncFrameBytes);
         try {
             for (int attempt = 0; attempt < 3; attempt++) {
                 buffer.clear();
@@ -2068,18 +2275,18 @@ public class HandlerRegistry {
                 if (required <= 0 || required > MAX_ASYNC_RESPONSE_FRAME_BYTES) {
                     throw new IllegalStateException("async error frame too large: " + required);
                 }
-                buffer = ASYNC_FRAME_POOL.grow(buffer, required);
+                buffer = asyncFramePool.grow(buffer, required);
             }
             throw new IllegalStateException("async error frame retry exceeded");
         } catch (Throwable encodingFailure) {
-            ASYNC_FRAME_POOL.release(buffer);
+            asyncFramePool.release(buffer);
             HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(encodingFailure);
-            ByteBuffer fallback = ASYNC_FRAME_POOL.acquire(INITIAL_ASYNC_FRAME_BYTES);
+            ByteBuffer fallback = asyncFramePool.acquire(initialAsyncFrameBytes);
             fallback.clear();
             byte[] body = HttpErrorMapper.toJsonBytes(mapped);
             int written = writeFrameWithBytes(
                     mapped.status(),
-                    DEFAULT_JSON_CONTENT_TYPE_HEADER,
+                    HttpErrorMapper.contentTypeHeader(),
                     body,
                     fallback,
                     0);
@@ -2112,6 +2319,12 @@ public class HandlerRegistry {
      * Process async result - handle different return types.
      */
     private int processAsyncResult(HandlerDescriptor desc, Object result, ByteBuffer out, int offset) {
+        if (result instanceof Optional<?> optional) {
+            if (optional.isEmpty()) {
+                return writeOptionalNotFound(out, offset);
+            }
+            result = optional.get();
+        }
         if (result instanceof Integer) {
             return (Integer) result;
         }
@@ -2157,5 +2370,14 @@ public class HandlerRegistry {
         }
 
         return 0;
+    }
+
+    private int writeOptionalNotFound(ByteBuffer out, int offset) {
+        return writeFrameWithBytes(
+                404,
+                PROBLEM_JSON_CONTENT_TYPE_HEADER,
+                OPTIONAL_NOT_FOUND_BODY,
+                out,
+                offset);
     }
 }

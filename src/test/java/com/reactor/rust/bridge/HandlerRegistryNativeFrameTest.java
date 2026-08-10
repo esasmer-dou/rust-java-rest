@@ -35,6 +35,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -90,6 +93,36 @@ class HandlerRegistryNativeFrameTest {
 
         public CompletableFuture<ResponseEntity<String>> asyncName(@RequestParam("name") String name) {
             return CompletableFuture.completedFuture(ResponseEntity.ok("async:" + name));
+        }
+    }
+
+    static final class PendingAsyncHandler {
+        private final CompletableFuture<ResponseEntity<String>> result = new CompletableFuture<>();
+
+        public CompletableFuture<ResponseEntity<String>> pending() {
+            return result;
+        }
+    }
+
+    static final class CompletionTrackingGuard implements RequestGuard {
+        private final AtomicInteger beforeCalls = new AtomicInteger();
+        private final AtomicInteger afterCalls = new AtomicInteger();
+        private final AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        @Override
+        public void before(RequestGuardContext request) {
+            beforeCalls.incrementAndGet();
+        }
+
+        @Override
+        public void after(Throwable failure) {
+            this.failure.set(failure);
+            afterCalls.incrementAndGet();
+        }
+
+        @Override
+        public <T> CompletionStage<T> afterAsync(CompletionStage<T> stage) {
+            return stage.whenComplete((ignored, error) -> after(error));
         }
     }
 
@@ -603,6 +636,55 @@ class HandlerRegistryNativeFrameTest {
     }
 
     @Test
+    void asyncGuardFinishesOnceWhenStageCompletes() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        PendingAsyncHandler handler = new PendingAsyncHandler();
+        Method method = PendingAsyncHandler.class.getDeclaredMethod("pending");
+        CompletionTrackingGuard guard = new CompletionTrackingGuard();
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        registry.attachGuard(handlerId, guard);
+
+        CompletableFuture<HandlerRegistry.AsyncResponseFrame> response =
+                registry.invokeAsyncFrame(handlerId, new byte[0], "", "", "");
+
+        assertEquals(1, guard.beforeCalls.get());
+        assertEquals(0, guard.afterCalls.get());
+        handler.result.complete(ResponseEntity.ok("ready"));
+        HandlerRegistry.AsyncResponseFrame frame = response.join();
+        try {
+            assertEquals(1, guard.afterCalls.get());
+            assertEquals(null, guard.failure.get());
+            assertEquals("\"ready\"", frameBody(frame.buffer(), frame.length()));
+        } finally {
+            registry.releaseAsyncResponseFrame(frame);
+        }
+    }
+
+    @Test
+    void asyncGuardObservesStageFailureOnce() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        PendingAsyncHandler handler = new PendingAsyncHandler();
+        Method method = PendingAsyncHandler.class.getDeclaredMethod("pending");
+        CompletionTrackingGuard guard = new CompletionTrackingGuard();
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        registry.attachGuard(handlerId, guard);
+
+        CompletableFuture<HandlerRegistry.AsyncResponseFrame> response =
+                registry.invokeAsyncFrame(handlerId, new byte[0], "", "", "");
+        IllegalStateException failure = new IllegalStateException("async-failure");
+        handler.result.completeExceptionally(failure);
+        HandlerRegistry.AsyncResponseFrame frame = response.join();
+        try {
+            assertEquals(1, guard.beforeCalls.get());
+            assertEquals(1, guard.afterCalls.get());
+            assertEquals(failure, guard.failure.get());
+            assertEquals(500, frameStatus(frame.buffer()));
+        } finally {
+            registry.releaseAsyncResponseFrame(frame);
+        }
+    }
+
+    @Test
     void rejectsAsyncHandlerThatBorrowsFrameworkOutputBuffer() throws Exception {
         HandlerRegistry registry = HandlerRegistry.getInstance();
         UnsafeAsyncBorrowedBufferHandler handler = new UnsafeAsyncBorrowedBufferHandler();
@@ -643,7 +725,8 @@ class HandlerRegistryNativeFrameTest {
         int internalWritten = registry.invokeBuffered(crashHandler, internal, 0, null, "", "", "");
         assertEquals(500, frameStatus(internal));
         assertEquals(
-                "{\"error\":\"Internal server error\",\"code\":\"internal_server_error\"}",
+                "{\"type\":\"about:blank\",\"title\":\"Internal Server Error\",\"status\":500,"
+                        + "\"detail\":\"Internal server error\",\"code\":\"internal_server_error\"}",
                 frameBody(internal, internalWritten)
         );
     }

@@ -80,6 +80,26 @@ final class CompiledRouteInvoker {
         return invokeResolved(resolver.value(value));
     }
 
+    Object invokeInt(int value) throws Throwable {
+        return generatedInvoker != null ? generatedInvoker.invokeInt(bean, value) : invokeResolved(value);
+    }
+
+    Object invokeLong(long value) throws Throwable {
+        return generatedInvoker != null ? generatedInvoker.invokeLong(bean, value) : invokeResolved(value);
+    }
+
+    Object invokeBoolean(boolean value) throws Throwable {
+        return generatedInvoker != null ? generatedInvoker.invokeBoolean(bean, value) : invokeResolved(value);
+    }
+
+    Object invokeDouble(double value) throws Throwable {
+        return generatedInvoker != null ? generatedInvoker.invokeDouble(bean, value) : invokeResolved(value);
+    }
+
+    Object invokeShort(short value) throws Throwable {
+        return generatedInvoker != null ? generatedInvoker.invokeShort(bean, value) : invokeResolved(value);
+    }
+
     Object invoke(byte[] body, RequestValueMap params, RequestValueMap headers) throws Throwable {
         return switch (resolvers.length) {
             case 0 -> invokeResolved();

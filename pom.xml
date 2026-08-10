@@ -8,9 +8,10 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>4.1.0</version>
+    <version>4.2.0</version>
     <name>Rust-Java REST Framework</name>
     <description>Low-latency REST API framework with Rust Hyper HTTP I/O, Java handlers, low-RSS runtime profiles, route admission, and native response paths</description>
+
 
     <url>https://github.com/esasmer-dou/rust-java-rest</url>
     <licenses>
@@ -92,9 +93,25 @@
                         <phase>prepare-package</phase>
                         <goals><goal>copy-resources</goal></goals>
                         <configuration>
-                            <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                            <outputDirectory>${project.build.directory}/codegen-classes</outputDirectory>
                             <resources>
                                 <resource><directory>src/codegen/resources</directory></resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-codegen-classes</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/codegen-classes</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.build.outputDirectory}</directory>
+                                    <includes>
+                                        <include>com/reactor/rust/codegen/**</include>
+                                    </includes>
+                                </resource>
                             </resources>
                         </configuration>
                     </execution>
@@ -147,6 +164,7 @@
                         </goals>
                         <configuration>
                             <classifier>codegen</classifier>
+                            <classesDirectory>${project.build.directory}/codegen-classes</classesDirectory>
                             <includes>
                                 <include>com/reactor/rust/codegen/**</include>
                                 <include>META-INF/services/javax.annotation.processing.Processor</include>
@@ -190,6 +208,9 @@
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>
+                                        <exclude>com/dslplatform/json/processor/**</exclude>
+                                        <exclude>META-INF/services/javax.annotation.processing.Processor</exclude>
+                                        <exclude>META-INF/gradle/incremental.annotation.processors</exclude>
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
@@ -223,6 +244,7 @@
                                 <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
                                 <argument>${project.build.directory}/${project.build.finalName}-codegen.jar</argument>
                                 <argument>com/reactor/rust/codegen/</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}-core-runtime.jar</argument>
                             </arguments>
                         </configuration>
                     </execution>

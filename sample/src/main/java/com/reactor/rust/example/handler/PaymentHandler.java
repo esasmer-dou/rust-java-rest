@@ -1,7 +1,6 @@
 package com.reactor.rust.example.handler;
 
 import com.reactor.rust.annotations.RustRoute;
-import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.di.annotation.Qualifier;
 import com.reactor.rust.example.dto.PaymentMethodsResponse.PaymentMethodInfo;
@@ -43,22 +42,18 @@ import java.util.List;
 @Component
 public class PaymentHandler {
 
-    // ============ @Primary Example ============
-    // Since CreditCardPaymentService is marked @Primary, it's injected by default
-    // when multiple PaymentService implementations exist
-    @Autowired
-    private PaymentService paymentService;  // Gets CreditCardPaymentService
+    private final PaymentService paymentService;
+    private final PaymentService payPalService;
+    private final PaymentService bankService;
 
-    // ============ @Qualifier Examples ============
-    // Use @Qualifier to specify which implementation to inject
-
-    @Autowired
-    @Qualifier("payPalPaymentService")
-    private PaymentService payPalService;  // Explicitly gets PayPalPaymentService
-
-    @Autowired
-    @Qualifier("bankTransferPaymentService")
-    private PaymentService bankService;  // Explicitly gets BankTransferPaymentService
+    public PaymentHandler(
+            PaymentService paymentService,
+            @Qualifier("payPalPaymentService") PaymentService payPalService,
+            @Qualifier("bankTransferPaymentService") PaymentService bankService) {
+        this.paymentService = paymentService;
+        this.payPalService = payPalService;
+        this.bankService = bankService;
+    }
 
     /**
      * Process payment using default (@Primary) payment service.

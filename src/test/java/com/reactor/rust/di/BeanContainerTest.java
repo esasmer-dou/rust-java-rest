@@ -1,11 +1,13 @@
 package com.reactor.rust.di;
 
+import com.reactor.rust.annotations.RequiresProperty;
 import com.reactor.rust.di.annotation.*;
 import com.reactor.rust.di.exception.BeanCreationException;
 import com.reactor.rust.di.exception.NoSuchBeanException;
 import org.junit.jupiter.api.*;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -251,6 +253,45 @@ class BeanContainerTest {
     }
 
     @Test
+    @DisplayName("Should resolve on-demand generated infrastructure only when requested")
+    void testGeneratedOnDemandInfrastructure() {
+        AtomicInteger creations = new AtomicInteger();
+        container.registerGeneratedOnDemandFactory(
+                TestRepository.class,
+                () -> {
+                    creations.incrementAndGet();
+                    return new TestRepository();
+                },
+                "onDemandRepository",
+                true);
+
+        container.start();
+
+        assertEquals(0, creations.get());
+        TestRepository first = container.getBean(TestRepository.class);
+        assertSame(first, container.getBean(TestRepository.class));
+        assertEquals(1, creations.get());
+    }
+
+    @Test
+    @DisplayName("Compatibility mode should honor conditional beans and Optional constructor injection")
+    void testCompatibilityConditionsAndOptionalInjection() {
+        String property = "reactor.test.optional-service.enabled";
+        System.setProperty(property, "false");
+        try {
+            container.registerBean(ConditionalConfiguration.class, new ConditionalConfiguration());
+            container.start();
+            assertFalse(container.hasBean(TestRepository.class));
+
+            container.registerBeanClass(OptionalConstructorBean.class);
+            OptionalConstructorBean bean = container.getBean(OptionalConstructorBean.class);
+            assertTrue(bean.repository().isEmpty());
+        } finally {
+            System.clearProperty(property);
+        }
+    }
+
+    @Test
     @DisplayName("Should get bean names")
     void testGetBeanNames() {
         container.registerBean(String.class, "test1", "test1");
@@ -271,6 +312,29 @@ class BeanContainerTest {
     }
 
     static class TestRepository {
+    }
+
+    @Configuration
+    static class ConditionalConfiguration {
+        @Bean
+        @RequiresProperty(name = "reactor.test.optional-service.enabled", value = "true")
+        TestRepository testRepository() {
+            return new TestRepository();
+        }
+    }
+
+    @Component
+    static class OptionalConstructorBean {
+        private final Optional<TestRepository> repository;
+
+        @Autowired
+        OptionalConstructorBean(Optional<TestRepository> repository) {
+            this.repository = repository;
+        }
+
+        Optional<TestRepository> repository() {
+            return repository;
+        }
     }
 
     static class OptionalHandler {

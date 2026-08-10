@@ -10,6 +10,7 @@ import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.metrics.Metrics;
 import com.reactor.rust.startup.StartupIndex;
 import com.reactor.rust.startup.StartupTimeline;
+import com.reactor.rust.startup.StartupMode;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
 
@@ -43,6 +45,7 @@ public final class RouteScanner {
         try (StartupTimeline.Scope ignored = StartupTimeline.phase("routes.scan_register")) {
             HandlerRegistry registry = HandlerRegistry.getInstance();
             List<Object> handlers = registry.getHandlers();
+            List<RequestGuardFactory> guardFactories = loadRequestGuardFactories();
 
             List<RouteDef> routes = new ArrayList<>();
             RoutePlanRegistry routePlans = RoutePlanRegistry.getInstance();
@@ -50,11 +53,13 @@ public final class RouteScanner {
             routePlans.configureFromProperties();
 
             for (Object bean : handlers) {
-                scanHandler(bean, routes);
+                scanHandler(bean, routes, guardFactories);
             }
 
             validateUniqueRoutes(routes);
             validateRouteIndex(routes);
+            registry.freeze();
+            routePlans.freeze();
             routePlans.publishStartupMetrics();
             routePlans.logSummary();
             routePlans.validateProductionGate();
@@ -134,7 +139,10 @@ public final class RouteScanner {
     /**
      * Scan a single handler for route annotations
      */
-    private static void scanHandler(Object bean, List<RouteDef> routes) {
+    private static void scanHandler(
+            Object bean,
+            List<RouteDef> routes,
+            List<RequestGuardFactory> guardFactories) {
         Class<?> clazz = bean.getClass();
 
         // Get base path from class-level @RequestMapping
@@ -157,7 +165,23 @@ public final class RouteScanner {
             }
         }
 
-        for (Method method : clazz.getDeclaredMethods()) {
+        Method[] generatedMethods = GeneratedRouteInvokers.routeMethods(clazz);
+        Method[] routeCandidates;
+        if (generatedMethods.length > 0) {
+            routeCandidates = generatedMethods;
+            Metrics.getInstance().increment("reactor.startup.generated_route_owners");
+            Metrics.getInstance().increment("reactor.startup.generated_route_methods", generatedMethods.length);
+        } else {
+            if (StartupMode.isAot()
+                    || PropertiesLoader.getBoolean("reactor.startup.generated-routes.required", false)) {
+                throw new IllegalStateException(
+                        "Build-time route metadata is required but missing for " + clazz.getName());
+            }
+            routeCandidates = clazz.getDeclaredMethods();
+            Metrics.getInstance().increment("reactor.startup.reflection_route_owners");
+        }
+
+        for (Method method : routeCandidates) {
             RouteInfo routeInfo = extractRouteInfo(method, basePath);
             if (routeInfo == null) {
                 continue;
@@ -192,16 +216,31 @@ public final class RouteScanner {
             DirectPathBoolean directPathBooleanAnnotation = method.getAnnotation(DirectPathBoolean.class);
             DirectPathDouble directPathDoubleAnnotation = method.getAnnotation(DirectPathDouble.class);
             DirectPathShort directPathShortAnnotation = method.getAnnotation(DirectPathShort.class);
-            boolean directQueryInt = directQueryIntAnnotation != null;
-            boolean directQueryLong = directQueryLongAnnotation != null;
-            boolean directQueryBoolean = directQueryBooleanAnnotation != null;
-            boolean directQueryDouble = directQueryDoubleAnnotation != null;
-            boolean directQueryShort = directQueryShortAnnotation != null;
-            boolean directPathInt = directPathIntAnnotation != null;
-            boolean directPathLong = directPathLongAnnotation != null;
-            boolean directPathBoolean = directPathBooleanAnnotation != null;
-            boolean directPathDouble = directPathDoubleAnnotation != null;
-            boolean directPathShort = directPathShortAnnotation != null;
+            GeneratedPrimitiveBinding generatedBinding = GeneratedPrimitiveBindings.find(method);
+            boolean generatedQuery = generatedBinding != null
+                    && generatedBinding.source() == GeneratedPrimitiveBinding.Source.QUERY;
+            boolean generatedPath = generatedBinding != null
+                    && generatedBinding.source() == GeneratedPrimitiveBinding.Source.PATH;
+            boolean directQueryInt = directQueryIntAnnotation != null
+                    || generatedKind(generatedBinding, generatedQuery, GeneratedPrimitiveBinding.Kind.INT);
+            boolean directQueryLong = directQueryLongAnnotation != null
+                    || generatedKind(generatedBinding, generatedQuery, GeneratedPrimitiveBinding.Kind.LONG);
+            boolean directQueryBoolean = directQueryBooleanAnnotation != null
+                    || generatedKind(generatedBinding, generatedQuery, GeneratedPrimitiveBinding.Kind.BOOLEAN);
+            boolean directQueryDouble = directQueryDoubleAnnotation != null
+                    || generatedKind(generatedBinding, generatedQuery, GeneratedPrimitiveBinding.Kind.DOUBLE);
+            boolean directQueryShort = directQueryShortAnnotation != null
+                    || generatedKind(generatedBinding, generatedQuery, GeneratedPrimitiveBinding.Kind.SHORT);
+            boolean directPathInt = directPathIntAnnotation != null
+                    || generatedKind(generatedBinding, generatedPath, GeneratedPrimitiveBinding.Kind.INT);
+            boolean directPathLong = directPathLongAnnotation != null
+                    || generatedKind(generatedBinding, generatedPath, GeneratedPrimitiveBinding.Kind.LONG);
+            boolean directPathBoolean = directPathBooleanAnnotation != null
+                    || generatedKind(generatedBinding, generatedPath, GeneratedPrimitiveBinding.Kind.BOOLEAN);
+            boolean directPathDouble = directPathDoubleAnnotation != null
+                    || generatedKind(generatedBinding, generatedPath, GeneratedPrimitiveBinding.Kind.DOUBLE);
+            boolean directPathShort = directPathShortAnnotation != null
+                    || generatedKind(generatedBinding, generatedPath, GeneratedPrimitiveBinding.Kind.SHORT);
             boolean directPrimitiveOutput = (directQueryInt && isDirectInt(method))
                     || (directQueryLong && isDirectLong(method))
                     || (directQueryBoolean && isDirectBoolean(method))
@@ -436,16 +475,27 @@ public final class RouteScanner {
             boolean directNeedsPathParams = directV5 && (implicitRawMetadata || rawRequestData.pathParams());
             boolean directNeedsQueryParams = directV5 && (implicitRawMetadata || rawRequestData.query());
             boolean directNeedsHeaders = directV5 && (implicitRawMetadata || rawRequestData.headers());
-            String directQueryIntName = directQueryIntAnnotation != null ? directQueryIntAnnotation.value() : "";
-            String directQueryLongName = directQueryLongAnnotation != null ? directQueryLongAnnotation.value() : "";
-            String directQueryBooleanName = directQueryBooleanAnnotation != null ? directQueryBooleanAnnotation.value() : "";
-            String directQueryDoubleName = directQueryDoubleAnnotation != null ? directQueryDoubleAnnotation.value() : "";
-            String directQueryShortName = directQueryShortAnnotation != null ? directQueryShortAnnotation.value() : "";
-            String directPathIntName = directPathIntAnnotation != null ? directPathIntAnnotation.value() : "";
-            String directPathLongName = directPathLongAnnotation != null ? directPathLongAnnotation.value() : "";
-            String directPathBooleanName = directPathBooleanAnnotation != null ? directPathBooleanAnnotation.value() : "";
-            String directPathDoubleName = directPathDoubleAnnotation != null ? directPathDoubleAnnotation.value() : "";
-            String directPathShortName = directPathShortAnnotation != null ? directPathShortAnnotation.value() : "";
+            String generatedName = generatedBinding == null ? "" : generatedBinding.name();
+            String directQueryIntName = directQueryIntAnnotation != null ? directQueryIntAnnotation.value()
+                    : directQueryInt ? generatedName : "";
+            String directQueryLongName = directQueryLongAnnotation != null ? directQueryLongAnnotation.value()
+                    : directQueryLong ? generatedName : "";
+            String directQueryBooleanName = directQueryBooleanAnnotation != null ? directQueryBooleanAnnotation.value()
+                    : directQueryBoolean ? generatedName : "";
+            String directQueryDoubleName = directQueryDoubleAnnotation != null ? directQueryDoubleAnnotation.value()
+                    : directQueryDouble ? generatedName : "";
+            String directQueryShortName = directQueryShortAnnotation != null ? directQueryShortAnnotation.value()
+                    : directQueryShort ? generatedName : "";
+            String directPathIntName = directPathIntAnnotation != null ? directPathIntAnnotation.value()
+                    : directPathInt ? generatedName : "";
+            String directPathLongName = directPathLongAnnotation != null ? directPathLongAnnotation.value()
+                    : directPathLong ? generatedName : "";
+            String directPathBooleanName = directPathBooleanAnnotation != null ? directPathBooleanAnnotation.value()
+                    : directPathBoolean ? generatedName : "";
+            String directPathDoubleName = directPathDoubleAnnotation != null ? directPathDoubleAnnotation.value()
+                    : directPathDouble ? generatedName : "";
+            String directPathShortName = directPathShortAnnotation != null ? directPathShortAnnotation.value()
+                    : directPathShort ? generatedName : "";
             boolean asyncRoute = CompletionStage.class.isAssignableFrom(method.getReturnType());
             int nativeStaticResponseId = nativeStaticResponseId(bean, method, routeInfo, asyncRoute);
             int nativeStaticFileResponseId = nativeStaticFileResponseId(bean, method, routeInfo, asyncRoute);
@@ -453,6 +503,26 @@ public final class RouteScanner {
                 throw new IllegalArgumentException(
                         "A route cannot be both @NativeStaticRoute and @NativeStaticFileRoute: " + method
                 );
+            }
+            RequestGuard requestGuard = requestGuard(guardFactories, bean.getClass(), method);
+            if (requestGuard != null) {
+                validateGuardCompatibleRoute(
+                        method,
+                        directQueryInt,
+                        directQueryLong,
+                        directQueryBoolean,
+                        directQueryDouble,
+                        directQueryShort,
+                        directPathInt,
+                        directPathLong,
+                        directPathBoolean,
+                        directPathDouble,
+                        directPathShort,
+                        directBodylessOutput,
+                        nativeStaticResponseId,
+                        nativeStaticFileResponseId
+                );
+                HandlerRegistry.getInstance().attachGuard(handlerId, requestGuard);
             }
             RouteWorkload workload = effectiveRouteWorkload(bean.getClass(), method);
             boolean benchmarkOnly = method.isAnnotationPresent(BenchmarkOnlyRoute.class);
@@ -473,28 +543,33 @@ public final class RouteScanner {
                     routeInfo.requestType.getName(),
                     routeInfo.responseType.getName(),
                     bodyless,
-                    legacyV4 || directNeedsPathParams || metadata.needsPathParams,
-                    legacyV4 || directNeedsQueryParams || metadata.needsQueryParams,
-                    legacyV4 || directNeedsHeaders || metadata.needsHeaders,
+                    legacyV4 || directNeedsPathParams || (metadata.needsPathParams && !generatedPath),
+                    legacyV4 || directNeedsQueryParams || (metadata.needsQueryParams && !generatedQuery),
+                    requestGuard != null || legacyV4 || directNeedsHeaders || metadata.needsHeaders,
                     asyncRoute,
                     routeInfo.maxRequestBodyBytes,
                     routeInfo.maxResponseBodyBytes,
                     directQueryIntName,
-                    directQueryIntAnnotation != null ? directQueryIntAnnotation.defaultValue() : 0,
+                    directQueryIntAnnotation != null ? directQueryIntAnnotation.defaultValue()
+                            : generatedIntDefault(generatedBinding),
                     directQueryIntAnnotation != null ? directQueryIntAnnotation.min() : Integer.MIN_VALUE,
                     directQueryIntAnnotation != null ? directQueryIntAnnotation.max() : Integer.MAX_VALUE,
                     directQueryLongName,
-                    directQueryLongAnnotation != null ? directQueryLongAnnotation.defaultValue() : 0L,
+                    directQueryLongAnnotation != null ? directQueryLongAnnotation.defaultValue()
+                            : generatedLongDefault(generatedBinding),
                     directQueryLongAnnotation != null ? directQueryLongAnnotation.min() : Long.MIN_VALUE,
                     directQueryLongAnnotation != null ? directQueryLongAnnotation.max() : Long.MAX_VALUE,
                     directQueryBooleanName,
-                    directQueryBooleanAnnotation != null && directQueryBooleanAnnotation.defaultValue(),
+                    directQueryBooleanAnnotation != null ? directQueryBooleanAnnotation.defaultValue()
+                            : generatedBooleanDefault(generatedBinding),
                     directQueryDoubleName,
-                    directQueryDoubleAnnotation != null ? directQueryDoubleAnnotation.defaultValue() : 0.0d,
+                    directQueryDoubleAnnotation != null ? directQueryDoubleAnnotation.defaultValue()
+                            : generatedDoubleDefault(generatedBinding),
                     directQueryDoubleAnnotation != null ? directQueryDoubleAnnotation.min() : -Double.MAX_VALUE,
                     directQueryDoubleAnnotation != null ? directQueryDoubleAnnotation.max() : Double.MAX_VALUE,
                     directQueryShortName,
-                    directQueryShortAnnotation != null ? directQueryShortAnnotation.defaultValue() : (short) 0,
+                    directQueryShortAnnotation != null ? directQueryShortAnnotation.defaultValue()
+                            : generatedShortDefault(generatedBinding),
                     directQueryShortAnnotation != null ? directQueryShortAnnotation.min() : Short.MIN_VALUE,
                     directQueryShortAnnotation != null ? directQueryShortAnnotation.max() : Short.MAX_VALUE,
                     directPathIntName,
@@ -510,6 +585,7 @@ public final class RouteScanner {
                     directPathShortName,
                     directPathShortAnnotation != null ? directPathShortAnnotation.min() : Short.MIN_VALUE,
                     directPathShortAnnotation != null ? directPathShortAnnotation.max() : Short.MAX_VALUE,
+                    generatedBinding == null ? 0 : generatedBinding.mode().nativeValue(),
                     directBodylessOutput,
                     nativeStaticResponseId,
                     nativeStaticFileResponseId,
@@ -551,6 +627,146 @@ public final class RouteScanner {
                     " method=" + method.getName() +
                     " reqType=" + routeInfo.requestType.getName() +
                     " respType=" + routeInfo.responseType.getName());
+        }
+    }
+
+    private static List<RequestGuardFactory> loadRequestGuardFactories() {
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        if (loader == null) loader = RouteScanner.class.getClassLoader();
+        List<RequestGuardFactory> factories = ServiceLoader.load(RequestGuardFactory.class, loader).stream()
+                .map(ServiceLoader.Provider::get)
+                .sorted(java.util.Comparator.comparingInt(RequestGuardFactory::order))
+                .toList();
+        if (!factories.isEmpty()) {
+            Metrics.getInstance().setGauge("reactor.startup.request_guard_factories", factories.size());
+        }
+        return factories;
+    }
+
+    static RequestGuard requestGuard(
+            List<RequestGuardFactory> factories,
+            Class<?> owner,
+            Method method) {
+        if (factories == null || factories.isEmpty()) return null;
+        ArrayList<RequestGuard> guards = new ArrayList<>(factories.size());
+        for (RequestGuardFactory factory : factories) {
+            RequestGuard guard = factory.create(owner, method);
+            if (guard != null) guards.add(guard);
+        }
+        if (guards.isEmpty()) return null;
+        if (guards.size() == 1) return guards.get(0);
+        return new CompositeRequestGuard(guards.toArray(RequestGuard[]::new));
+    }
+
+    static void validateGuardCompatibleRoute(
+            Method method,
+            boolean directQueryInt,
+            boolean directQueryLong,
+            boolean directQueryBoolean,
+            boolean directQueryDouble,
+            boolean directQueryShort,
+            boolean directPathInt,
+            boolean directPathLong,
+            boolean directPathBoolean,
+            boolean directPathDouble,
+            boolean directPathShort,
+            boolean directBodylessOutput,
+            int nativeStaticResponseId,
+            int nativeStaticFileResponseId) {
+        boolean specializedWithoutHeaders = directQueryInt
+                || directQueryLong
+                || directQueryBoolean
+                || directQueryDouble
+                || directQueryShort
+                || directPathInt
+                || directPathLong
+                || directPathBoolean
+                || directPathDouble
+                || directPathShort
+                || directBodylessOutput
+                || nativeStaticResponseId > 0
+                || nativeStaticFileResponseId > 0;
+        if (specializedWithoutHeaders) {
+            throw new IllegalStateException(
+                    "Guarded route requires request headers but its specialized native path does not carry them: "
+                            + method + ". Use a normal generated handler route or remove the route guard."
+            );
+        }
+    }
+
+    private static final class CompositeRequestGuard implements RequestGuard {
+        private final RequestGuard[] guards;
+        private final ThreadLocal<Integer> entered = ThreadLocal.withInitial(() -> 0);
+
+        private CompositeRequestGuard(RequestGuard[] guards) {
+            this.guards = guards;
+        }
+
+        @Override
+        public void before(RequestGuardContext request) {
+            int completed = 0;
+            try {
+                for (; completed < guards.length; completed++) {
+                    guards[completed].before(request);
+                }
+                entered.set(completed);
+            } catch (Throwable failure) {
+                for (int index = completed - 1; index >= 0; index--) {
+                    try {
+                        guards[index].after(failure);
+                    } catch (Throwable cleanupFailure) {
+                        failure.addSuppressed(cleanupFailure);
+                    }
+                }
+                entered.remove();
+                throw failure;
+            }
+        }
+
+        @Override
+        public void after() {
+            after(null);
+        }
+
+        @Override
+        public void after(Throwable invocationFailure) {
+            int completed = entered.get();
+            entered.remove();
+            Throwable failure = null;
+            for (int index = completed - 1; index >= 0; index--) {
+                try {
+                    guards[index].after(invocationFailure);
+                } catch (Throwable cleanupFailure) {
+                    if (failure == null) failure = cleanupFailure;
+                    else failure.addSuppressed(cleanupFailure);
+                }
+            }
+            if (failure instanceof RuntimeException runtimeException) throw runtimeException;
+            if (failure instanceof Error error) throw error;
+            if (failure != null) throw new IllegalStateException("Request guard cleanup failed", failure);
+        }
+
+        @Override
+        public <T> java.util.concurrent.CompletionStage<T> afterAsync(
+                java.util.concurrent.CompletionStage<T> stage) {
+            int completed = entered.get();
+            entered.remove();
+            java.util.concurrent.CompletionStage<T> result = stage;
+            for (int index = completed - 1; index >= 0; index--) {
+                try {
+                    result = guards[index].afterAsync(result);
+                } catch (Throwable failure) {
+                    for (int remaining = index - 1; remaining >= 0; remaining--) {
+                        try {
+                            guards[remaining].after(failure);
+                        } catch (Throwable cleanupFailure) {
+                            failure.addSuppressed(cleanupFailure);
+                        }
+                    }
+                    return java.util.concurrent.CompletableFuture.failedFuture(failure);
+                }
+            }
+            return result;
         }
     }
 
@@ -849,6 +1065,42 @@ public final class RouteScanner {
 
     private static boolean isVoidRequestType(Class<?> requestType) {
         return requestType == Void.class || requestType == void.class;
+    }
+
+    private static boolean generatedKind(
+            GeneratedPrimitiveBinding binding,
+            boolean sourceMatches,
+            GeneratedPrimitiveBinding.Kind kind) {
+        return sourceMatches && binding.kind() == kind;
+    }
+
+    private static int generatedIntDefault(GeneratedPrimitiveBinding binding) {
+        return binding == null || binding.defaultValue().isEmpty()
+                ? 0
+                : Integer.parseInt(binding.defaultValue());
+    }
+
+    private static long generatedLongDefault(GeneratedPrimitiveBinding binding) {
+        return binding == null || binding.defaultValue().isEmpty()
+                ? 0L
+                : Long.parseLong(binding.defaultValue());
+    }
+
+    private static boolean generatedBooleanDefault(GeneratedPrimitiveBinding binding) {
+        return binding != null && !binding.defaultValue().isEmpty()
+                && Boolean.parseBoolean(binding.defaultValue());
+    }
+
+    private static double generatedDoubleDefault(GeneratedPrimitiveBinding binding) {
+        return binding == null || binding.defaultValue().isEmpty()
+                ? 0.0d
+                : Double.parseDouble(binding.defaultValue());
+    }
+
+    private static short generatedShortDefault(GeneratedPrimitiveBinding binding) {
+        return binding == null || binding.defaultValue().isEmpty()
+                ? (short) 0
+                : Short.parseShort(binding.defaultValue());
     }
 
     private static boolean pathContainsVariable(String path, String variableName) {

@@ -13,8 +13,6 @@ import java.util.function.Supplier;
  */
 public final class AsyncHandlerExecutor {
 
-    private static final AsyncHandlerExecutor INSTANCE = new AsyncHandlerExecutor();
-
     private final ExecutorService executor;
     private final boolean virtualThreadsAvailable;
     private final Semaphore inFlight;
@@ -41,7 +39,15 @@ public final class AsyncHandlerExecutor {
     }
 
     public static AsyncHandlerExecutor getInstance() {
-        return INSTANCE;
+        return CompatibilityHolder.INSTANCE;
+    }
+
+    public static AsyncHandlerExecutor create() {
+        return new AsyncHandlerExecutor();
+    }
+
+    private static final class CompatibilityHolder {
+        private static final AsyncHandlerExecutor INSTANCE = new AsyncHandlerExecutor();
     }
 
     /**

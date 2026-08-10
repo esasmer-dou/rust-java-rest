@@ -6,7 +6,7 @@ import java.lang.annotation.*;
  * The annotated element size must be between the specified boundaries.
  * Supports String, Collection, Map, and arrays.
  */
-@Target(ElementType.FIELD)
+@Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Size {
     int min() default 0;

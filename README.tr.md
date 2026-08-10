@@ -2,40 +2,118 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-Rust-Java REST, iş mantığını Java'da tutan düşük gecikmeli bir REST framework'üdür. HTTP bağlantısı,
-request parse, response yazma, dosya stream, WebSocket ve backpressure işleri Rust Hyper tarafında
-çalışır. Handler, service, component, validation ve veri tabanı kodunuz Java'da kalır.
+[![Sürüm](https://img.shields.io/badge/sürüm-4.2.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Java](https://img.shields.io/badge/Java-21-green.svg)]()
+[![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)]()
 
-## Hızlı Başlangıç
+Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
+İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
+dosya aktarımını, WebSocket transport'unu ve native backpressure mekanizmasını yönetir.
+
+Temel ayrım nettir:
+
+| Sorumluluk | Çalıştığı taraf |
+| --- | --- |
+| Handler, service, component ve business rule | Java |
+| Record, validation, veri tabanı ve RPC çağrısı | Java |
+| HTTP accept, parse, response write ve file stream | Rust |
+| Bounded queue, native buffer ve connection yönetimi | Rust |
+| Component graph ve route invoker üretimi | Maven build sırasında Java codegen |
+
+Framework, Spring Boot kopyası değildir. Benzer REST annotation'ları sunar. Ancak daha küçük ve daha
+öngörülebilir bir runtime yüzeyi hedefler.
+
+## İçindekiler
+
+- [Beş Dakikada Başlangıç](#beş-dakikada-başlangıç)
+- [En Küçük Starter Setini Seçin](#en-küçük-starter-setini-seçin)
+- [Platform ve Starter Rehberi](platform/README.tr.md)
+- [REST Endpoint Örneği](#rest-endpoint-örneği)
+- [Build Sırasında Neler Üretilir?](#build-sırasında-neler-üretilir)
+- [Response Yolunu Seçin](#response-yolunu-seçin)
+- [Runtime Profilini Seçin](#runtime-profilini-seçin)
+- [Konfigürasyon Önceliği](#konfigürasyon-önceliği)
+- [Production Kontrol Listesi](#production-kontrol-listesi)
+- [Örnek Projeler](#örnek-projeler)
+- [Sürüm ve Native ABI](#sürüm-ve-native-abi)
+
+## Beş Dakikada Başlangıç
+
+Yeni projede platform parent ve yalnız ihtiyacınız olan starter'ı kullanın. Parent; framework,
+codegen, Maven plugin ve ek kütüphane sürümlerini hizalar. Annotation processor sınıfları derleme
+yolunda kalır. Production runtime JAR'ına girmez.
 
 ```xml
-<dependency>
+<parent>
   <groupId>com.reactor</groupId>
-  <artifactId>rust-java-rest</artifactId>
-  <version>4.1.0</version>
-</dependency>
+  <artifactId>rust-java-platform-parent</artifactId>
+  <version>4.2.0</version>
+</parent>
+
+<dependencies>
+  <dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-starter-rest</artifactId>
+  </dependency>
+</dependencies>
+```
+
+Application sınıfını oluşturun:
+
+```java
+package com.example.catalog;
+
+import com.reactor.rust.annotations.ReactorApplication;
+import com.reactor.rust.app.RestApplication;
+
+@ReactorApplication(scanBasePackages = "com.example.catalog")
+public final class CatalogApplication {
+    public static void main(String[] args) {
+        RestApplication.run(CatalogApplication.class, args);
+    }
+}
+```
+
+Bir service ve handler ekleyin:
+
+```java
+package com.example.catalog;
+
+import com.reactor.rust.di.annotation.Component;
+
+@Component
+final class CatalogService {
+    CatalogItem find(long id) {
+        return new CatalogItem(id, "READY");
+    }
+}
+
+record CatalogItem(long id, String status) {}
 ```
 
 ```java
-@ReactorApplication(scanBasePackages = "com.example.app")
-public final class Application {
-    public static void main(String[] args) {
-        RestApplication.run(Application.class, args);
-    }
-}
+package com.example.catalog;
 
-@RestController
-public final class HealthHandler {
-    @GetMapping("/app/health")
-    public ResponseEntity<RawResponse> health() {
-        return ResponseEntity.ok(RawResponse.text(
-                "{\"status\":\"UP\"}", "application/json"));
+import com.reactor.rust.annotations.GetMapping;
+import com.reactor.rust.annotations.PathVariable;
+import com.reactor.rust.annotations.RestController;
+
+@RestController("/api/v1/catalog")
+final class CatalogHandler {
+    private final CatalogService catalog;
+
+    CatalogHandler(CatalogService catalog) {
+        this.catalog = catalog;
+    }
+
+    @GetMapping("/{id}")
+    CatalogItem get(@PathVariable("id") long id) {
+        return catalog.find(id);
     }
 }
 ```
 
-`scanBasePackages` yazılmazsa main sınıfının paketi taranır. Bu alan yazılırsa yalnızca belirtilen
-paket kökleri taranır. `app`, `handler` ve `service` kardeş paketlerse ortak uygulama kökünü yazın.
+Küçük bir property dosyası yeterlidir:
 
 ```properties
 server.host=0.0.0.0
@@ -43,96 +121,233 @@ server.port=8080
 reactor.runtime.profile=micro-rest
 ```
 
-## Hangi Response Yolu Seçilir?
+Build alın ve çalıştırın:
 
-| İhtiyaç | Seçim | Etkisi |
-| --- | --- | --- |
-| Küçük record JSON | Normal record veya generated direct writer | Java kodu sade kalır. Generated writer reflection ve ara buffer maliyetini azaltır. |
-| Büyük dinamik JSON | `JsonProducerResponse` | Büyük DTO listesi kurmadan JSON doğrudan native buffer'a yazılır. |
-| Hazır veya değişmeyen JSON | `RawResponse` ya da `@NativeStaticRoute` | Tekrar serialize edilmez. Static route Java'ya girmeden Rust'tan dönebilir. |
-| Büyük dosya | `FileResponse` | Dosya Java heap ve JNI body üzerinden taşınmaz. Rust dosyayı backpressure ile stream eder. |
-| WebSocket | `@WebSocket` | Session queue ve frame limiti Rust tarafında sınırlı tutulur. |
-
-## Profil Seçimi
-
-| Profil | Ne zaman seçilir? |
-| --- | --- |
-| `micro-rest` | Küçük pod, az thread ve düşük RSS önceliği varsa başlangıç seçeneğidir. |
-| `micro-rest-plus` | Ağır JSON endpoint'leri c256/c512 yükte daha fazla kapasite istiyorsa ölçerek seçilir. |
-| `balanced` | Daha yüksek eşzamanlılık gerekir ve ek memory bütçesi kabul edilebilirse kullanılır. |
-| `throughput` | RPS önceliklidir. Daha büyük queue, pool ve thread bütçesi kabul edilir. |
-
-Profil bir garanti değildir. Kendi endpoint setinizle p99, `503` oranı ve container RSS ölçün.
-
-## 4.1.0 ile Gelen Sade Kullanım
-
-`4.1.0`, business logic kodunu değiştirmeden uygulama bağlantı kodunu azaltır.
-`@ReactorApplication`, `@RestController`, constructor injection ve `@Bean` tanımları build sırasında
-doğrudan factory ve route invoker sınıflarına çevrilir. Annotation processor sınıfları production
-JAR'a girmez. Request sırasında yeni runtime reflection çalışmaz.
-
-- Aynı interface'i iki bean sağlıyorsa birini `@Primary` seçin veya `@Qualifier` kullanın.
-- Constructor veya `@Bean` başlangıçta hata verirse bean adı ve asıl hata korunur.
-- `scanBasePackages` verilirse yalnız yazılan paketler kullanılır. Verilmezse application paketi
-  kullanılır.
-- Per-key command sınırı için sample'a özel sınıf yazmak yerine `LongKeyAdmission` kullanılabilir.
-- Proje generator REST, cache reader/writer, static Dubbo ve ZooKeeper Dubbo başlangıç projeleri
-  oluşturabilir.
-
-Handler, service, record, validation, response tipi ve native ABI `4.0.0` ile uyumludur.
-
-## 4.0.0 Geçiş Notu
-
-Handler, service, record, validation ve REST annotation kullanımı değişmedi. `4.0.0`, artık gerekli
-olmayan eski uyumluluk sınıflarını kaldırdığı için major sürümdür.
-
-| Kaldırılan API | Yeni kullanım |
-| --- | --- |
-| `FastMapV2` | `RequestValueMap` veya typed/direct route parametreleri |
-| Elle çalışan `StartupIndexGenerator` | `codegen` classifier içindeki `ReactorStartupProcessor` |
-| `RestApplication.sleepForever()` | `RestApplication.run(...)`, `start(...)` veya `startAsync(...)` |
-| Eski allocation tabanlı primitive parser yardımcıları | Typed/direct path ve query binding |
-
-Bu sınıfları doğrudan import etmeyen projelerde normal geçiş, Maven sürümünü güncellemek ve clean
-build almaktır.
-
-## Derleme Zamanı Üretimi
-
-`rust-java-rest:codegen` yalnız derleme sırasında kullanılır. Runtime JAR içine girmez.
-
-```xml
-<annotationProcessorPaths>
-  <path>
-    <groupId>com.reactor</groupId>
-    <artifactId>rust-java-rest</artifactId>
-    <version>4.1.0</version>
-    <classifier>codegen</classifier>
-  </path>
-</annotationProcessorPaths>
+```powershell
+mvn clean verify
+mvn exec:java
+curl http://localhost:8080/api/v1/catalog/1
 ```
 
-`codegen` JAR gerekli processor'ları otomatik bulur. Processor sınıflarını tek tek yazmanız gerekmez.
-Bu metadata production JAR'a girmez.
+`scanBasePackages` verilmezse application sınıfının paketi kullanılır. Handler ve service sınıfları
+kardeş paketlerdeyse ortak paket kökünü yazın.
 
-Processor'lar şu dosyaları ve sınıfları üretir:
+## En Küçük Starter Setini Seçin
 
-- `components.idx`: component listesi.
-- `routes.idx`: HTTP method ve path listesi.
-- `properties.idx`: `@RustProperty` metadata listesi.
-- `ReactorApplicationDescriptor`: component factory ve startup descriptor.
-- Constructor injection ve `@Bean` metotları için doğrudan factory sınıfları.
-- Route metotları için doğrudan Java invoker sınıfları.
-- `@GenerateDirectJsonWriter` ile işaretlenen scalar record'lar için direct JSON writer.
+Her ihtimal için tüm starter'ları eklemeyin. Sürecin yaptığı işe göre seçim yapın.
 
-Bu yaklaşım runtime classpath taramasını ve tekrar eden reflection maliyetini azaltır. Processor
-çalışmazsa framework mevcut uyumlu fallback yolunu kullanabilir. Production'da diagnostics üzerinden
-fallback sayısını takip edin ve strict gate'i yalnız temiz ölçümden sonra açın.
+| Uygulama tipi | Eklenecek starter | Eklenmemesi gereken gereksiz yüzey |
+| --- | --- | --- |
+| Yalnız REST API | `rust-java-starter-rest` | Dubbo, Redis, scheduler ve WebSocket |
+| REST + native Dubbo consumer | `rust-java-starter-dubbo` | Static discovery kullanırken resmi Dubbo, Netty ve ZooKeeper |
+| REST + Redis reader | `rust-java-starter-cache-reader` | Redis writer lifecycle'ı |
+| PostgreSQL'den Redis'e yazan scheduler | `rust-java-starter-cache-writer` | REST runtime |
+| WebSocket servisi | `rust-java-starter-websocket` | WebSocket kullanmayan servislerde bu starter |
+| REST + OpenAPI | `rust-java-starter-rest`, `rust-java-starter-openapi` | Runtime controller taraması |
+| REST + JWT | `rust-java-starter-rest`, `rust-java-starter-security` | Her request'te dinamik policy arama |
+| REST + dış HTTP çağrısı | `rust-java-starter-rest`, `rust-java-starter-http-client` | Dynamic proxy ve sınırsız executor |
 
-Normal uygulamada `@ReactorApplication`, `@RestController` ve constructor injection kullanın. Bir
-artefact içinde birbirinden farklı ve bilinçli olarak küçültülmüş runtime yüzeyleri dağıtıyorsanız
-`RestApplication.Module` kullanabilirsiniz. Module yolu ileri seviye bir composition seçeneğidir.
+Kapalı bir özellik request yolunda çalışmayabilir. Ancak gereksiz dependency yine classpath'i
+büyütür. Bu nedenle kullanılmayan starter'ı eklememek en doğru memory optimizasyonudur.
 
-## Yeni Proje Oluşturma
+Tüm starter'ların açıklaması için [Platform Rehberi](platform/README.tr.md) dosyasına bakın.
+
+## REST Endpoint Örneği
+
+Aşağıdaki örnek temel verb'leri aynı handler içinde gösterir. JSON sözleşmelerinde immutable record
+kullanın. Validation işini request record üzerinde açıkça tanımlayın.
+
+```java
+@Request
+public record ProductCommand(
+        @NotBlank String name,
+        @Positive long priceCents) {}
+
+public record ProductResponse(long id, String name, long priceCents) {}
+```
+
+```java
+@RestController("/api/v1/products")
+final class ProductHandler {
+    private final ProductService products;
+
+    ProductHandler(ProductService products) {
+        this.products = products;
+    }
+
+    @GetMapping("/{id}")
+    ProductResponse get(@PathVariable("id") long id) {
+        return products.get(id);
+    }
+
+    @GetMapping("")
+    List<ProductResponse> list(
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
+        return products.list(limit);
+    }
+
+    @PostMapping("")
+    ResponseEntity<ProductResponse> create(@RequestBody @Valid ProductCommand command) {
+        return ResponseEntity.created(products.create(command));
+    }
+
+    @PutMapping("/{id}")
+    ProductResponse replace(
+            @PathVariable("id") long id,
+            @RequestBody @Valid ProductCommand command) {
+        return products.replace(id, command);
+    }
+
+    @PatchMapping("/{id}")
+    ProductResponse patch(
+            @PathVariable("id") long id,
+            @RequestBody @Valid ProductCommand command) {
+        return products.patch(id, command);
+    }
+
+    @DeleteMapping("/{id}")
+    ResponseEntity<Void> delete(@PathVariable("id") long id) {
+        products.delete(id);
+        return ResponseEntity.noContent();
+    }
+}
+```
+
+Business logic handler içinde büyümemelidir. Handler HTTP sözleşmesini yönetir. Service iş kararını
+uygular. Repository veri tabanı erişimini yönetir.
+
+### Response ve Hata Sözleşmesi
+
+Normal `200` sonucu için DTO'yu doğrudan döndürmek en küçük yoldur. Status veya header değişecekse
+`HttpResponse<T>` kullanın. Tutarlı hata body için RFC 9457 uyumlu `ProblemDetail` kullanın.
+
+```java
+@Component
+final class ApiErrors {
+    @ExceptionHandler(NotFoundException.class)
+    HttpResponse<ProblemDetail> notFound(NotFoundException error) {
+        return HttpResponse.notFound(
+                ProblemDetail.of(HttpStatus.NOT_FOUND, error.getMessage())
+                        .withCode("catalog_not_found"));
+    }
+}
+```
+
+Exception handler'lar indexlenir ve generated kod üzerinden çağrılır. Her route içinde aynı
+`try/catch` kodunu tekrarlamayın. Dependency hata metnini doğrudan client'a açmayın.
+
+## Build Sırasında Neler Üretilir?
+
+Framework, runtime reflection yerine build-time üretimi tercih eder.
+
+| Sizin tanımınız | Üretilen çıktı | Runtime etkisi |
+| --- | --- | --- |
+| `@ReactorApplication` | Application descriptor ve startup index | Kontrollü ve doğrudan startup |
+| Constructor parametreleri | Bean factory ve dependency graph | Reflective DI araması yok |
+| REST annotation'ları | Route'a özel invoker | Reflective method çağrısı yok |
+| `@ConfigurationProperties` | Tip güvenli property binder | Hatalı değer startup'ta reddedilir |
+| `@GenerateDirectJsonWriter` | Tipe özel JSON writer | Generic serializer maliyeti azalır |
+| `@GenerateJdbcMapper` | Doğrudan `ResultSet` mapper | Runtime record incelemesi yok |
+| `@ReactorHttpClient` | Typed HTTP client | Dynamic proxy yok |
+| `@Scheduled` | Bounded task kaydı | Scheduler lifecycle framework tarafından kapatılır |
+| `@RequiresProperty` ve `@Profile` | Koşullu bean ve route planı | Koşul her request'te değil, startup'ta değerlendirilir |
+
+Platform parent, `mvn clean verify` sırasında AOT ve native ABI gate'lerini çalıştırır. Generated
+dosyalar `target/generated-sources/annotations` ve `target/classes/META-INF/reactor` altında bulunur.
+Bu dosyaları elle yazmayın.
+
+Compatibility scanning yalnız eski projelerin geçişi içindir. Yeni production uygulamasında strict
+AOT yolunu kullanın. Fallback tüm çağrıların sessizce yavaş yola düşmesine izin vermemelidir.
+
+## Response Yolunu Seçin
+
+Response tipi yalnız kod stili değildir. Allocation, JNI copy ve RSS davranışını değiştirir.
+
+| Veri biçimi | Seçim | Ne zaman kullanılır? | Maliyet |
+| --- | --- | --- | --- |
+| Küçük dinamik JSON | Record veya `ResponseEntity<Record>` | Normal business API | En sade yol; küçük object graph kabul edilir |
+| Scalar ve sık kullanılan record | `@GenerateDirectJsonWriter` | Aynı tip yoğun serialize ediliyorsa | Build-time writer; daha az reflection ve ara buffer |
+| Büyük dinamik JSON | `JsonProducerResponse` | Büyük liste üretilecekse | DTO listesi kurmadan native buffer'a yazar |
+| JSON zaten hazır | `RawResponse` | Redis, DB veya provider hazır JSON veriyorsa | Tekrar serialize etmez |
+| Değişmeyen response | `@NativeStaticRoute` | Health, metadata veya sabit sözlük | Java handler'a girmeden Rust dönebilir |
+| Büyük dosya | `FileResponse` | CSV, rapor veya indirme | Dosya Java heap'e alınmaz |
+| Native provider JSON'u | Native response handle | Dubbo/cache body yalnız iletilecekse | Java `byte[]` materialization kaldırılabilir |
+
+`RawResponse` genel amaçlı bir cache değildir. Yalnız elinizde hazır body varsa kullanılır.
+`NativeStaticRoute` ise restart'a kadar değişmeyen bilinçli bir response içindir.
+
+## Runtime Profilini Seçin
+
+Önce en küçük uygun profille başlayın. Yalnız ölçüm sonucu limit değiştirin.
+
+| Profil | Uygun kullanım | Beklenen davranış |
+| --- | --- | --- |
+| `micro-rest` | Küçük pod, düşük veya orta trafik | Az worker ve küçük pool; overload durumunda kontrollü `503` olabilir |
+| `micro-rest-plus` | Ağır producer/direct JSON ve daha yüksek eşzamanlılık | Daha geniş route bütçesi; RSS artışı ölçülmelidir |
+| `micro-dubbo` | Memory öncelikli Dubbo consumer | Az bağlantı ve worker; burst yükte fail-fast davranır |
+| `balanced` | Sürekli orta-yüksek trafik | Latency, başarı oranı ve memory arasında denge |
+| `throughput` | RPS öncelikli servis | Daha fazla thread, queue ve retained memory |
+
+`p99`, isteklerin yüzde 99'unun tamamlandığı gecikme sınırıdır. `503`, servis kapasitesi dolduğunda
+isteğin kontrollü biçimde reddedildiğini gösterir. Sınırsız queue kullanmak `503` sayısını gizleyebilir;
+ancak p99 değerini ve memory kullanımını kötüleştirir.
+
+Profil seçimi performans garantisi değildir. Kendi endpoint karışımınızla en az c64 ve c256 yükte
+RPS, p99, `503` oranı ve container RSS ölçün. Ağır route için global worker artırmak yerine
+`@RouteAdmission` veya workload bazlı route budget kullanın.
+
+## Konfigürasyon Önceliği
+
+Değerler aşağıdaki sırayla uygulanır. Üstteki kaynak alttakini ezer:
+
+1. JVM `-D...` değerleri ve desteklenen environment variable'lar.
+2. `reactor.config.file` veya `REACTOR_CONFIG_FILE` ile verilen dış property dosyaları.
+3. Classpath içindeki `rust-spring.properties`.
+4. `RuntimeProfilePlan` ile yalnız eksik değerler için verilen uygulama varsayılanları.
+
+Production secret'larını JAR içindeki property dosyasına yazmayın. Kubernetes Secret veya platformun
+secret yönetimini kullanın. Framework property dosyasının tamamını her projeye kopyalamayın. Yalnız
+uygulamanızın değiştirdiği değerleri tutun.
+
+Property ve profil ayrıntıları:
+
+- [Konfigürasyon rehberi](docs/configuration.tr.md)
+- [Production runtime ve memory rehberi](docs/production-runtime.md)
+- [OpenJ9 startup rehberi](docs/startup-tuning.md)
+
+## Production Kontrol Listesi
+
+- `mvn clean verify` başarılı olmalıdır.
+- AOT component ve route index'leri JAR içinde bulunmalıdır.
+- Runtime loglarında scan veya invoker fallback görülmemelidir.
+- DLL/SO aynı Maven paketinden gelmelidir. ABI uyuşmazlığı startup'ı durdurmalıdır.
+- Liveness yalnız process durumunu kontrol etmelidir.
+- Readiness gerekli Redis, Dubbo veya DB bağımlılıklarını bounded timeout ile kontrol etmelidir.
+- c64 ve c256 yükte RPS, p99, `503`, JNI queue wait ve container RSS birlikte ölçülmelidir.
+- DB, Redis, Dubbo ve outbound HTTP için timeout ile bounded inflight limiti bulunmalıdır.
+- Command retry yalnız idempotency anahtarı veya idempotent işlem varsa açılmalıdır.
+- Büyük response için DTO listesi yerine producer, raw, file veya native handle yolu değerlendirilmelidir.
+- Pod CPU ve memory limitleri gerçek staging yüküyle doğrulanmalıdır.
+
+`503` her zaman framework hatası değildir. Çoğu zaman bounded overload davranışıdır. Limiti artırmadan
+önce CPU, provider, DB pool, Redis ve RSS kapasitesini birlikte kontrol edin.
+
+## Örnek Projeler
+
+| İhtiyaç | Başlangıç projesi |
+| --- | --- |
+| En küçük REST endpoint | [`examples/minimal-rest`](examples/minimal-rest) |
+| GET, POST, PUT, PATCH ve DELETE | [`examples/crud`](examples/crud) |
+| Upload | [`examples/upload`](examples/upload) |
+| Büyük JSON ve dosya response | [`examples/streaming`](examples/streaming) |
+| WebSocket | [`examples/websocket`](examples/websocket) |
+| Redis'ten hazır JSON okuyan REST API | `rest-sample-cache-reader` |
+| PostgreSQL'den Redis snapshot üreten scheduler | `rest-sample-cache-writer` |
+| Dubbo provider çağıran REST API | `rest-sample-dubbo-consumer` |
+| Plain Java Dubbo provider | `rest-sample-dubbo-provider` |
+
+`sample` modülü tam uyumluluk ve benchmark demosudur. Production template değildir. Yeni proje için
+starter tabanlı yapı veya `scripts/new-reactor-project.ps1` kullanın.
 
 ```powershell
 .\scripts\new-reactor-project.ps1 `
@@ -142,25 +357,31 @@ artefact içinde birbirinden farklı ve bilinçli olarak küçültülmüş runti
   -Group com.example
 ```
 
-Desteklenen biçimler: `rest`, `cache-reader`, `cache-writer`, `dubbo-static` ve
-`dubbo-zookeeper`. Generator dolu bir klasörün üzerine yazmaz.
+Desteklenen biçimler: `rest`, `cache-reader`, `cache-writer`, `dubbo-static` ve `dubbo-zookeeper`.
+Generator dolu bir klasörün üzerine yazmaz.
 
-## Ayrı Örnekler
+## Sürüm ve Native ABI
 
-`examples` dizinindeki her proje ayrı artifact olarak derlenir:
+Yayınlanmış dependency çizgisi `rust-java-rest:4.2.0`, `java-rust-dubbo:0.7.0` ve
+`java-rust-cache:0.7.0` şeklindedir. Bu çalışma ağacındaki native artefact'ler REST ABI `26`, Dubbo
+ABI `7` ve Redis ABI `6` taşır.
 
-- `minimal-rest`
-- `crud`
-- `upload`
-- `streaming`
-- `websocket`
-- `benchmark`
+Native DLL/SO dosyasını başka bir sürümden kopyalamayın. Startup; ABI, platform, source revision ve
+SHA-256 provenance bilgisini doğrular. Uyumsuz binary trafik başlamadan reddedilir.
 
-Tümünü doğrulamak için:
+Java tarafındaki handler, service, record ve annotation modeli korunur. Native ABI değişikliği Java
+business logic kullanımını değiştirmez. Yalnız runtime ve native binary aynı paket çizgisinde olmalıdır.
 
-```powershell
-mvn -f examples/pom.xml clean package
-```
+## Ayrıntılı Rehberler
 
-Detaylı İngilizce referans için [README.md](README.md) dosyasını kullanın. Türkçe kullanım akışı için
-[deklaratif geliştirme rehberine](docs/declarative-development.tr.md) bakın.
+- [Deklaratif geliştirme](docs/declarative-development.tr.md)
+- [Platform ve starter seçimi](platform/README.tr.md)
+- [Konfigürasyon](docs/configuration.tr.md)
+- [Operasyon](docs/operations.tr.md)
+- [Sorun giderme](docs/troubleshooting.tr.md)
+- [Compile edilmiş örnekler](examples/README.tr.md)
+- [Benchmark metodolojisi ve kanıt arşivi](benchmark/README.md)
+- [Sürüm notları](docs/release-notes/v4.2.0.tr.md)
+
+Business logic Java'da kalır. Rust yalnız düşük seviyeli I/O ve seçilmiş serialization/transport
+işlerini üstlenir. Bu sınırı korumak framework'ün temel tasarım kararıdır.

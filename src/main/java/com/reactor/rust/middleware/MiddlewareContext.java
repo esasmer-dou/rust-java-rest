@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Context object passed through the middleware chain.
  * Contains request information and allows storing attributes.
  */
+@Deprecated(forRemoval = true)
 public final class MiddlewareContext {
 
     private final String method;
@@ -19,7 +20,7 @@ public final class MiddlewareContext {
     private final byte[] body;
 
     // Mutable attributes - middleware can store data here
-    private final Map<String, Object> attributes = new ConcurrentHashMap<>();
+    private volatile Map<String, Object> attributes;
 
     public MiddlewareContext(String method, String path, String queryString,
                              Map<String, String> headers, Map<String, String> pathParams, byte[] body) {
@@ -39,11 +40,29 @@ public final class MiddlewareContext {
     public byte[] body() { return body; }
 
     // Attribute methods
-    public Object getAttribute(String key) { return attributes.get(key); }
-    public void setAttribute(String key, Object value) { attributes.put(key, value); }
-    public boolean hasAttribute(String key) { return attributes.containsKey(key); }
-    public void removeAttribute(String key) { attributes.remove(key); }
-    public Map<String, Object> attributes() { return attributes; }
+    public Object getAttribute(String key) {
+        Map<String, Object> current = attributes;
+        return current == null ? null : current.get(key);
+    }
+
+    public void setAttribute(String key, Object value) {
+        mutableAttributes().put(key, value);
+    }
+
+    public boolean hasAttribute(String key) {
+        Map<String, Object> current = attributes;
+        return current != null && current.containsKey(key);
+    }
+
+    public void removeAttribute(String key) {
+        Map<String, Object> current = attributes;
+        if (current != null) current.remove(key);
+    }
+
+    public Map<String, Object> attributes() {
+        Map<String, Object> current = attributes;
+        return current == null ? Map.of() : current;
+    }
 
     // Header helpers
     public String getHeader(String name) {
@@ -68,13 +87,20 @@ public final class MiddlewareContext {
     // Query param helpers
     public String getQueryParam(String name) {
         if (queryString == null || queryString.isEmpty()) return null;
-        for (String pair : queryString.split("&")) {
-            int idx = pair.indexOf('=');
-            if (idx > 0 && pair.substring(0, idx).equals(name)) {
-                return idx < pair.length() - 1
-                        ? UrlCodec.decodeComponent(pair.substring(idx + 1), true)
-                        : "";
+        int start = 0;
+        while (start <= queryString.length()) {
+            int end = queryString.indexOf('&', start);
+            if (end < 0) end = queryString.length();
+            int separator = queryString.indexOf('=', start);
+            if (separator < 0 || separator > end) separator = end;
+            int keyLength = separator - start;
+            if (keyLength == name.length()
+                    && queryString.regionMatches(start, name, 0, keyLength)) {
+                if (separator == end) return "";
+                return UrlCodec.decodeComponent(queryString.substring(separator + 1, end), true);
             }
+            if (end == queryString.length()) break;
+            start = end + 1;
         }
         return null;
     }
@@ -89,5 +115,18 @@ public final class MiddlewareContext {
      */
     public String getMethod() {
         return method;
+    }
+
+    private Map<String, Object> mutableAttributes() {
+        Map<String, Object> current = attributes;
+        if (current != null) return current;
+        synchronized (this) {
+            current = attributes;
+            if (current == null) {
+                current = new ConcurrentHashMap<>(4);
+                attributes = current;
+            }
+            return current;
+        }
     }
 }

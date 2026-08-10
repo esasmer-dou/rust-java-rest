@@ -12,8 +12,9 @@ public final class ArtifactLayoutVerifier {
     private ArtifactLayoutVerifier() {}
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 3) {
-            throw new IllegalArgumentException("Expected: <runtime-jar> <codegen-jar> <class-prefix>");
+        if (args.length < 3) {
+            throw new IllegalArgumentException(
+                    "Expected: <runtime-jar> <codegen-jar> <class-prefix> [additional-runtime-jar...]");
         }
         Path runtime = Path.of(args[0]);
         Path codegen = Path.of(args[1]);
@@ -25,6 +26,17 @@ public final class ArtifactLayoutVerifier {
             throw new IllegalStateException("Codegen artifact is missing build-time classes: " + prefix);
         }
         verifyProcessorService(runtime, codegen);
+        for (int index = 3; index < args.length; index++) {
+            Path additionalRuntime = Path.of(args[index]);
+            if (contains(additionalRuntime, prefix)) {
+                throw new IllegalStateException(
+                        "Runtime artifact contains build-time classes: " + additionalRuntime);
+            }
+            if (containsExact(additionalRuntime, PROCESSOR_SERVICE)) {
+                throw new IllegalStateException(
+                        "Runtime artifact contains annotation processor metadata: " + additionalRuntime);
+            }
+        }
     }
 
     private static void verifyProcessorService(Path runtime, Path codegen) throws IOException {

@@ -5,7 +5,7 @@ import java.lang.annotation.*;
 /**
  * The annotated element must be a negative number (less than 0).
  */
-@Target(ElementType.FIELD)
+@Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Negative {
     String message() default "must be negative";

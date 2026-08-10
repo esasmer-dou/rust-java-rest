@@ -4,6 +4,7 @@ import com.reactor.rust.annotations.RouteWorkload;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -18,6 +19,10 @@ class RouteScannerValidationTest {
 
         @RouteWorkload(value = RouteWorkload.Type.RPC_COMMAND, budget = "rpc-command")
         void overridden() {}
+    }
+
+    static final class GuardedHandler {
+        void normal() {}
     }
 
     @Test
@@ -52,5 +57,55 @@ class RouteScannerValidationTest {
                 RouteWorkload.Type.RPC_COMMAND,
                 RouteScanner.effectiveRouteWorkload(WorkloadHandler.class, overridden).value()
         );
+    }
+
+    @Test
+    void composesRequestGuardsInReverseCleanupOrder() throws Exception {
+        ArrayList<String> calls = new ArrayList<>();
+        RequestGuardFactory first = (owner, method) -> guard("first", calls);
+        RequestGuardFactory second = (owner, method) -> guard("second", calls);
+        Method method = GuardedHandler.class.getDeclaredMethod("normal");
+
+        RequestGuard guard = RouteScanner.requestGuard(List.of(first, second), GuardedHandler.class, method);
+        guard.before(new RequestGuardContext("", "", "authorization: Bearer test\n", new byte[0]));
+        guard.after();
+
+        assertEquals(List.of("first:before", "second:before", "second:after", "first:after"), calls);
+    }
+
+    @Test
+    void rejectsGuardOnHeaderlessSpecializedNativePath() throws Exception {
+        Method method = GuardedHandler.class.getDeclaredMethod("normal");
+
+        assertThrows(IllegalStateException.class, () -> RouteScanner.validateGuardCompatibleRoute(
+                method,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                0,
+                0
+        ));
+    }
+
+    private static RequestGuard guard(String name, List<String> calls) {
+        return new RequestGuard() {
+            @Override
+            public void before(RequestGuardContext request) {
+                calls.add(name + ":before");
+            }
+
+            @Override
+            public void after() {
+                calls.add(name + ":after");
+            }
+        };
     }
 }

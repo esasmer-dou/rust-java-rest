@@ -12,7 +12,7 @@ output=$3
 group=${4:-com.example}
 package_name=${5:-}
 port=${6:-8080}
-version=${7:-4.0.0}
+version=${7:-4.2.0}
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 checkout_jar="$script_dir/../target/rust-java-rest-$version-codegen.jar"
 if [ -f "$checkout_jar" ]; then

@@ -14,9 +14,7 @@ import javax.lang.model.SourceVersion;
 /** Small, dependency-free project generator for the supported production shapes. */
 public final class ProjectGenerator {
 
-    private static final String REST_VERSION = "4.1.0";
-    private static final String CACHE_VERSION = "0.6.0";
-    private static final String DUBBO_VERSION = "0.6.0";
+    private static final String REST_VERSION = "4.2.0";
     private static final String ZOOKEEPER_VERSION = "3.7.2";
     private static final Pattern MAVEN_ID = Pattern.compile("[A-Za-z0-9_.-]+");
     private static final Pattern JAVA_PACKAGE = Pattern.compile(
@@ -149,7 +147,6 @@ public final class ProjectGenerator {
                 reactor.cache.redis.host=127.0.0.1
                 reactor.cache.redis.port=6379
                 reactor.cache.redis.read-connections=2
-                reactor.cache.redis.write-connections=1
                 """);
         writeReadme(options);
     }
@@ -212,10 +209,9 @@ public final class ProjectGenerator {
                 app.writer.shutdown-thread-name=cache-writer-shutdown
                 app.writer.run-once=false
                 reactor.cache.redis.topology=standalone
-                reactor.cache.redis.access-mode=read-write
+                reactor.cache.redis.access-mode=write-only
                 reactor.cache.redis.host=127.0.0.1
                 reactor.cache.redis.port=6379
-                reactor.cache.redis.read-connections=1
                 reactor.cache.redis.write-connections=1
                 """);
         writeReadme(options);
@@ -292,59 +288,40 @@ public final class ProjectGenerator {
     }
 
     private static String pom(Options options) {
-        boolean rest = options.mode() != Mode.CACHE_WRITER;
-        boolean cache = options.mode() == Mode.CACHE_READER || options.mode() == Mode.CACHE_WRITER;
-        boolean dubbo = options.mode() == Mode.DUBBO_STATIC || options.mode() == Mode.DUBBO_ZOOKEEPER;
         StringBuilder dependencies = new StringBuilder();
-        if (rest) dependencies.append(dependency("com.reactor", "rust-java-rest", REST_VERSION, null, null));
-        if (cache) dependencies.append(dependency("com.reactor", "java-rust-cache", CACHE_VERSION, null, null));
-        if (cache && rest) {
-            dependencies.append(dependency(
-                    "com.reactor", "java-rust-cache", CACHE_VERSION, "codegen", "provided"));
-        }
-        if (dubbo) {
-            String classifier = options.mode() == Mode.DUBBO_STATIC ? "native-static" : null;
-            dependencies.append(dependency("com.reactor", "java-rust-dubbo", DUBBO_VERSION, classifier, null));
-            dependencies.append(dependency("com.reactor", "java-rust-dubbo", DUBBO_VERSION, "codegen", "provided"));
-            if (options.mode() == Mode.DUBBO_ZOOKEEPER) {
+        switch (options.mode()) {
+            case REST -> dependencies.append(dependency(
+                    "com.reactor", "rust-java-starter-rest", null, null, null));
+            case CACHE_READER -> dependencies.append(dependency(
+                    "com.reactor", "rust-java-starter-cache-reader", null, null, null));
+            case CACHE_WRITER -> dependencies.append(dependency(
+                    "com.reactor", "rust-java-starter-cache-writer", null, null, null));
+            case DUBBO_STATIC -> dependencies.append(dependency(
+                    "com.reactor", "rust-java-starter-dubbo", null, null, null));
+            case DUBBO_ZOOKEEPER -> {
+                dependencies.append(dependency(
+                        "com.reactor", "rust-java-starter-rest", null, null, null));
+                dependencies.append(dependency(
+                        "com.reactor", "java-rust-dubbo", null, null, null));
                 dependencies.append(dependency(
                         "org.apache.zookeeper", "zookeeper", ZOOKEEPER_VERSION, null, null));
             }
         }
-        StringBuilder processorPaths = new StringBuilder();
-        if (rest) {
-            processorPaths.append(path("com.reactor", "rust-java-rest", REST_VERSION, "codegen"));
-        }
-        if (cache && rest) {
-            processorPaths.append(path("com.reactor", "java-rust-cache", CACHE_VERSION, "codegen"));
-        }
-        if (dubbo) {
-            processorPaths.append(path("com.reactor", "java-rust-dubbo", DUBBO_VERSION, "codegen"));
-        }
-        String compilerPlugin = processorPaths.isEmpty() ? "" : """
-                  <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.13.0</version>
-                    <configuration>
-                      <release>21</release>
-                      <annotationProcessorPaths>%s</annotationProcessorPaths>
-                    </configuration>
-                  </plugin>
-                """.formatted(processorPaths);
         return """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <project xmlns="http://maven.apache.org/POM/4.0.0"
                          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
                   <modelVersion>4.0.0</modelVersion>
+                  <parent>
+                    <groupId>com.reactor</groupId>
+                    <artifactId>rust-java-platform-parent</artifactId>
+                    <version>%s</version>
+                    <relativePath/>
+                  </parent>
                   <groupId>%s</groupId>
                   <artifactId>%s</artifactId>
                   <version>0.1.0-SNAPSHOT</version>
-                  <properties>
-                    <maven.compiler.release>21</maven.compiler.release>
-                    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-                  </properties>
                   <dependencies>%s</dependencies>
                   <repositories>
                     <repository><id>github-rest</id><url>https://maven.pkg.github.com/esasmer-dou/rust-java-rest</url></repository>
@@ -352,7 +329,6 @@ public final class ProjectGenerator {
                     <repository><id>github-dubbo</id><url>https://maven.pkg.github.com/esasmer-dou/java-rust-dubbo</url></repository>
                   </repositories>
                   <build><plugins>
-                    %s
                     <plugin>
                       <groupId>org.codehaus.mojo</groupId>
                       <artifactId>exec-maven-plugin</artifactId>
@@ -362,21 +338,16 @@ public final class ProjectGenerator {
                   </plugins></build>
                 </project>
                 """.formatted(
-                options.groupId(), options.artifactId(), dependencies,
-                compilerPlugin, options.packageName());
+                REST_VERSION, options.groupId(), options.artifactId(), dependencies,
+                options.packageName());
     }
 
     private static String dependency(String group, String artifact, String version, String classifier, String scope) {
         return "<dependency><groupId>" + group + "</groupId><artifactId>" + artifact
-                + "</artifactId><version>" + version + "</version>"
+                + "</artifactId>"
+                + (version == null ? "" : "<version>" + version + "</version>")
                 + (classifier == null ? "" : "<classifier>" + classifier + "</classifier>")
                 + (scope == null ? "" : "<scope>" + scope + "</scope>") + "</dependency>";
-    }
-
-    private static String path(String group, String artifact, String version, String classifier) {
-        return "<path><groupId>" + group + "</groupId><artifactId>" + artifact
-                + "</artifactId><version>" + version + "</version><classifier>" + classifier
-                + "</classifier></path>";
     }
 
     private static String restProperties(int port) {
@@ -401,24 +372,85 @@ public final class ProjectGenerator {
     }
 
     private static void writeReadme(Options options) throws IOException {
-        write(options.output().toAbsolutePath().normalize().resolve("README.md"), """
+        Path output = options.output().toAbsolutePath().normalize();
+        String propertyFile = options.mode() == Mode.CACHE_WRITER
+                ? "application.properties"
+                : "rust-spring.properties";
+        String englishShape = switch (options.mode()) {
+            case REST -> "A REST API with Rust HTTP I/O and Java business handlers.";
+            case CACHE_READER -> "A read-only REST API that serves prepared Redis projections.";
+            case CACHE_WRITER -> "A write-only scheduled process that publishes Redis projections without starting REST.";
+            case DUBBO_STATIC -> "A REST consumer that calls one statically addressed native Dubbo provider.";
+            case DUBBO_ZOOKEEPER -> "A REST consumer that discovers Dubbo providers through ZooKeeper.";
+        };
+        String turkishShape = switch (options.mode()) {
+            case REST -> "HTTP I/O işini Rust, business handler'ları Java tarafında çalışan REST API.";
+            case CACHE_READER -> "Hazır Redis projection'larını sunan read-only REST API.";
+            case CACHE_WRITER -> "REST başlatmadan Redis projection yayınlayan write-only scheduler process'i.";
+            case DUBBO_STATIC -> "Static adresli native Dubbo provider çağıran REST consumer.";
+            case DUBBO_ZOOKEEPER -> "Dubbo provider adreslerini ZooKeeper üzerinden bulan REST consumer.";
+        };
+        write(output.resolve("README.md"), """
                 # %s
+
+                [English](README.md) | [Türkçe](README.tr.md)
 
                 Generated Reactor project shape: `%s`.
 
-                ## Run
+                %s
+
+                The project uses `rust-java-platform-parent` and the smallest starter for this shape.
+                Code generators stay on the compiler path and are not packaged as runtime classes.
+
+                ## First Run
 
                 1. Configure the values in `src/main/resources/%s`.
                 2. Ensure the native library bundled by the selected Reactor dependency matches the host.
-                3. Run `mvn clean package`.
+                3. Run `mvn clean verify`.
                 4. Run `mvn exec:java`.
+
+                Business logic, handlers, validation, SQL, and contracts remain Java code. Add only
+                the starter required by this process. Keep queues, connection pools, and in-flight
+                work bounded.
 
                 GitHub Packages requires a Maven `settings.xml` entry with a token that has
                 `read:packages` access.
                 """.formatted(
                 options.artifactId(),
                 options.mode().id,
-                options.mode() == Mode.CACHE_WRITER ? "application.properties" : "rust-spring.properties"));
+                englishShape,
+                propertyFile));
+        write(output.resolve("README.tr.md"), """
+                # %s
+
+                [English](README.md) | [Türkçe](README.tr.md)
+
+                Üretilen Reactor proje biçimi: `%s`.
+
+                %s
+
+                Proje `rust-java-platform-parent` ve bu biçime uygun en küçük starter'ı kullanır.
+                Codegen sınıfları compiler yolunda kalır. Runtime dependency olarak paketlenmez.
+
+                ## İlk Çalıştırma
+
+                1. `src/main/resources/%s` içindeki değerleri düzenleyin.
+                2. Seçilen Reactor dependency içinde paketlenen native library'nin host ile uyumlu
+                   olduğundan emin olun.
+                3. `mvn clean verify` çalıştırın.
+                4. `mvn exec:java` çalıştırın.
+
+                Business logic, handler, validation, SQL ve kontrat Java kodu olarak kalır. Yalnız bu
+                process'in ihtiyaç duyduğu starter'ı ekleyin. Queue, connection pool ve in-flight iş
+                limitlerini bounded tutun.
+
+                GitHub Packages kullanımı için Maven `settings.xml` içinde `read:packages` yetkili
+                token tanımlanmalıdır.
+                """.formatted(
+                options.artifactId(),
+                options.mode().id,
+                turkishShape,
+                propertyFile));
     }
 
     enum Mode {

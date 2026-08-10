@@ -1,6 +1,7 @@
 package com.reactor.rust.bridge;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +31,20 @@ public final class GeneratedRouteInvokers {
                 method.getDeclaringClass(),
                 method.getName(),
                 method.getParameterTypes()));
+    }
+
+    /** Returns only build-time known route methods for the owner. */
+    static Method[] routeMethods(Class<?> owner) {
+        ArrayList<Method> methods = new ArrayList<>();
+        for (MethodKey key : INVOKERS.keySet()) {
+            if (key.owner != owner) continue;
+            try {
+                methods.add(owner.getDeclaredMethod(key.methodName, key.parameterTypes));
+            } catch (NoSuchMethodException failure) {
+                throw new IllegalStateException("Generated route method no longer exists: " + key, failure);
+            }
+        }
+        return methods.toArray(Method[]::new);
     }
 
     public static int size() {

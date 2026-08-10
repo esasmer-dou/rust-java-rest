@@ -17,6 +17,7 @@ import javax.tools.StandardLocation;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -27,7 +28,8 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
 
     private static final String ANNOTATION =
             "com.reactor.rust.annotations.GenerateDirectJsonWriter";
-    private static final String PROVIDER = "com.reactor.generated.ReactorDirectJsonWriterProvider";
+    private static final String RESPONSE = "com.reactor.rust.annotations.Response";
+    private static final String PROVIDER_PREFIX = "ReactorDirectJsonWriterProvider_";
     private static final String SERVICE =
             "META-INF/services/com.reactor.rust.json.DirectJsonWriterProvider";
 
@@ -37,7 +39,7 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
 
     @Override
     public Set<String> getSupportedAnnotationTypes() {
-        return Set.of(ANNOTATION);
+        return Set.of(ANNOTATION, RESPONSE);
     }
 
     @Override
@@ -49,7 +51,15 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
                     error(element, "@GenerateDirectJsonWriter requires a record");
                     continue;
                 }
-                generateWriter(record);
+                generateWriter(record, true);
+            }
+        }
+        TypeElement response = processingEnv.getElementUtils().getTypeElement(RESPONSE);
+        if (response != null) {
+            for (Element element : roundEnv.getElementsAnnotatedWith(response)) {
+                if (element instanceof TypeElement record && record.getKind() == ElementKind.RECORD) {
+                    generateWriter(record, false);
+                }
             }
         }
         if (roundEnv.processingOver() && !providerGenerated && !writers.isEmpty()) {
@@ -59,7 +69,7 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
         return true;
     }
 
-    private void generateWriter(TypeElement record) {
+    private void generateWriter(TypeElement record, boolean explicit) {
         String packageName = processingEnv.getElementUtils().getPackageOf(record)
                 .getQualifiedName().toString();
         String simpleName = record.getSimpleName() + "DirectJsonWriter";
@@ -71,8 +81,10 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
         for (RecordComponentElement component : record.getRecordComponents()) {
             ValueKind kind = valueKind(component.asType());
             if (kind == null) {
-                error(component, "Direct JSON generation supports scalar record components only; "
-                        + component.asType() + " requires an explicit business writer");
+                if (explicit) {
+                    error(component, "Direct JSON generation supports scalar record components only; "
+                            + component.asType() + " requires an explicit business writer");
+                }
                 return;
             }
             components.add(new ComponentModel(component.getSimpleName().toString(), kind));
@@ -113,11 +125,14 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
     }
 
     private void generateProvider() {
+        writers.sort(Comparator.comparing(WriterModel::recordType));
+        String simpleName = PROVIDER_PREFIX + stableSuffix(writers);
+        String provider = "com.reactor.generated." + simpleName;
         try {
-            JavaFileObject source = processingEnv.getFiler().createSourceFile(PROVIDER);
+            JavaFileObject source = processingEnv.getFiler().createSourceFile(provider);
             try (Writer writer = source.openWriter()) {
                 writer.write("package com.reactor.generated;\n\n");
-                writer.write("public final class ReactorDirectJsonWriterProvider"
+                writer.write("public final class " + simpleName
                         + " implements com.reactor.rust.json.DirectJsonWriterProvider {\n");
                 for (int index = 0; index < writers.size(); index++) {
                     WriterModel model = writers.get(index);
@@ -138,7 +153,7 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
             FileObject service = processingEnv.getFiler().createResource(
                     StandardLocation.CLASS_OUTPUT, "", SERVICE);
             try (Writer writer = service.openWriter()) {
-                writer.write(PROVIDER);
+                writer.write(provider);
                 writer.write('\n');
             }
         } catch (IOException failure) {
@@ -146,6 +161,20 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
                     Diagnostic.Kind.ERROR,
                     "Failed to generate direct JSON writer provider: " + failure.getMessage());
         }
+    }
+
+    private static String stableSuffix(List<WriterModel> models) {
+        long hash = 0xcbf29ce484222325L;
+        for (WriterModel model : models) {
+            String value = model.recordType();
+            for (int index = 0; index < value.length(); index++) {
+                hash ^= value.charAt(index);
+                hash *= 0x100000001b3L;
+            }
+            hash ^= '\n';
+            hash *= 0x100000001b3L;
+        }
+        return Long.toUnsignedString(hash, 16);
     }
 
     private String writeField(ComponentModel component) {

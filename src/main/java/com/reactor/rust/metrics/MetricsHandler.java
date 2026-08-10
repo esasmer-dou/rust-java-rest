@@ -3,6 +3,9 @@ package com.reactor.rust.metrics;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.bridge.NativeBridge;
+import com.reactor.rust.bridge.GeneratedRouteContributor;
+import com.reactor.rust.bridge.GeneratedRouteInvoker;
+import com.reactor.rust.bridge.GeneratedRouteInvokers;
 import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.RoutePlanRegistry;
 import com.reactor.rust.config.RuntimeFootprintGate;
@@ -23,7 +26,26 @@ import java.lang.management.ThreadMXBean;
  * Endpoint: GET /metrics
  */
 @Component
-public class MetricsHandler {
+public class MetricsHandler implements GeneratedRouteContributor {
+
+    private static final int METRICS = 0;
+    private static final int METRICS_SUMMARY = 1;
+    private static final int MEMORY_DIAGNOSTICS = 2;
+    private static final int NATIVE_TRIM = 3;
+    private static final int ROUTE_DIAGNOSTICS = 4;
+    private static final int STARTUP_DIAGNOSTICS = 5;
+    private static final int METRICS_RESET = 6;
+
+    @Override
+    public void registerGeneratedRouteInvokers() {
+        register("getMetrics", METRICS);
+        register("getMetricsSummary", METRICS_SUMMARY);
+        register("getMemoryDiagnostics", MEMORY_DIAGNOSTICS);
+        register("trimNativeMemory", NATIVE_TRIM);
+        register("getRoutePlans", ROUTE_DIAGNOSTICS);
+        register("getStartupDiagnostics", STARTUP_DIAGNOSTICS);
+        register("resetMetrics", METRICS_RESET);
+    }
 
     /**
      * Get metrics in Prometheus format.
@@ -241,6 +263,43 @@ public class MetricsHandler {
             method.invoke(null);
         } catch (ReflectiveOperationException | LinkageError ignored) {
             // Dubbo adapter is optional; core REST metrics must work without it.
+        }
+    }
+
+    private static void register(String methodName, int route) {
+        GeneratedRouteInvokers.register(
+                MetricsHandler.class,
+                methodName,
+                new Class<?>[0],
+                new MetricsRouteInvoker(route));
+    }
+
+    private static final class MetricsRouteInvoker implements GeneratedRouteInvoker {
+
+        private final int route;
+
+        private MetricsRouteInvoker(int route) {
+            this.route = route;
+        }
+
+        @Override
+        public int arity() {
+            return 0;
+        }
+
+        @Override
+        public Object invoke0(Object bean) {
+            MetricsHandler handler = (MetricsHandler) bean;
+            return switch (route) {
+                case METRICS -> handler.getMetrics();
+                case METRICS_SUMMARY -> handler.getMetricsSummary();
+                case MEMORY_DIAGNOSTICS -> handler.getMemoryDiagnostics();
+                case NATIVE_TRIM -> handler.trimNativeMemory();
+                case ROUTE_DIAGNOSTICS -> handler.getRoutePlans();
+                case STARTUP_DIAGNOSTICS -> handler.getStartupDiagnostics();
+                case METRICS_RESET -> handler.resetMetrics();
+                default -> throw new IllegalStateException("Unknown built-in metrics route: " + route);
+            };
         }
     }
 }

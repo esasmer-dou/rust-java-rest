@@ -22,7 +22,7 @@ import java.lang.annotation.Target;
  * ) {}
  */
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.FIELD)
+@Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 public @interface Field {
     /**
      * Alan zorunlu mu?

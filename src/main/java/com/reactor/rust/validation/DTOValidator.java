@@ -3,7 +3,6 @@ package com.reactor.rust.validation;
 import com.reactor.rust.annotations.DecimalMax;
 import com.reactor.rust.annotations.DecimalMin;
 import com.reactor.rust.annotations.Email;
-import com.reactor.rust.annotations.Field;
 import com.reactor.rust.annotations.Max;
 import com.reactor.rust.annotations.Min;
 import com.reactor.rust.annotations.Negative;
@@ -20,6 +19,8 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Array;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
@@ -50,12 +51,17 @@ public final class DTOValidator {
     }
 
     public boolean isDTO(Class<?> clazz) {
-        return PLANS.get(clazz).dto();
+        return GeneratedValidators.isRegistered(clazz) || PLANS.get(clazz).dto();
     }
 
     public ValidationResult validate(Object obj) {
         if (obj == null) {
             return ValidationResult.failure("object", "must not be null", null);
+        }
+
+        ValidationResult generated = GeneratedValidators.validateOrNull(obj);
+        if (generated != null) {
+            return generated;
         }
 
         ValidationPlan plan = PLANS.get(obj.getClass());
@@ -87,14 +93,17 @@ public final class DTOValidator {
         if (obj == null || fieldName == null) {
             return false;
         }
-        return PLANS.get(obj.getClass()).defaults().containsKey(fieldName);
+        Class<?> type = obj.getClass();
+        return GeneratedValidators.hasDefaultValue(type, fieldName)
+                || PLANS.get(type).defaults().containsKey(fieldName);
     }
 
     public String getDefaultValue(Class<?> recordClass, String fieldName) {
         if (recordClass == null || fieldName == null) {
             return null;
         }
-        return PLANS.get(recordClass).defaults().get(fieldName);
+        String generated = GeneratedValidators.defaultValue(recordClass, fieldName);
+        return generated != null ? generated : PLANS.get(recordClass).defaults().get(fieldName);
     }
 
     private static String safeMessage(Throwable failure) {
@@ -184,19 +193,20 @@ public final class DTOValidator {
             String defaultValue) {
 
         static FieldPlan compile(Class<?> recordType, RecordComponent component) {
-            NotNull notNull = component.getAnnotation(NotNull.class);
-            Field field = component.getAnnotation(Field.class);
-            NotBlank notBlank = component.getAnnotation(NotBlank.class);
-            NotEmpty notEmpty = component.getAnnotation(NotEmpty.class);
-            Size size = component.getAnnotation(Size.class);
-            Email email = component.getAnnotation(Email.class);
-            Pattern pattern = component.getAnnotation(Pattern.class);
-            Min min = component.getAnnotation(Min.class);
-            Max max = component.getAnnotation(Max.class);
-            Positive positive = component.getAnnotation(Positive.class);
-            Negative negative = component.getAnnotation(Negative.class);
-            DecimalMin decimalMin = component.getAnnotation(DecimalMin.class);
-            DecimalMax decimalMax = component.getAnnotation(DecimalMax.class);
+            NotNull notNull = annotation(recordType, component, NotNull.class);
+            com.reactor.rust.annotations.Field field = annotation(
+                    recordType, component, com.reactor.rust.annotations.Field.class);
+            NotBlank notBlank = annotation(recordType, component, NotBlank.class);
+            NotEmpty notEmpty = annotation(recordType, component, NotEmpty.class);
+            Size size = annotation(recordType, component, Size.class);
+            Email email = annotation(recordType, component, Email.class);
+            Pattern pattern = annotation(recordType, component, Pattern.class);
+            Min min = annotation(recordType, component, Min.class);
+            Max max = annotation(recordType, component, Max.class);
+            Positive positive = annotation(recordType, component, Positive.class);
+            Negative negative = annotation(recordType, component, Negative.class);
+            DecimalMin decimalMin = annotation(recordType, component, DecimalMin.class);
+            DecimalMax decimalMax = annotation(recordType, component, DecimalMax.class);
 
             String annotationPattern = pattern == null ? null : pattern.regexp();
             String fieldPatternValue = field == null || field.pattern().isEmpty() ? null : field.pattern();
@@ -320,6 +330,22 @@ public final class DTOValidator {
                     throw e.getCause();
                 }
             };
+        }
+    }
+
+    private static <A extends Annotation> A annotation(
+            Class<?> recordType,
+            RecordComponent component,
+            Class<A> annotationType) {
+        A direct = component.getAnnotation(annotationType);
+        if (direct != null) {
+            return direct;
+        }
+        try {
+            Field backingField = recordType.getDeclaredField(component.getName());
+            return backingField.getAnnotation(annotationType);
+        } catch (NoSuchFieldException ignored) {
+            return null;
         }
     }
 

@@ -13,6 +13,20 @@ public final class HealthStarter {
         return new Builder(applicationName);
     }
 
+    public static HealthEndpoint fromContributors(
+            String applicationName,
+            Iterable<HealthContributor> contributors) {
+        Builder builder = application(applicationName);
+        for (HealthContributor contributor : contributors) {
+            builder.dependency(
+                    contributor.name(),
+                    contributor.required(),
+                    contributor.timeoutMillis(),
+                    contributor);
+        }
+        return builder.build();
+    }
+
     public static final class Builder {
 
         private final String applicationName;

@@ -17,6 +17,7 @@ package com.reactor.rust.middleware;
  * }
  * }</pre>
  */
+@Deprecated(forRemoval = true)
 public interface Middleware {
 
     /**

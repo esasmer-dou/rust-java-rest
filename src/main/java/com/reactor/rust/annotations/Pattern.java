@@ -5,7 +5,7 @@ import java.lang.annotation.*;
 /**
  * The annotated CharSequence must match the specified regular expression.
  */
-@Target(ElementType.FIELD)
+@Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Pattern {
     String regexp();

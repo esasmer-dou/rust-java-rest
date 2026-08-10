@@ -27,6 +27,8 @@ class ProjectGeneratorTest {
                     mode,
                     8080));
             assertTrue(Files.isRegularFile(output.resolve("pom.xml")));
+            assertTrue(Files.isRegularFile(output.resolve("README.md")));
+            assertTrue(Files.isRegularFile(output.resolve("README.tr.md")));
             assertTrue(Files.isRegularFile(output.resolve(
                     "src/main/java/com/example/generated/Application.java")));
             String application = Files.readString(output.resolve(
@@ -51,13 +53,17 @@ class ProjectGeneratorTest {
                 "src/main/java/com/example/generated/CacheReads.java"))
                 .contains("@GenerateProjectionReader"));
         String cachePom = Files.readString(cache.resolve("pom.xml"));
-        assertTrue(cachePom.contains("<classifier>codegen</classifier>"));
+        assertTrue(cachePom.contains("<artifactId>rust-java-platform-parent</artifactId>"));
+        assertTrue(cachePom.contains("<artifactId>rust-java-starter-cache-reader</artifactId>"));
         assertTrue(!cachePom.contains("<annotationProcessors>"));
 
         Path dubbo = generate(ProjectGenerator.Mode.DUBBO_STATIC, "declarative-dubbo");
         assertTrue(Files.readString(dubbo.resolve(
                 "src/main/java/com/example/generated/DubboClients.java"))
                 .contains("@EnableNativeDubboClients"));
+        String dubboPom = Files.readString(dubbo.resolve("pom.xml"));
+        assertTrue(dubboPom.contains("<artifactId>rust-java-starter-dubbo</artifactId>"));
+        assertTrue(!dubboPom.contains("<classifier>native-static</classifier>"));
     }
 
     @Test

@@ -40,4 +40,23 @@ class HttpErrorMapperTest {
         assertTrue(body.contains("\\\"value"));
         assertFalse(body.contains("bad\u0001"));
     }
+
+    @Test
+    void problemDetailsFormatIsOptInAndUsesProblemContentType() {
+        System.setProperty("reactor.rust.errors.format", "problem-details");
+        try {
+            byte[] json = HttpErrorMapper.toJsonBytes(
+                    new HttpErrorMapper.MappedError(404, "not_found", "customer missing"));
+            String body = new String(json, StandardCharsets.UTF_8);
+
+            assertTrue(body.contains("\"type\":\"about:blank\""));
+            assertTrue(body.contains("\"status\":404"));
+            assertTrue(body.contains("\"code\":\"not_found\""));
+            assertEquals(
+                    "Content-Type: application/problem+json; charset=utf-8\n",
+                    new String(HttpErrorMapper.contentTypeHeader(), StandardCharsets.UTF_8));
+        } finally {
+            System.clearProperty("reactor.rust.errors.format");
+        }
+    }
 }

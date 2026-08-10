@@ -37,6 +37,11 @@ public final class HealthEndpoint {
         return ResponseEntity.ok(liveness);
     }
 
+    @GetMapping(value = "/app/liveness", responseType = RawResponse.class)
+    public ResponseEntity<RawResponse> liveness() {
+        return ResponseEntity.ok(liveness);
+    }
+
     @GetMapping(value = "/app/readiness", responseType = RawResponse.class)
     public ResponseEntity<RawResponse> readiness() {
         Metrics metrics = Metrics.getInstance();

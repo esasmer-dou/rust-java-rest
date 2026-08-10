@@ -3,6 +3,7 @@ package com.reactor.rust.middleware;
 /**
  * Middleware chain for executing middleware in sequence.
  */
+@Deprecated(forRemoval = true)
 public final class MiddlewareChain {
 
     /**
@@ -13,7 +14,9 @@ public final class MiddlewareChain {
         /**
          * Continue to next middleware or handler.
          */
-        record Continue() implements Result {}
+        record Continue() implements Result {
+            public static final Continue INSTANCE = new Continue();
+        }
 
         /**
          * Return a response immediately (short-circuit).
@@ -52,8 +55,8 @@ public final class MiddlewareChain {
         }
     }
 
-    private final java.util.List<Middleware> middlewares;
-    private final int currentIndex;
+    private final Middleware[] middlewares;
+    private int currentIndex;
     private final MiddlewareHandler terminalHandler;
 
     /**
@@ -65,12 +68,11 @@ public final class MiddlewareChain {
     }
 
     public MiddlewareChain(java.util.List<Middleware> middlewares, MiddlewareHandler terminalHandler) {
-        this(middlewares, 0, terminalHandler);
+        this(middlewares.toArray(Middleware[]::new), terminalHandler);
     }
 
-    private MiddlewareChain(java.util.List<Middleware> middlewares, int currentIndex, MiddlewareHandler terminalHandler) {
+    MiddlewareChain(Middleware[] middlewares, MiddlewareHandler terminalHandler) {
         this.middlewares = middlewares;
-        this.currentIndex = currentIndex;
         this.terminalHandler = terminalHandler;
     }
 
@@ -78,15 +80,13 @@ public final class MiddlewareChain {
      * Process the next middleware in the chain.
      */
     public Result next(MiddlewareContext context) {
-        if (currentIndex >= middlewares.size()) {
+        if (currentIndex >= middlewares.length) {
             // No more middleware - execute terminal handler
             return terminalHandler.handle(context);
         }
 
-        Middleware current = middlewares.get(currentIndex);
-        MiddlewareChain nextChain = new MiddlewareChain(middlewares, currentIndex + 1, terminalHandler);
-
-        return current.process(context, nextChain);
+        Middleware current = middlewares[currentIndex++];
+        return current.process(context, this);
     }
 
     /**
@@ -116,7 +116,7 @@ public final class MiddlewareChain {
         public MiddlewareChain build() {
             // Sort by order
             middlewares.sort((a, b) -> Integer.compare(a.getOrder(), b.getOrder()));
-            return new MiddlewareChain(middlewares, terminalHandler);
+            return new MiddlewareChain(middlewares.toArray(Middleware[]::new), terminalHandler);
         }
     }
 }

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, for example 4.1.0 or 4.1.0-rc1"
+        description: "Release version, for example 4.2.0 or 4.2.0-rc1"
         required: true
         type: string
 
@@ -77,8 +77,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Test
-        run: mvn -B test
+      - name: Test and verify package boundaries
+        run: mvn -B -ntp clean verify
 
       - name: Verify release version
         shell: bash
@@ -95,7 +95,7 @@ jobs:
           MANIFEST="src/main/resources/native/native-provenance.properties"
           test -f "$MANIFEST"
           grep -qx 'schema=2' "$MANIFEST"
-          grep -qx 'rest.abi=24' "$MANIFEST"
+          grep -qx 'rest.abi=26' "$MANIFEST"
           grep -qx 'dubbo.abi=7' "$MANIFEST"
           grep -qx 'redis.abi=6' "$MANIFEST"
           ! grep -q -- '-dirty$' "$MANIFEST"

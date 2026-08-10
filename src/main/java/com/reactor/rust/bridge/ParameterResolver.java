@@ -7,8 +7,8 @@ import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.util.FastMap;
 import com.reactor.rust.util.PooledMaps;
+import com.reactor.rust.validation.DTOValidator;
 import com.reactor.rust.validation.ValidationResult;
-import com.reactor.rust.validation.Validator;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -180,7 +180,7 @@ public final class ParameterResolver {
 
             // @Valid - trigger validation
             if (param.isAnnotationPresent(Valid.class)) {
-                ValidationResult result = Validator.getInstance().validate(parsed);
+                ValidationResult result = DTOValidator.getInstance().validate(parsed);
                 if (result.hasErrors()) {
                     throw new ValidationException(result);
                 }

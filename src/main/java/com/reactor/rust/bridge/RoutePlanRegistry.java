@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Route optimizer visibility and production gate.
@@ -26,7 +25,8 @@ public final class RoutePlanRegistry {
 
     private static final RoutePlanRegistry INSTANCE = new RoutePlanRegistry();
 
-    private final CopyOnWriteArrayList<RouteExecutionPlan> plans = new CopyOnWriteArrayList<>();
+    private final List<RouteExecutionPlan> buildingPlans = new ArrayList<>();
+    private volatile List<RouteExecutionPlan> plans = buildingPlans;
     private volatile boolean runtimeMetricsEnabled;
 
     private RoutePlanRegistry() {
@@ -36,8 +36,9 @@ public final class RoutePlanRegistry {
         return INSTANCE;
     }
 
-    public void clear() {
-        plans.clear();
+    public synchronized void clear() {
+        buildingPlans.clear();
+        plans = buildingPlans;
         runtimeMetricsEnabled = false;
     }
 
@@ -52,14 +53,20 @@ public final class RoutePlanRegistry {
         return runtimeMetricsEnabled;
     }
 
-    public void add(RouteExecutionPlan plan) {
+    public synchronized void add(RouteExecutionPlan plan) {
         if (plan != null) {
-            plans.add(plan);
+            buildingPlans.add(plan);
         }
     }
 
+    /** Publishes one immutable route plan after startup discovery is complete. */
+    public synchronized void freeze() {
+        plans = List.copyOf(buildingPlans);
+        buildingPlans.clear();
+    }
+
     public List<RouteExecutionPlan> plans() {
-        return Collections.unmodifiableList(new ArrayList<>(plans));
+        return plans;
     }
 
     public void publishStartupMetrics() {

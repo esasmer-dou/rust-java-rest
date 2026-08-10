@@ -1,6 +1,37 @@
 # Benchmark Package
 
-## v3.2.2 Release Gate Snapshot
+[English](README.md) | [Türkçe](README.tr.md) | [Framework Guide](../README.md) | [Examples](../examples/README.md)
+
+This directory is the reproducible performance-evidence archive. It is not the quick-start guide and
+its historical sections describe the exact source line named in each heading.
+
+The current source tree uses REST ABI `26`, Dubbo ABI `7`, and Redis ABI `6`. Before comparing two
+builds, rebuild and package the native artifact from the same source revision. A benchmark that uses
+an older DLL/SO is invalid even if the application starts.
+
+## How To Read A Result
+
+Always report these signals together:
+
+| Signal | Why it matters |
+| --- | --- |
+| Useful `200` RPS | Successful business capacity, excluding rejected requests |
+| p50/p95/p99 | Typical and tail latency |
+| `503` ratio | Bounded overload behavior |
+| Container `memory.current` | Kubernetes-relevant charged memory |
+| Container `anon` | Heap, JVM/native runtime, thread, and allocator pressure |
+| Process RSS / `Private_Dirty` | Mapping and process-private memory evidence |
+| JNI queue wait and in-flight bytes | Framework backpressure pressure |
+
+Do not rank a profile by RPS alone. A larger queue may hide `503` while increasing p99 and retained
+memory. Use repeat `>=3`, randomized order, the same warmup, the same container limits, and the same
+endpoint mix.
+
+Use `micro-rest` as the memory-first baseline. Use `micro-rest-plus` only for measured heavy routes.
+Keep benchmark-only routes out of production route reports. The full sample process is not the RSS
+baseline for a minimal service.
+
+## Historical v3.2.2 Release Gate Snapshot
 
 Latest release-gate artefacts:
 

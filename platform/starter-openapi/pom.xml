@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+    <groupId>com.reactor</groupId><artifactId>rust-java-starter-openapi</artifactId><version>4.2.0</version>
+    <name>Rust-Java OpenAPI Starter</name>
+    <properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
+    <dependencies><dependency><groupId>com.reactor</groupId><artifactId>rust-java-starter-rest</artifactId><version>${project.version}</version></dependency></dependencies>
+    <build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version><configuration><release>21</release><proc>none</proc></configuration></plugin></plugins></build>
+</project>

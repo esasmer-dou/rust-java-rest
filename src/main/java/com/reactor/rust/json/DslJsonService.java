@@ -208,6 +208,20 @@ public final class DslJsonService {
         }
     }
 
+    /** Deserializes a JSON array without constructing a reflective parameterized type. */
+    public static <T> java.util.List<T> parseList(byte[] bytes, Class<T> elementType) {
+        if (bytes == null || bytes.length == 0) return java.util.List.of();
+        try {
+            return DSL_JSON.deserializeList(elementType, bytes, bytes.length);
+        } catch (ConfigurationException e) {
+            throw new IllegalStateException("No JSON reader registered for " + elementType.getName(), e);
+        } catch (IOException e) {
+            throw new BadRequestException("Malformed JSON array", e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse JSON array: " + e.getMessage(), e);
+        }
+    }
+
     public static byte[] toBytes(Object obj) {
         if (obj == null) {
             return NULL_BYTES;

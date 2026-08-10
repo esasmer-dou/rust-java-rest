@@ -6,6 +6,7 @@ import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.logging.FrameworkLogger;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,18 +16,37 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ExceptionHandlerRegistry {
 
-    private static final ExceptionHandlerRegistry INSTANCE = new ExceptionHandlerRegistry();
+    private static final ExceptionHandlerRegistry COMPATIBILITY_INSTANCE = new ExceptionHandlerRegistry();
+    private static volatile ExceptionHandlerRegistry active = COMPATIBILITY_INSTANCE;
 
     // Exception class -> Handler method info
     private final Map<Class<? extends Throwable>, HandlerMethod> handlers = new ConcurrentHashMap<>();
 
     // Fallback handlers for exception hierarchies
     private final List<HandlerMethod> globalHandlers = new ArrayList<>();
+    private final Set<Class<?>> generatedOwners = new HashSet<>();
+    private int generatedHandlerCount;
+    private int reflectionFallbackCount;
 
     private ExceptionHandlerRegistry() {}
 
+    public static ExceptionHandlerRegistry create() {
+        return new ExceptionHandlerRegistry();
+    }
+
+    /** Compatibility locator for framework callbacks. Applications own an instance via ApplicationContext. */
     public static ExceptionHandlerRegistry getInstance() {
-        return INSTANCE;
+        return active;
+    }
+
+    public static void activate(ExceptionHandlerRegistry registry) {
+        active = Objects.requireNonNull(registry, "registry");
+    }
+
+    public static void deactivate(ExceptionHandlerRegistry registry) {
+        if (active == registry) {
+            active = COMPATIBILITY_INSTANCE;
+        }
     }
 
     /**
@@ -35,11 +55,23 @@ public final class ExceptionHandlerRegistry {
     private static class HandlerMethod {
         final Object bean;
         final Method method;
+        final GeneratedExceptionHandler generatedInvoker;
         final Class<? extends Throwable> exceptionType;
 
         HandlerMethod(Object bean, Method method, Class<? extends Throwable> exceptionType) {
             this.bean = bean;
             this.method = method;
+            this.generatedInvoker = null;
+            this.exceptionType = exceptionType;
+        }
+
+        HandlerMethod(
+                Object bean,
+                GeneratedExceptionHandler generatedInvoker,
+                Class<? extends Throwable> exceptionType) {
+            this.bean = bean;
+            this.method = null;
+            this.generatedInvoker = generatedInvoker;
             this.exceptionType = exceptionType;
         }
     }
@@ -53,17 +85,48 @@ public final class ExceptionHandlerRegistry {
 
     /** Registers handlers from the active application container. */
     public synchronized void scanAndRegister(BeanContainer container) {
-        handlers.clear();
-        globalHandlers.clear();
+        clear();
         for (Object bean : container.getBeansOfType(Object.class)) {
             registerExceptionHandlers(bean);
         }
-        FrameworkLogger.info("[ExceptionHandlerRegistry] Registered " + handlers.size() + " exception handlers");
+        logRegistrationSummary();
+    }
+
+    /** Registers only beans not already covered by generated invocation code. */
+    public synchronized int scanAndRegisterFallback(BeanContainer container) {
+        int before = reflectionFallbackCount;
+        for (Object bean : container.getBeansOfType(Object.class)) {
+            if (!generatedOwners.contains(bean.getClass())) {
+                registerExceptionHandlers(bean);
+            }
+        }
+        logRegistrationSummary();
+        return reflectionFallbackCount - before;
+    }
+
+    public synchronized void registerGenerated(
+            Object bean,
+            Class<? extends Throwable> exceptionType,
+            GeneratedExceptionHandler invoker) {
+        Objects.requireNonNull(bean, "bean");
+        Objects.requireNonNull(exceptionType, "exceptionType");
+        Objects.requireNonNull(invoker, "invoker");
+        HandlerMethod handler = new HandlerMethod(bean, invoker, exceptionType);
+        if (exceptionType == Throwable.class) {
+            globalHandlers.add(handler);
+        } else {
+            handlers.put(exceptionType, handler);
+        }
+        generatedOwners.add(bean.getClass());
+        generatedHandlerCount++;
     }
 
     public synchronized void clear() {
         handlers.clear();
         globalHandlers.clear();
+        generatedOwners.clear();
+        generatedHandlerCount = 0;
+        reflectionFallbackCount = 0;
     }
 
     /**
@@ -93,6 +156,7 @@ public final class ExceptionHandlerRegistry {
                 } else {
                     // No specific exception - handle all
                     globalHandlers.add(new HandlerMethod(bean, method, Throwable.class));
+                    reflectionFallbackCount++;
                     continue;
                 }
             }
@@ -101,6 +165,7 @@ public final class ExceptionHandlerRegistry {
             for (Class<? extends Throwable> exType : exceptionTypes) {
                 HandlerMethod handler = new HandlerMethod(bean, method, exType);
                 handlers.put(exType, handler);
+                reflectionFallbackCount++;
                 FrameworkLogger.debug("[ExceptionHandlerRegistry] Registered handler for: " + exType.getName());
             }
         }
@@ -139,6 +204,9 @@ public final class ExceptionHandlerRegistry {
 
         try {
             // Invoke handler
+            if (handler.generatedInvoker != null) {
+                return handler.generatedInvoker.invoke(handler.bean, e);
+            }
             Object result;
             if (handler.method.getParameterCount() > 0) {
                 result = handler.method.invoke(handler.bean, e);
@@ -148,7 +216,11 @@ public final class ExceptionHandlerRegistry {
 
             return result;
 
-        } catch (Exception invokeError) {
+        } catch (Throwable invokeError) {
+            if (invokeError instanceof InvocationTargetException invocation
+                    && invocation.getCause() != null) {
+                invokeError = invocation.getCause();
+            }
             FrameworkLogger.warn("[ExceptionHandlerRegistry] Error invoking handler: " + invokeError.getMessage());
             return new ErrorResponse(500, "Internal server error");
         }
@@ -200,5 +272,18 @@ public final class ExceptionHandlerRegistry {
      */
     public boolean hasHandler(Class<? extends Throwable> exceptionType) {
         return handlers.containsKey(exceptionType) || !globalHandlers.isEmpty();
+    }
+
+    public synchronized int generatedHandlerCount() {
+        return generatedHandlerCount;
+    }
+
+    public synchronized int reflectionFallbackCount() {
+        return reflectionFallbackCount;
+    }
+
+    private void logRegistrationSummary() {
+        FrameworkLogger.info("[ExceptionHandlerRegistry] Registered generated="
+                + generatedHandlerCount + ", reflectionFallback=" + reflectionFallbackCount);
     }
 }

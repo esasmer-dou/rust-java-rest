@@ -5,7 +5,7 @@ import java.lang.annotation.*;
 /**
  * The annotated element must not be null.
  */
-@Target(ElementType.FIELD)
+@Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface NotNull {
     String message() default "must not be null";

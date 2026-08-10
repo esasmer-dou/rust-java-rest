@@ -2,9 +2,12 @@ package com.reactor.rust.app;
 
 import com.reactor.rust.annotations.ReactorApplication;
 import com.reactor.rust.bridge.HandlerRegistry;
+import com.reactor.rust.bridge.GeneratedRouteInvoker;
+import com.reactor.rust.bridge.GeneratedRouteInvokers;
 import com.reactor.rust.bridge.NativeBridge;
 import com.reactor.rust.bridge.RouteScanner;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.config.NativeCapabilityPlan;
 import com.reactor.rust.config.RuntimeFootprintGate;
 import com.reactor.rust.config.RuntimeProfilePlan;
 import com.reactor.rust.config.RuntimeProfiles;
@@ -12,10 +15,14 @@ import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.exception.ExceptionHandlerRegistry;
 import com.reactor.rust.memory.NativeIdleMemoryTrimmer;
+import com.reactor.rust.health.HealthContributor;
+import com.reactor.rust.health.HealthEndpoint;
+import com.reactor.rust.health.HealthStarter;
 import com.reactor.rust.startup.InstantOnCheckpoint;
 import com.reactor.rust.startup.ApplicationDescriptors;
 import com.reactor.rust.startup.StartupPrewarmer;
 import com.reactor.rust.startup.StartupTimeline;
+import com.reactor.rust.startup.StartupMode;
 import com.reactor.rust.staticfiles.StaticFileScanner;
 import com.reactor.rust.websocket.WebSocketRegistry;
 
@@ -23,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.ServiceLoader;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -54,12 +62,12 @@ public final class RestApplication {
      * Runs a build-time indexed application without an application-owned module.
      */
     public static void run(Class<?> applicationType, String... args) {
-        configureApplication(builder(), applicationType).start();
+        configureApplication(builder().strictAot(), applicationType).start();
     }
 
     /** Starts a build-time indexed application and returns its lifecycle handle. */
     public static RunningApplication startAsync(Class<?> applicationType, String... args) {
-        return configureApplication(builder(), applicationType).startAsync();
+        return configureApplication(builder().strictAot(), applicationType).startAsync();
     }
 
     public static RunningApplication startAsync(Module... modules) {
@@ -187,6 +195,7 @@ public final class RestApplication {
         private final List<Module> modules = new ArrayList<>();
         private final List<String> basePackages = new ArrayList<>();
         private BeanContainer container;
+        private ApplicationContext applicationContext;
         private String shutdownThreadName = "reactor-rest-shutdown";
         private String portProperty = "server.port";
         private int defaultPort = 8080;
@@ -194,6 +203,7 @@ public final class RestApplication {
         private boolean applyRuntimeProfiles = true;
         private boolean disableRouteIndexValidation;
         private boolean standardRuntimeFeatures;
+        private boolean aotDefault;
         private boolean started;
 
         private Builder() {}
@@ -208,6 +218,12 @@ public final class RestApplication {
 
         public Builder container(BeanContainer container) {
             this.container = Objects.requireNonNull(container, "container");
+            return this;
+        }
+
+        /** Uses an application-owned context. Primarily useful for isolated integration tests. */
+        public Builder context(ApplicationContext applicationContext) {
+            this.applicationContext = Objects.requireNonNull(applicationContext, "applicationContext");
             return this;
         }
 
@@ -285,6 +301,18 @@ public final class RestApplication {
             return this;
         }
 
+        /** Requires build-time generated application metadata and disables reflection fallback. */
+        public Builder strictAot() {
+            this.aotDefault = true;
+            return this;
+        }
+
+        /** Explicit compatibility mode for applications not yet using the code generator. */
+        public Builder compatibilityMode() {
+            this.aotDefault = false;
+            return this;
+        }
+
         public void start() {
             try (RunningApplication application = startAsync()) {
                 try {
@@ -309,6 +337,7 @@ public final class RestApplication {
             if (applyRuntimeProfiles) {
                 phase("runtime.profile", RuntimeProfiles::apply);
             }
+            phase("startup.mode", () -> StartupMode.configure(aotDefault));
             if (standardRuntimeFeatures) {
                 RuntimeFootprintGate.validate();
             }
@@ -324,17 +353,20 @@ public final class RestApplication {
                     module.configure(moduleContext);
                 }
 
-                InitializedHandlers initialized = initializeHandlers();
-                resources.add(initialized.lifecycle());
+                InitializedHandlers initialized = initializeHandlers(resources);
+                resources.add(initialized.context());
+                registerApplicationFeatures(initialized.context(), resources);
+                registerFrameworkHandlers(initialized.context());
                 phase("routes.register", RouteScanner::scanAndRegister);
-                registerStandardRuntimeFeatures(initialized.container());
-                phase("native.configure", NativeBridge::configureRuntimeFromProperties);
+                registerStandardRuntimeFeatures(initialized.context());
+                phase("native.configure", () -> NativeBridge.configureRuntimeFromProperties(
+                        initialized.context().capabilities()));
                 if (standardRuntimeFeatures) {
                     StartupPrewarmer.prewarmIfEnabled();
                     InstantOnCheckpoint.checkpointIfEnabled();
                 }
 
-                RunningApplication application = startHttp(resources);
+                RunningApplication application = startHttp(resources, initialized.context());
                 try {
                     if (standardRuntimeFeatures) {
                         resources.add(NativeIdleMemoryTrimmer.startFromProperties());
@@ -353,10 +385,18 @@ public final class RestApplication {
             }
         }
 
-        private InitializedHandlers initializeHandlers() {
-            BeanContainer activeContainer = container;
+        private InitializedHandlers initializeHandlers(ManagedResources resources) {
+            if (applicationContext != null && container != null
+                    && applicationContext.beans() != container) {
+                throw new IllegalStateException("Configure either context or container, not both");
+            }
+            ApplicationContext activeContext = applicationContext != null
+                    ? applicationContext
+                    : ApplicationContext.create(container == null ? BeanContainer.create() : container);
+            activeContext.activate(standardRuntimeFeatures);
+            BeanContainer activeContainer = activeContext.beans();
+            registerBootstrapFeatures(activeContext, resources);
             if (!basePackages.isEmpty() || !handlerTypes.isEmpty()) {
-                activeContainer = activeContainer == null ? BeanContainer.getInstance() : activeContainer;
                 if (!basePackages.isEmpty()) {
                     BeanContainer containerToStart = activeContainer;
                     phase("di.scan", () -> containerToStart.scan(basePackages.toArray(String[]::new)));
@@ -366,33 +406,62 @@ public final class RestApplication {
                         }
                     });
                     phase("di.start", containerToStart::start);
-                    phase("exceptions.register", () -> ExceptionHandlerRegistry.getInstance()
-                            .scanAndRegister(containerToStart));
-                    HandlerRegistry registry = HandlerRegistry.getInstance();
+                    phase("exceptions.register", () -> {
+                        ExceptionHandlerRegistry exceptionRegistry = activeContext.exceptionHandlers();
+                        exceptionRegistry.clear();
+                        for (String basePackage : basePackages) {
+                            ApplicationDescriptors.registerExceptionHandlers(
+                                    containerToStart, exceptionRegistry, basePackage);
+                        }
+                        if (!StartupMode.isAot()) {
+                            exceptionRegistry.scanAndRegisterFallback(containerToStart);
+                        }
+                    });
+                    HandlerRegistry registry = activeContext.handlers();
                     for (String basePackage : basePackages) {
                         ApplicationDescriptors.registerHandlers(containerToStart, registry, basePackage);
                     }
+                    phase("extensions.register", () -> {
+                        for (String basePackage : basePackages) {
+                            ApplicationDescriptors.registerExtensions(containerToStart, basePackage);
+                        }
+                    });
                 }
-                HandlerRegistry registry = HandlerRegistry.getInstance();
+                HandlerRegistry registry = activeContext.handlers();
                 for (Class<?> handlerType : handlerTypes) {
                     registry.registerBean(activeContainer.getBean(handlerType));
                 }
             }
-            HandlerRegistry registry = HandlerRegistry.getInstance();
+            HandlerRegistry registry = activeContext.handlers();
             for (Object handler : handlerInstances) {
                 registry.registerBean(handler);
             }
-            BeanContainer containerToClose = activeContainer;
-            AutoCloseable lifecycle = containerToClose == null ? () -> {} : containerToClose::shutdown;
-            return new InitializedHandlers(activeContainer, lifecycle);
+            return new InitializedHandlers(activeContext);
         }
 
-        private void registerStandardRuntimeFeatures(BeanContainer activeContainer) {
+        private void registerBootstrapFeatures(ApplicationContext context, ManagedResources resources) {
+            ClassLoader loader = Thread.currentThread().getContextClassLoader();
+            if (loader == null) loader = RestApplication.class.getClassLoader();
+            List<ApplicationBootstrapFeature> features = ServiceLoader
+                    .load(ApplicationBootstrapFeature.class, loader).stream()
+                    .map(ServiceLoader.Provider::get)
+                    .sorted(java.util.Comparator.comparingInt(ApplicationBootstrapFeature::order))
+                    .toList();
+            if (features.isEmpty()) return;
+            ApplicationBootstrapFeatureContext featureContext =
+                    new ApplicationBootstrapFeatureContext(context, resources::add);
+            for (ApplicationBootstrapFeature feature : features) {
+                phase("bootstrap." + feature.getClass().getSimpleName(), () -> feature.configure(featureContext));
+            }
+        }
+
+        private void registerStandardRuntimeFeatures(ApplicationContext context) {
             if (!standardRuntimeFeatures) {
                 return;
             }
-            if (PropertiesLoader.getBoolean("reactor.websocket.enabled", true)) {
-                phase("websocket.register", Builder::registerWebSocketHandlers);
+            BeanContainer activeContainer = context.beans();
+            if (context.capabilities().enabled(NativeCapabilityPlan.Capability.WEBSOCKET)) {
+                phase("websocket.register", () -> registerWebSocketHandlers(context));
             }
             if (PropertiesLoader.getBoolean("reactor.static-files.enabled", true)) {
                 if (activeContainer == null) {
@@ -404,11 +473,54 @@ public final class RestApplication {
             }
         }
 
-        private RunningApplication startHttp(ManagedResources resources) {
+        private void registerFrameworkHandlers(ApplicationContext context) {
+            if (!standardRuntimeFeatures
+                    || !PropertiesLoader.getBoolean("reactor.health.enabled", true)) {
+                return;
+            }
+            List<HealthContributor> contributors = context.beans().getBeansOfType(HealthContributor.class);
+            HealthEndpoint endpoint = HealthStarter.fromContributors(
+                    PropertiesLoader.get("reactor.application.name", "reactor-application"),
+                    contributors);
+            registerHealthInvoker("health", (HealthEndpoint target) -> target.health());
+            registerHealthInvoker("liveness", (HealthEndpoint target) -> target.liveness());
+            registerHealthInvoker("readiness", (HealthEndpoint target) -> target.readiness());
+            context.handlers().registerBean(endpoint);
+        }
+
+        private void registerApplicationFeatures(ApplicationContext context, ManagedResources resources) {
+            ClassLoader loader = Thread.currentThread().getContextClassLoader();
+            if (loader == null) loader = RestApplication.class.getClassLoader();
+            List<ApplicationFeature> features = ServiceLoader.load(ApplicationFeature.class, loader).stream()
+                    .map(ServiceLoader.Provider::get)
+                    .sorted(java.util.Comparator.comparingInt(ApplicationFeature::order))
+                    .toList();
+            if (features.isEmpty()) return;
+            ApplicationFeatureContext featureContext = new ApplicationFeatureContext(context, resources::add);
+            for (ApplicationFeature feature : features) {
+                phase("feature." + feature.getClass().getSimpleName(), () -> feature.configure(featureContext));
+            }
+        }
+
+        private static void registerHealthInvoker(
+                String methodName,
+                java.util.function.Function<HealthEndpoint, Object> call) {
+            GeneratedRouteInvokers.register(
+                    HealthEndpoint.class,
+                    methodName,
+                    new Class<?>[0],
+                    new GeneratedRouteInvoker() {
+                        @Override public int arity() { return 0; }
+                        @Override public Object invoke0(Object bean) { return call.apply((HealthEndpoint) bean); }
+                    });
+        }
+
+        private RunningApplication startHttp(ManagedResources resources, ApplicationContext context) {
             return phase("http.start", () -> RunningApplication.start(
                     PropertiesLoader.getInt(portProperty, defaultPort),
                     shutdownThreadName,
-                    resources));
+                    resources,
+                    context));
         }
 
         private void phase(String name, Runnable action) {
@@ -430,10 +542,10 @@ public final class RestApplication {
             }
         }
 
-        private static void registerWebSocketHandlers() {
+        private static void registerWebSocketHandlers(ApplicationContext context) {
             try {
-                WebSocketRegistry registry = WebSocketRegistry.getInstance();
-                registry.scanAndRegister();
+                WebSocketRegistry registry = context.webSockets();
+                registry.scanAndRegister(context.beans());
                 for (String path : registry.getHandlerPaths()) {
                     NativeBridge.registerWebSocketRoute(path, path.hashCode());
                 }
@@ -473,25 +585,33 @@ public final class RestApplication {
     public static final class RunningApplication implements AutoCloseable {
 
         private final ManagedResources applicationResources;
+        private final ApplicationContext context;
+        private volatile int port;
         private final CountDownLatch stopped = new CountDownLatch(1);
         private final AtomicBoolean stopping = new AtomicBoolean();
         private final Thread shutdownHook;
 
-        private RunningApplication(String shutdownThreadName, ManagedResources applicationResources) {
+        private RunningApplication(
+                String shutdownThreadName,
+                ManagedResources applicationResources,
+                ApplicationContext context) {
             this.applicationResources = applicationResources;
+            this.context = context;
             this.shutdownHook = new Thread(() -> shutdown(false), shutdownThreadName);
         }
 
         private static RunningApplication start(
                 int port,
                 String shutdownThreadName,
-                ManagedResources applicationResources) {
+                ManagedResources applicationResources,
+                ApplicationContext context) {
             RunningApplication application = new RunningApplication(
                     shutdownThreadName,
-                    applicationResources);
+                    applicationResources,
+                    context);
             Runtime.getRuntime().addShutdownHook(application.shutdownHook);
             try {
-                NativeBridge.startHttpServer(port);
+                application.port = NativeBridge.startHttpServerAndGetPort(port);
                 return application;
             } catch (RuntimeException | Error startupFailure) {
                 application.removeShutdownHook();
@@ -510,6 +630,15 @@ public final class RestApplication {
 
         public boolean isRunning() {
             return !stopping.get();
+        }
+
+        public ApplicationContext context() {
+            return context;
+        }
+
+        /** Returns the actual bound port. This is especially useful when {@code server.port=0}. */
+        public int port() {
+            return port;
         }
 
         @Override
@@ -555,7 +684,7 @@ public final class RestApplication {
         }
     }
 
-    private record InitializedHandlers(BeanContainer container, AutoCloseable lifecycle) {}
+    private record InitializedHandlers(ApplicationContext context) {}
 
     private static final class ManagedResources implements AutoCloseable {
 

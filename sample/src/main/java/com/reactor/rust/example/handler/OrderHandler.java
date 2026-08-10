@@ -1,11 +1,9 @@
 package com.reactor.rust.example.handler;
 
 import com.reactor.rust.annotations.RustRoute;
-import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.Component;
 import com.reactor.rust.example.dto.*;
 import com.reactor.rust.example.service.OrderService;
-import com.reactor.rust.example.service.NotificationService;
 import com.reactor.rust.http.MediaType;
 import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.util.UrlCodec;
@@ -32,13 +30,11 @@ import java.util.Map;
 @Component
 public class OrderHandler {
 
-    // DI: OrderService is automatically injected
-    @Autowired
-    private OrderService orderService;
+    private final OrderService orderService;
 
-    // DI: Optional dependency (required = false)
-    @Autowired(required = false)
-    private NotificationService notificationService;
+    public OrderHandler(OrderService orderService) {
+        this.orderService = orderService;
+    }
 
     // Thread-local HashMap pools - eliminates allocation per request
     private static final ThreadLocal<HashMap<String, String>> PARAM_CACHE =

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-platform-build</artifactId>
+    <version>4.2.0</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>bom</module>
+        <module>parent</module>
+        <module>compat</module>
+        <module>starter-rest</module>
+        <module>starter-websocket</module>
+        <module>starter-openapi</module>
+        <module>starter-security</module>
+        <module>starter-tracing</module>
+        <module>starter-scheduler</module>
+        <module>starter-http-client</module>
+        <module>starter-dubbo</module>
+        <module>starter-cache-reader</module>
+        <module>starter-cache-writer</module>
+        <module>starter-test</module>
+        <module>maven-plugin</module>
+        <module>integration-smoke</module>
+    </modules>
+</project>

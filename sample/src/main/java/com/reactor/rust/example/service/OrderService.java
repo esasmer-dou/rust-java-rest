@@ -1,6 +1,5 @@
 package com.reactor.rust.example.service;
 
-import com.reactor.rust.di.annotation.Autowired;
 import com.reactor.rust.di.annotation.PostConstruct;
 import com.reactor.rust.di.annotation.Service;
 import com.reactor.rust.example.dto.*;
@@ -9,6 +8,7 @@ import com.reactor.rust.logging.FrameworkLogger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -22,8 +22,11 @@ public class OrderService {
     // In-memory order storage (demo purposes)
     private final Map<String, OrderRequest> orders = new ConcurrentHashMap<>();
 
-    @Autowired(required = false)
-    private NotificationService notificationService;
+    private final NotificationService notificationService;
+
+    public OrderService(Optional<NotificationService> notificationService) {
+        this.notificationService = notificationService.orElse(null);
+    }
 
     @PostConstruct
     public void init() {

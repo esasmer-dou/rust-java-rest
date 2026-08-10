@@ -1,5 +1,6 @@
 package com.reactor.rust.bridge;
 
+import com.reactor.rust.config.NativeCapabilityPlan;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.exception.HttpErrorMapper;
 import com.reactor.rust.logging.FrameworkLogger;
@@ -21,7 +22,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class NativeBridge {
 
-    static final int EXPECTED_NATIVE_ABI_VERSION = 24;
+    static final int EXPECTED_NATIVE_ABI_VERSION = 26;
     static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 7;
     static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 6;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
@@ -202,7 +203,13 @@ public class NativeBridge {
 
     private static native int nativeHttpServerState();
 
+    private static native int nativeHttpServerPort();
+
     public static void startHttpServer(int port) {
+        startHttpServerAndGetPort(port);
+    }
+
+    public static int startHttpServerAndGetPort(int port) {
         int startupTimeoutMs = positiveServerTimeout(
                 "reactor.rust.server.startup-timeout-ms",
                 DEFAULT_SERVER_STARTUP_TIMEOUT_MS
@@ -214,6 +221,12 @@ public class NativeBridge {
         if (!nativeStartHttpServer(port, startupTimeoutMs, gracefulShutdownTimeoutMs)) {
             throw new IllegalStateException("Native Hyper server did not reach ready state");
         }
+        int boundPort = nativeHttpServerPort();
+        if (boundPort < 1 || boundPort > 65_535) {
+            stopHttpServer();
+            throw new IllegalStateException("Native Hyper server reported an invalid bound port: " + boundPort);
+        }
+        return boundPort;
     }
 
     public static boolean stopHttpServer() {
@@ -233,6 +246,10 @@ public class NativeBridge {
         return nativeHttpServerState() == 2;
     }
 
+    public static int httpServerPort() {
+        return nativeHttpServerPort();
+    }
+
     public static native void registerRoutes(List<RouteDef> routes);
 
     public static long staticFileInlineMaxBytes() {
@@ -243,6 +260,10 @@ public class NativeBridge {
     }
 
     public static void configureRuntimeFromProperties() {
+        configureRuntimeFromProperties(NativeCapabilityPlan.fromProperties(true));
+    }
+
+    public static void configureRuntimeFromProperties(NativeCapabilityPlan capabilityPlan) {
         long maxRequestBodyBytes = PropertiesLoader.getLong(
                 "reactor.rust.http.max-request-body-bytes",
                 DEFAULT_MAX_REQUEST_BODY_BYTES
@@ -390,6 +411,7 @@ public class NativeBridge {
                     nativeBuildInfo(),
                     EXPECTED_NATIVE_ABI_VERSION
             );
+            validateNativeCapabilities(capabilityPlan, buildInfo.features());
             FrameworkLogger.info(
                     "[NativeBridge] Native build: revision=" + buildInfo.sourceRevision()
                             + " target=" + buildInfo.target()
@@ -438,7 +460,8 @@ public class NativeBridge {
         }
 
         FrameworkLogger.info("[JAVA] Native runtime configured: "
-                + "maxRequestBodyBytes=" + maxRequestBodyBytes
+                + "capabilities=" + capabilityPlan.enabled()
+                + ", maxRequestBodyBytes=" + maxRequestBodyBytes
                 + ", maxResponseBodyBytes=" + maxResponseBodyBytes
                 + ", maxInFlightBodyBytes=" + maxInFlightBodyBytes
                 + ", maxInFlightResponseBytes=" + maxInFlightResponseBytes
@@ -490,6 +513,31 @@ public class NativeBridge {
                     "reactor.rust.log.level must be one of off, error, warn, info, debug"
             );
         };
+    }
+
+    private static void validateNativeCapabilities(
+            NativeCapabilityPlan plan,
+            String buildFeatures) {
+        java.util.Set<String> features = java.util.Arrays.stream(buildFeatures.split(","))
+                .map(String::trim)
+                .map(value -> value.toLowerCase(java.util.Locale.ROOT))
+                .filter(value -> !value.isEmpty())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        requireNativeFeature(plan, NativeCapabilityPlan.Capability.WEBSOCKET, "websocket", features);
+        requireNativeFeature(plan, NativeCapabilityPlan.Capability.DUBBO, "dubbo", features);
+        requireNativeFeature(plan, NativeCapabilityPlan.Capability.REDIS, "redis", features);
+    }
+
+    private static void requireNativeFeature(
+            NativeCapabilityPlan plan,
+            NativeCapabilityPlan.Capability capability,
+            String feature,
+            java.util.Set<String> buildFeatures) {
+        if (plan.enabled(capability) && !buildFeatures.contains(feature)) {
+            throw new IllegalStateException(
+                    "Native capability " + capability + " is enabled but the loaded binary was built without "
+                            + feature + ". Select the matching starter/native classifier.");
+        }
     }
 
     private static int positiveServerTimeout(String key, int defaultValue) {

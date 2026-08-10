@@ -45,6 +45,7 @@ public class RouteDef {
     public final String directPathShortName;
     public final short directPathShortMin;
     public final short directPathShortMax;
+    public final int directPrimitiveMode;
     public final boolean directBodylessOutput;
     public final int nativeStaticResponseId;
     public final int nativeStaticFileResponseId;
@@ -98,6 +99,7 @@ public class RouteDef {
                 "",
                 "", -Double.MAX_VALUE, Double.MAX_VALUE,
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
+                0,
                 false,
                 0,
                 0,
@@ -132,6 +134,7 @@ public class RouteDef {
                 "",
                 "", -Double.MAX_VALUE, Double.MAX_VALUE,
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
+                0,
                 false,
                 0,
                 0,
@@ -170,6 +173,7 @@ public class RouteDef {
                 "",
                 "", -Double.MAX_VALUE, Double.MAX_VALUE,
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
+                0,
                 false,
                 0,
                 0,
@@ -214,6 +218,7 @@ public class RouteDef {
                 "",
                 "", -Double.MAX_VALUE, Double.MAX_VALUE,
                 "", Short.MIN_VALUE, Short.MAX_VALUE,
+                0,
                 false,
                 0,
                 0,
@@ -266,6 +271,7 @@ public class RouteDef {
                     String directPathShortName,
                     short directPathShortMin,
                     short directPathShortMax,
+                    int directPrimitiveMode,
                     boolean directBodylessOutput,
                     int nativeStaticResponseId,
                     int nativeStaticFileResponseId) {
@@ -282,6 +288,7 @@ public class RouteDef {
                 directPathBooleanName,
                 directPathDoubleName, directPathDoubleMin, directPathDoubleMax,
                 directPathShortName, directPathShortMin, directPathShortMax,
+                directPrimitiveMode,
                 directBodylessOutput,
                 nativeStaticResponseId,
                 nativeStaticFileResponseId,
@@ -334,6 +341,7 @@ public class RouteDef {
                     String directPathShortName,
                     short directPathShortMin,
                     short directPathShortMax,
+                    int directPrimitiveMode,
                     boolean directBodylessOutput,
                     int nativeStaticResponseId,
                     int nativeStaticFileResponseId,
@@ -384,6 +392,7 @@ public class RouteDef {
         this.directPathShortName = directPathShortName == null ? "" : directPathShortName;
         this.directPathShortMin = directPathShortMin;
         this.directPathShortMax = directPathShortMax;
+        this.directPrimitiveMode = Math.max(0, Math.min(2, directPrimitiveMode));
         this.directBodylessOutput = directBodylessOutput;
         this.nativeStaticResponseId = nativeStaticResponseId;
         this.nativeStaticFileResponseId = nativeStaticFileResponseId;

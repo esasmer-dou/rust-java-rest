@@ -19,7 +19,7 @@ class NativeProvenanceTest {
         String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary));
         ClassLoader loader = manifestLoader("""
                 schema=2
-                rest.abi=24
+                rest.abi=26
                 dubbo.abi=7
                 redis.abi=6
                 crate.version=0.1.0

@@ -1,0 +1,87 @@
+name: Platform Package Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Aligned REST platform version, for example 4.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish-platform:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout aligned REST source
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ inputs.version }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: Verify platform version
+        shell: bash
+        run: |
+          VERSION="$(mvn -q -f platform/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)"
+          test "${{ inputs.version }}" = "$VERSION"
+
+      - name: Install REST core locally
+        run: mvn -B -ntp -DskipTests install
+
+      - name: Checkout aligned Dubbo and cache libraries
+        uses: actions/checkout@v4
+        with:
+          repository: esasmer-dou/java-rust-dubbo
+          ref: v0.7.0
+          path: aligned/java-rust-dubbo
+
+      - name: Checkout aligned cache library
+        uses: actions/checkout@v4
+        with:
+          repository: esasmer-dou/java-rust-cache
+          ref: v0.7.0
+          path: aligned/java-rust-cache
+
+      - name: Install aligned libraries locally
+        shell: bash
+        run: |
+          mvn -B -ntp -f aligned/java-rust-dubbo/pom.xml -DskipTests install
+          mvn -B -ntp -f aligned/java-rust-cache/pom.xml -DskipTests install
+
+      - name: Verify platform reactor
+        run: mvn -B -ntp -f platform/pom.xml clean verify
+
+      - name: Publish BOM, parent, starters, compatibility module, and plugin
+        run: >-
+          mvn -B -ntp -f platform/pom.xml -DskipTests deploy
+          -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/esasmer-dou/rust-java-rest
+
+      - name: Attach platform artifact bundle to REST release
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          mkdir -p release-assets/platform
+          find platform -path '*/target/*.jar' -type f -exec cp {} release-assets/platform/ \;
+          cp platform/bom/pom.xml "release-assets/platform/rust-java-platform-bom-${VERSION}.pom"
+          cp platform/parent/pom.xml "release-assets/platform/rust-java-platform-parent-${VERSION}.pom"
+          tar -C release-assets -czf "release-assets/rust-java-platform-${VERSION}.tar.gz" platform
+          sha256sum "release-assets/rust-java-platform-${VERSION}.tar.gz" > "release-assets/rust-java-platform-${VERSION}.sha256"
+          gh release upload "v${VERSION}" \
+            "release-assets/rust-java-platform-${VERSION}.tar.gz" \
+            "release-assets/rust-java-platform-${VERSION}.sha256" \
+            --clobber
