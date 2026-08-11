@@ -13,15 +13,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 class NativeIdleMemoryTrimmerTest {
 
     private final Metrics metrics = Metrics.getInstance();
+    private boolean metricsCollectionWasEnabled;
 
     @BeforeEach
     void resetBefore() {
+        metricsCollectionWasEnabled = metrics.collectionEnabled();
+        metrics.configureCollection(true);
         metrics.reset();
     }
 
     @AfterEach
     void resetAfter() {
         metrics.reset();
+        metrics.configureCollection(metricsCollectionWasEnabled);
     }
 
     @Test
