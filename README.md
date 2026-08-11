@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Version](https://img.shields.io/badge/version-4.2.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-4.3.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
 [![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
@@ -35,8 +35,8 @@ Start with the document that matches your task:
 
 ## Current Stable Line
 
-`4.2.0` is the declarative runtime line used by `java-rust-cache:0.7.0` and
-`java-rust-dubbo:0.7.0`. The current source tree and its packaged native artifacts report REST ABI
+`4.3.0` is the declarative runtime line used by `java-rust-cache:0.7.1` and
+`java-rust-dubbo:0.7.1`. The current source tree and its packaged native artifacts report REST ABI
 `26`, Dubbo ABI `7`, and Redis ABI `6`. Always use the DLL/SO carried by the same Maven artifact;
 never copy a native binary from another release. Generated application wiring and route invokers
 keep Java handlers and business services unchanged. If your application combines these libraries,
@@ -46,23 +46,23 @@ keep the versions aligned:
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.2.0</version>
+  <version>4.3.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.7.0</version>
+  <version>0.7.1</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.7.0</version>
+  <version>0.7.1</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.7.0` or `java-rust-dubbo:0.7.0` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.7.1` or `java-rust-dubbo:0.7.1` native mode with a DLL/SO copied from
 an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
@@ -77,7 +77,7 @@ the build-time AOT gates without adding runtime reflection.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.2.0</version>
+  <version>4.3.0</version>
 </parent>
 
 <dependencies>
@@ -95,6 +95,7 @@ import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.annotations.PathVariable;
 import com.reactor.rust.annotations.ReactorApplication;
 import com.reactor.rust.annotations.RestController;
+import com.reactor.rust.annotations.Response;
 import com.reactor.rust.app.RestApplication;
 
 @ReactorApplication(scanBasePackages = "com.example.catalog")
@@ -112,6 +113,7 @@ final class CatalogHandler {
     }
 }
 
+@Response
 record CatalogItem(long id, String status) {}
 ```
 
@@ -155,7 +157,8 @@ still enlarges the classpath and can increase loaded-class and native-runtime su
 | Constructor parameters | Bean factories and dependency graph | No reflective DI lookup |
 | REST annotations | Exact route invokers | No reflective method invocation |
 | `@ConfigurationProperties` | Typed property binding | Invalid config fails startup |
-| `@GenerateDirectJsonWriter` | Type-specific writer | No generic object-graph serializer for that response |
+| `@Response` | Response DTO metadata | Compatible DSL-JSON serialization; no implicit writer generation |
+| `@GenerateDirectJsonWriter` | Required type-specific writer | Bound once before traffic; unsupported shapes fail the build |
 | `@GenerateJdbcMapper` | Direct `ResultSet` mapper | No runtime record inspection |
 | `@ReactorHttpClient` | Typed HTTP client | No dynamic proxy |
 | `@Scheduled` | Bounded task registration | One owned scheduler lifecycle |
@@ -164,6 +167,19 @@ still enlarges the classpath and can increase loaded-class and native-runtime su
 Compatibility scanning remains available for migration, but it is observable and should not become
 the normal production path. Keep strict AOT gates enabled so an accidental fallback fails the build
 or startup instead of silently reducing performance.
+
+Built-in metrics are opt-in. Enable them only in applications that expose the framework diagnostics
+routes:
+
+```java
+@ReactorApplication(
+        scanBasePackages = "com.example.catalog",
+        metrics = true)
+public final class CatalogApplication { /* main stays unchanged */ }
+```
+
+With the default `metrics = false`, the metrics handler and its routes are not registered. This keeps
+the smallest REST process free of an unused diagnostics surface.
 
 ### Responses And Errors
 
@@ -185,24 +201,27 @@ final class ApiErrors {
 Exception handlers are indexed and invoked through generated code. Do not catch every exception in
 every route or expose dependency exception text to clients.
 
-## v4.2.0 At A Glance
+## v4.3.0 At A Glance
 
-`v4.2.0` reduces application wiring without moving business logic out of Java. Use
-`@ReactorApplication`, `@RestController`, constructor injection, and `@Bean`; the codegen artifact
-creates direct component factories and route invokers during compilation. The production runtime
-does not load annotation processors and the request path does not gain runtime reflection.
+`v4.3.0` keeps the declarative API introduced in `4.2.0` and removes avoidable work from startup and
+the request path. Generated route invokers and direct JSON writers are now resolved before traffic.
+An explicitly requested writer that cannot be generated fails the build instead of silently using a
+slower runtime path.
 
-- Multiple beans for one interface require an explicit `@Primary` or `@Qualifier` decision.
-- Generated constructor and `@Bean` failures keep the bean name and original cause.
-- `scanBasePackages` uses only the explicit roots when supplied; otherwise it uses the application
-  package.
-- `LongKeyAdmission` provides bounded per-key command admission without sample-specific boilerplate.
-- The project generator can create REST, cache reader/writer, static Dubbo, and ZooKeeper Dubbo
-  project shapes with build-time processor discovery.
+- Add `@GenerateDirectJsonWriter` only to response records that need the generated direct path.
+  `@Response` remains the normal DTO marker and does not imply a native writer.
+- Generated route metadata binds the exact invocation plan once. Route diagnostics show whether a
+  route is generated, direct, native static, or using a compatibility fallback.
+- Empty and bodyless routes avoid unnecessary request-frame work, while echo parsing and primitive
+  binding retain their Java business semantics.
+- Application descriptors, registries, native artifact checks, and OpenJ9 shared-cache preparation
+  allocate less during startup.
+- Resident-image, startup, generated-invocation, echo, and small-direct gates are included under
+  `benchmark/` so release decisions use repeatable evidence rather than one-off numbers.
 
-Existing REST annotations, handler signatures, response types, and Java business services remain
-source-compatible with `4.0.0`. Native artifacts are version-bound and must come from the same
-framework package because the current source line expects REST ABI `26`.
+Existing REST annotations, handler signatures, response types, services, and business logic remain
+source-compatible. REST ABI remains `26`, but the DLL/SO is version-bound and must come from the same
+`4.3.0` package because its static-response implementation changed.
 
 ## v4.0.0 At A Glance
 
@@ -439,7 +458,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.2.0</version>
+  <version>4.3.0</version>
 </dependency>
 ```
 
@@ -501,6 +520,15 @@ reduced Linux thread count and thread-stack budget without making direct-buffer 
 is still an optional service-local preset. Do not make it the default until your endpoint matrix
 passes p99, `503`, and RSS checks.
 
+For a lower-anon container image, the Maven `runtime-image` goal can create an `8m` ROM-only OpenJ9
+shared cache. This keeps AOT methods out of the cache and preserves normal Java JIT behavior. It is
+an image choice, not a runtime profile. The current minimal gate reduced final cgroup anon from
+`31.027 MiB` to `28.207 MiB`; the long c64 small-route gate reported useful RPS `+11.43%`, p99
+`-35.18%`, and no errors. Keep it opt-in and rerun c64/c256 for your own endpoint mix. The complete
+Maven configuration is in [Production Runtime](docs/production-runtime.md#rom-only-openj9-shared-cache).
+The generated multi-stage image keeps `binutils` in the build stage, runs as user `10001`, and
+limits runtime writes to `/app/.reactor/native` and `/app/work`.
+
 Latest local full gate result for this option was deliberately conservative: c64/c256/c512,
 sample repeat `3`, minimal smaps repeat `3`, `micro-rest`, and the framework's small/direct/raw/
 producer/legacy dynamic DTO endpoint set. Minimal production RSS improved by about `5.95 MiB`, but
@@ -512,17 +540,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.2.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.2.0-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.2.0-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-4.3.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.3.0-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.3.0-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.2.0-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-4.3.0-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.2.0`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.3.0`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -544,7 +572,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.2.0-sample.jar
+java -jar sample/target/rust-java-rest-4.3.0-sample.jar
 ```
 
 ## Quick Start
@@ -1506,6 +1534,18 @@ Use:
 - `benchmark_only`: `true` means the route exists only to compare or demonstrate a slower path.
 - `heavy_json_object_graph`: `true` means the route is marked `HEAVY_JSON` but still returns a
   normal Java object graph or legacy serialization path.
+- `generated_route_metadata`: `true` means HTTP method, path, request/response types and body limits
+  came from build-time metadata instead of startup reflection.
+- `generated_response_writer`: `true` means the route has bound an exact generated writer. A writer
+  that is already registered is bound while the route plan is built. A writer registered later gets
+  one final lookup on the first non-null object response. Producer, raw, native, and file routes never
+  trigger writer discovery.
+- `generated_response_writer_state`: `unresolved` means no writer was available while the route plan
+  was built and the first normal object response will perform one final lookup. `bound` means the
+  exact writer is active. `miss` means no writer exists for the declared response type. `disabled`
+  means direct writers are disabled by configuration. `not_applicable` is expected for primitive,
+  producer, raw, native, and file routes. Check the root `direct_json_writer_enabled` and
+  `direct_json_writer_providers` fields when a route reports `miss`.
 
 If `heavy_json_object_graph=true`, do not fix it by only adding `@DirectQuery*` or `@DirectPath*`.
 Those annotations only optimize scalar parameter binding. Move the response to `JsonBodyProducer`,
@@ -1546,6 +1586,7 @@ For a strict production gate, switch to fail-fast only after route diagnostics a
 ```properties
 reactor.optimizer.fail-on-fallback=true
 reactor.optimizer.fail-on-benchmark-only-routes=true
+reactor.optimizer.fail-on-reflection-route-metadata=true
 reactor.optimizer.required-fast-routes=get.api.v1.candidates,get.reports.heavy
 ```
 
@@ -1624,6 +1665,7 @@ More benchmark details:
 
 - [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
+- [docs/release-notes/v4.3.0.md](docs/release-notes/v4.3.0.md)
 - [docs/release-notes/v3.2.5.md](docs/release-notes/v3.2.5.md)
 - [docs/release-notes/v3.2.3.md](docs/release-notes/v3.2.3.md)
 - [docs/release-notes/v3.2.2.md](docs/release-notes/v3.2.2.md)

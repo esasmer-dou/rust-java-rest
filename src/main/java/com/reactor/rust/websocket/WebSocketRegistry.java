@@ -18,11 +18,15 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class WebSocketRegistry {
 
-    private static final WebSocketRegistry COMPATIBILITY_INSTANCE = new WebSocketRegistry();
-    private static volatile WebSocketRegistry active = COMPATIBILITY_INSTANCE;
+    private static volatile WebSocketRegistry active;
+
+    private static final class CompatibilityHolder {
+        private static final WebSocketRegistry INSTANCE = new WebSocketRegistry();
+    }
 
     public static WebSocketRegistry getInstance() {
-        return active;
+        WebSocketRegistry current = active;
+        return current != null ? current : CompatibilityHolder.INSTANCE;
     }
 
     public static WebSocketRegistry create() {
@@ -35,7 +39,7 @@ public final class WebSocketRegistry {
 
     public static void deactivate(WebSocketRegistry registry) {
         if (active == registry) {
-            active = COMPATIBILITY_INSTANCE;
+            active = null;
         }
     }
 

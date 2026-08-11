@@ -7,13 +7,12 @@ import com.reactor.rust.startup.StartupTimeline;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Native Library Loader - Extracts and loads platform-specific Rust library from JAR resources.
@@ -33,6 +32,8 @@ import java.util.Locale;
 public final class NativeLibraryLoader {
 
     private static final String LIBRARY_NAME = "rust_hyper";
+    private static final long TEMP_FILE_NONCE = System.nanoTime() ^ System.currentTimeMillis();
+    private static final AtomicLong TEMP_FILE_SEQUENCE = new AtomicLong();
     private static boolean loaded = false;
     private static volatile LoadedArtifact loadedArtifact =
             LoadedArtifact.external("not-loaded", "unknown", "unknown");
@@ -193,7 +194,7 @@ public final class NativeLibraryLoader {
             );
             if (isExtractionCacheEnabled()) {
                 return new ExtractedLibrary(
-                        extractToCache(bytes, libraryFileName, platform),
+                        extractToCache(bytes, libraryFileName, platform, manifest.sha256()),
                         manifest
                 );
             }
@@ -201,7 +202,11 @@ public final class NativeLibraryLoader {
             // Create temp file with correct extension
             String prefix = LIBRARY_NAME;
             String suffix = libraryFileName.substring(libraryFileName.lastIndexOf('.'));
-            Path tempFile = Files.createTempFile(prefix, suffix);
+            Path tempFile = createArtifactTempFile(
+                    Path.of(System.getProperty("java.io.tmpdir")),
+                    prefix,
+                    suffix
+            );
 
             // Copy library to temp file
             Files.write(tempFile, bytes);
@@ -224,8 +229,11 @@ public final class NativeLibraryLoader {
         return PropertiesLoader.getBoolean("reactor.native.extract.cache.enabled", true);
     }
 
-    private static Path extractToCache(byte[] bytes, String libraryFileName, Platform platform) throws IOException {
-        String hash = sha256(bytes);
+    private static Path extractToCache(
+            byte[] bytes,
+            String libraryFileName,
+            Platform platform,
+            String hash) throws IOException {
         String cacheDir = PropertiesLoader.get(
                 "reactor.native.extract.cache-dir",
                 Path.of(System.getProperty("user.home"), ".reactor", "native").toString()
@@ -245,7 +253,7 @@ public final class NativeLibraryLoader {
             return target;
         }
 
-        Path temp = Files.createTempFile(targetDir, libraryFileName, ".tmp");
+        Path temp = createArtifactTempFile(targetDir, libraryFileName, ".tmp");
         Files.write(temp, bytes);
         try {
             temp.toFile().setExecutable(true);
@@ -261,36 +269,29 @@ public final class NativeLibraryLoader {
         return target;
     }
 
+    static Path createArtifactTempFile(Path directory, String prefix, String suffix) throws IOException {
+        Files.createDirectories(directory);
+        String processId = Long.toUnsignedString(ProcessHandle.current().pid(), 36);
+        String processNonce = Long.toUnsignedString(TEMP_FILE_NONCE, 36);
+        for (int attempt = 0; attempt < 64; attempt++) {
+            String sequence = Long.toUnsignedString(TEMP_FILE_SEQUENCE.incrementAndGet(), 36);
+            Path candidate = directory.resolve(
+                    prefix + "-" + processId + "-" + processNonce + "-" + sequence + suffix
+            );
+            try {
+                return Files.createFile(candidate);
+            } catch (FileAlreadyExistsException ignored) {
+                // A shared extraction directory can be used by multiple JVMs; retry with a new sequence.
+            }
+        }
+        throw new IOException("Cannot allocate a unique native artifact temp file in " + directory);
+    }
+
     private static boolean isValidCachedFile(Path target, int expectedSize, String expectedHash) throws IOException {
         if (!Files.exists(target) || Files.size(target) != expectedSize) {
             return false;
         }
-        return expectedHash.equals(sha256(target));
-    }
-
-    private static String sha256(byte[] bytes) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(bytes));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest is not available", e);
-        }
-    }
-
-    private static String sha256(Path path) throws IOException {
-        try (InputStream input = Files.newInputStream(path)) {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] buffer = new byte[16 * 1024];
-            int read;
-            while ((read = input.read(buffer)) >= 0) {
-                if (read > 0) {
-                    digest.update(buffer, 0, read);
-                }
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest is not available", e);
-        }
+        return expectedHash.equals(NativeArtifactDigest.sha256Hex(target));
     }
 
     /**
@@ -396,7 +397,7 @@ public final class NativeLibraryLoader {
 
     private static String fileHash(Path path) {
         try {
-            return sha256(path);
+            return NativeArtifactDigest.sha256Hex(path);
         } catch (IOException error) {
             throw new IllegalStateException("Cannot hash native library: " + path, error);
         }

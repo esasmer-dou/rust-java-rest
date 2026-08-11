@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Aligned REST platform version, for example 4.2.0"
+        description: "Aligned REST platform version, for example 4.3.0"
         required: true
         type: string
 
@@ -47,14 +47,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: esasmer-dou/java-rust-dubbo
-          ref: v0.7.0
+          ref: v0.7.1
           path: aligned/java-rust-dubbo
 
       - name: Checkout aligned cache library
         uses: actions/checkout@v4
         with:
           repository: esasmer-dou/java-rust-cache
-          ref: v0.7.0
+          ref: v0.7.1
           path: aligned/java-rust-cache
 
       - name: Install aligned libraries locally

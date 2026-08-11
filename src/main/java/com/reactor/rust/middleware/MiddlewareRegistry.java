@@ -14,8 +14,11 @@ import java.util.Comparator;
 @Deprecated(forRemoval = true)
 public final class MiddlewareRegistry {
 
-    private static final MiddlewareRegistry COMPATIBILITY_INSTANCE = new MiddlewareRegistry();
-    private static volatile MiddlewareRegistry active = COMPATIBILITY_INSTANCE;
+    private static volatile MiddlewareRegistry active;
+
+    private static final class CompatibilityHolder {
+        private static final MiddlewareRegistry INSTANCE = new MiddlewareRegistry();
+    }
 
     private static final Middleware[] EMPTY = new Middleware[0];
 
@@ -24,7 +27,8 @@ public final class MiddlewareRegistry {
     private MiddlewareRegistry() {}
 
     public static MiddlewareRegistry getInstance() {
-        return active;
+        MiddlewareRegistry current = active;
+        return current != null ? current : CompatibilityHolder.INSTANCE;
     }
 
     public static MiddlewareRegistry create() {
@@ -37,7 +41,7 @@ public final class MiddlewareRegistry {
 
     public static void deactivate(MiddlewareRegistry registry) {
         if (active == registry) {
-            active = COMPATIBILITY_INSTANCE;
+            active = null;
         }
     }
 

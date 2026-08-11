@@ -3,9 +3,6 @@ package com.reactor.rust.bridge;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Properties;
 
 final class NativeProvenance {
@@ -34,7 +31,7 @@ final class NativeProvenance {
         );
 
         String expectedHash = required(properties, platform + ".sha256");
-        String actualHash = sha256(binary);
+        String actualHash = NativeArtifactDigest.sha256Hex(binary);
         if (!actualHash.equalsIgnoreCase(expectedHash)) {
             throw new IllegalStateException(
                     "Packaged native binary hash mismatch for " + platform
@@ -118,14 +115,6 @@ final class NativeProvenance {
             throw new IllegalStateException("Native provenance field is missing: " + key);
         }
         return value.trim();
-    }
-
-    private static String sha256(byte[] bytes) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("SHA-256 digest is not available", error);
-        }
     }
 
     record Manifest(

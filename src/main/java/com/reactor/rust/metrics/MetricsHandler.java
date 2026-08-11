@@ -36,6 +36,10 @@ public class MetricsHandler implements GeneratedRouteContributor {
     private static final int STARTUP_DIAGNOSTICS = 5;
     private static final int METRICS_RESET = 6;
 
+    public MetricsHandler() {
+        Metrics.getInstance().configureCollection(true);
+    }
+
     @Override
     public void registerGeneratedRouteInvokers() {
         register("getMetrics", METRICS);

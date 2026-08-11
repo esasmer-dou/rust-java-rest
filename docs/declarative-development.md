@@ -12,7 +12,7 @@ on the compiler path and are not runtime dependencies.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.2.0</version>
+  <version>4.3.0</version>
 </parent>
 
 <dependencies>
@@ -53,7 +53,8 @@ They do not add runtime scanning or reflection to the request path.
         name = "Customer API",
         version = "1.0.0",
         description = "Customer query and command endpoints",
-        scanBasePackages = "com.example.customer")
+        scanBasePackages = "com.example.customer",
+        metrics = true)
 public final class CustomerApplication {
     public static void main(String[] args) {
         RestApplication.run(CustomerApplication.class, args);
@@ -77,6 +78,8 @@ final class CustomerHandler {
 
 Without `scanBasePackages`, the application class package is the scan root. An explicit value
 replaces that default; list the common root of sibling `app`, `handler`, and `service` packages.
+`metrics` defaults to `false`. Set it to `true` only when this application should expose the built-in
+metrics and diagnostics routes.
 
 Constructor factories and route invokers are generated at build time. Use `@Configuration` and
 `@Bean` for third-party objects. The generated factory can inject parameters into the `@Bean`
@@ -269,13 +272,28 @@ processors, DSL-JSON processor classes, and annotation-processor ServiceLoader m
 ## Direct JSON Writer
 
 ```java
+@Response
 @GenerateDirectJsonWriter
-public record OrderSummary(long id, String status, Boolean priority) {}
+public record OrderSummary(
+        long id,
+        String status,
+        java.util.List<OrderLine> lines,
+        java.util.Optional<String> note) {}
+
+public record OrderLine(long productId, int quantity) {}
 ```
 
-Use this for scalar records. Primitive values, boxed scalar values, strings, enums, UUID, and common
-time values are supported. Nested object graphs and collections must use an explicit producer or a
-business-specific writer. The processor fails the build instead of silently selecting a slow path.
+`@Response` marks the type as an HTTP response DTO. It does not enable a direct writer by itself.
+Add `@GenerateDirectJsonWriter` only when this DTO is on a measured serialization hot path. The
+processor then creates an exact writer for primitives, boxed scalars, strings, enums, UUID/time
+values, nested records, arrays, `Iterable` collections, `Optional`, `BigDecimal`, and `BigInteger`.
+
+The generated writer is registered during startup and bound to the route once, before requests are
+accepted. Runtime requests do not perform lazy writer discovery. Unsupported maps, byte/char arrays,
+wildcard/type-variable collections, or recursive graphs fail the build when the explicit annotation
+is present. A record with only `@Response` stays on the compatible DSL-JSON path. Manually registered
+writers must also be registered before route compilation. Use `JsonBodyProducer` for large dynamic
+graphs instead of building a large `List<Record>`.
 
 ## JDBC Record Mapper
 

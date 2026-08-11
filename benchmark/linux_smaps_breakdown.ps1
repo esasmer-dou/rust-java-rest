@@ -24,6 +24,8 @@ param(
     [string] $JvmXss = "",
     [string] $ExtraJavaOpts = "",
     [string] $JavaToolOptions = "",
+    [int] $MallocArenaMax = 2,
+    [int] $MallocTrimThreshold = 131072,
     [switch] $TrimBeforeFinalIdle,
     [switch] $CollectJavacore,
     [switch] $SkipBuild,
@@ -684,6 +686,40 @@ function Save-Phase {
             Sort-Object rss_mib -Descending
     )
     $categoryRows | Export-Csv -Path (Join-Path $phaseDir "smaps_categories.csv") -NoTypeInformation -Encoding UTF8
+    $pathRows = @(
+        $mapRows |
+            Group-Object path |
+            ForEach-Object {
+                $path = $_.Name
+                if ([string]::IsNullOrWhiteSpace($path)) {
+                    $path = "[anonymous]"
+                }
+                [PSCustomObject]@{
+                    phase = $Phase
+                    category = $_.Group[0].category
+                    path = $path
+                    mappings = $_.Count
+                    size_mib = Convert-KbToMiB (($_.Group | Measure-Object size_kb -Sum).Sum)
+                    rss_mib = Convert-KbToMiB (($_.Group | Measure-Object rss_kb -Sum).Sum)
+                    pss_mib = Convert-KbToMiB (($_.Group | Measure-Object pss_kb -Sum).Sum)
+                    private_clean_mib = Convert-KbToMiB (($_.Group | Measure-Object private_clean_kb -Sum).Sum)
+                    private_dirty_mib = Convert-KbToMiB (($_.Group | Measure-Object private_dirty_kb -Sum).Sum)
+                    shared_clean_mib = Convert-KbToMiB (($_.Group | Measure-Object shared_clean_kb -Sum).Sum)
+                    shared_dirty_mib = Convert-KbToMiB (($_.Group | Measure-Object shared_dirty_kb -Sum).Sum)
+                    clean_reclaimable_mib = Convert-KbToMiB (
+                        (($_.Group | Measure-Object private_clean_kb -Sum).Sum) +
+                        (($_.Group | Measure-Object shared_clean_kb -Sum).Sum)
+                    )
+                    dirty_resident_mib = Convert-KbToMiB (
+                        (($_.Group | Measure-Object private_dirty_kb -Sum).Sum) +
+                        (($_.Group | Measure-Object shared_dirty_kb -Sum).Sum)
+                    )
+                    anonymous_mib = Convert-KbToMiB (($_.Group | Measure-Object anonymous_kb -Sum).Sum)
+                }
+            } |
+            Sort-Object rss_mib -Descending
+    )
+    $pathRows | Export-Csv -Path (Join-Path $phaseDir "smaps_paths.csv") -NoTypeInformation -Encoding UTF8
 
     $rssKb = Read-KvKb -Text $smapsRollup -Name "Rss"
     $pssKb = Read-KvKb -Text $smapsRollup -Name "Pss"
@@ -920,6 +956,20 @@ function Write-Report {
     $baseline = $Rows | Where-Object { $_.phase -eq "00_baseline" } | Select-Object -First 1
     $peak = $Rows | Sort-Object smaps_rss_mib -Descending | Select-Object -First 1
     $final = $Rows | Where-Object { $_.phase -eq "99_final_idle" } | Select-Object -First 1
+    $finalFileRss = 0.0
+    $finalFileClean = 0.0
+    $finalFileDirty = 0.0
+    $finalPathCsv = Join-Path (Join-Path $ResultsDir "99_final_idle") "smaps_paths.csv"
+    if (Test-Path $finalPathCsv) {
+        foreach ($mapping in (Import-Csv $finalPathCsv | Where-Object { $_.path.StartsWith("/") })) {
+            $finalFileRss += [double]($mapping.rss_mib -replace ',', '.')
+            $finalFileClean += [double]($mapping.clean_reclaimable_mib -replace ',', '.')
+            $finalFileDirty += [double]($mapping.dirty_resident_mib -replace ',', '.')
+        }
+        $finalFileRss = [Math]::Round($finalFileRss, 3)
+        $finalFileClean = [Math]::Round($finalFileClean, 3)
+        $finalFileDirty = [Math]::Round($finalFileDirty, 3)
+    }
 
     $report = Join-Path $ResultsDir "linux_smaps_breakdown_report.md"
     $lines = New-Object 'System.Collections.Generic.List[string]'
@@ -940,6 +990,8 @@ function Write-Report {
         $lines.Add("- Extra Java opts: $effectiveExtraJavaOpts")
     }
     $lines.Add("- JAVA_TOOL_OPTIONS: ``$JavaToolOptions``")
+    $lines.Add("- MALLOC_ARENA_MAX: $MallocArenaMax")
+    $lines.Add("- MALLOC_TRIM_THRESHOLD_: $MallocTrimThreshold")
     $lines.Add("- Container memory limit: $((Get-ProfileConfig).Memory)")
     $lines.Add("- Duration per load phase: ${DurationSeconds}s")
     $lines.Add("- Trim before final idle: $TrimBeforeFinalIdle")
@@ -960,6 +1012,7 @@ function Write-Report {
     $lines.Add("- rust_accounted_mib is only memory explicitly reported by framework native diagnostics. Rust/Tokio allocator pages can still appear under anonymous/private dirty or native library mappings.")
     $lines.Add("- anon_residual_mib is cgroup anon minus strongly accounted heap/non-heap/direct/Rust bytes. It still contains actual thread stack residency, JVM native allocator pages, Rust/Tokio allocator pages not exposed by metrics, and attribution error.")
     $lines.Add("- thread_stack_budget_mib is an upper-bound budget from Linux thread count * -Xss. It is not exact resident stack RSS.")
+    $lines.Add("- File-backed clean RSS is resident code/data that Linux can evict and fault back from the image. It is not equivalent to private dirty or cgroup anonymous memory.")
     $lines.Add("")
     $lines.Add("## Top-Level Result")
     $lines.Add("")
@@ -976,6 +1029,9 @@ function Write-Report {
     if ($final) {
         $lines.Add("| Final idle smaps RSS MiB | $($final.smaps_rss_mib) |")
         $lines.Add("| Final idle cgroup current MiB | $($final.cgroup_current_mib) |")
+        $lines.Add("| Final file-backed RSS MiB | $finalFileRss |")
+        $lines.Add("| Final file-backed clean/reclaimable MiB | $finalFileClean |")
+        $lines.Add("| Final file-backed dirty MiB | $finalFileDirty |")
         $lines.Add("| Native HTTP requests total | $($final.native_http_requests_total) |")
         $lines.Add("| Native HTTP user requests total | $($final.native_http_user_requests_total) |")
         $lines.Add("| Native trim success total | $($final.native_trim_success) |")
@@ -1034,6 +1090,28 @@ function Write-Report {
         $lines.Add("|---|---:|---:|---:|---:|---:|")
         foreach ($category in (Import-Csv $categoryPath | Sort-Object {[double]($_.rss_mib -replace ',', '.')} -Descending)) {
             $lines.Add("| $($category.category) | $($category.mappings) | $($category.rss_mib) | $($category.pss_mib) | $($category.private_dirty_mib) | $($category.anonymous_mib) |")
+        }
+    }
+    $lines.Add("")
+    $lines.Add("## Top File-Backed Mappings")
+    foreach ($phase in @("00_baseline", "01_warmup", "99_final_idle")) {
+        $pathCsv = Join-Path (Join-Path $ResultsDir $phase) "smaps_paths.csv"
+        if (-not (Test-Path $pathCsv)) {
+            continue
+        }
+        $lines.Add("")
+        $lines.Add("### $phase")
+        $lines.Add("")
+        $lines.Add("| Path | Category | Maps | RSS | Clean/Reclaimable | Dirty | PSS |")
+        $lines.Add("|---|---|---:|---:|---:|---:|---:|")
+        $topPaths = @(
+            Import-Csv $pathCsv |
+                Where-Object { $_.path.StartsWith("/") } |
+                Sort-Object {[double]($_.rss_mib -replace ',', '.')} -Descending |
+                Select-Object -First 20
+        )
+        foreach ($mapping in $topPaths) {
+            $lines.Add("| $($mapping.path) | $($mapping.category) | $($mapping.mappings) | $($mapping.rss_mib) | $($mapping.clean_reclaimable_mib) | $($mapping.dirty_resident_mib) | $($mapping.pss_mib) |")
         }
     }
     $lines.Add("")
@@ -1096,7 +1174,11 @@ try {
     }
 
     Remove-ContainerIfExists -Name $Container
-    $containerId = docker run -d --name $Container --memory $profile.Memory -p "${HostPort}:8080" -e "JAVA_TOOL_OPTIONS=$JavaToolOptions" -e "JAVA_OPTS=$($profile.JavaOpts)" $Image
+    $containerId = docker run -d --name $Container --memory $profile.Memory -p "${HostPort}:8080" `
+        -e "MALLOC_ARENA_MAX=$MallocArenaMax" `
+        -e "MALLOC_TRIM_THRESHOLD_=$MallocTrimThreshold" `
+        -e "JAVA_TOOL_OPTIONS=$JavaToolOptions" `
+        -e "JAVA_OPTS=$($profile.JavaOpts)" $Image
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {
         throw "Failed to start $Container."
     }

@@ -72,6 +72,8 @@ class ReactorCodegenProcessorsTest {
                 "generated/fixture/Handler__ReactorFactory.java"));
         assertTrue(factory.contains("registerGeneratedFactory"));
         assertTrue(factory.contains("GeneratedRouteInvokers.register"));
+        assertTrue(factory.contains("new com.reactor.rust.bridge.GeneratedRouteMetadata("
+                + "\"GET\", \"/items/{id}\", java.lang.Void.class, java.lang.String.class"));
         assertTrue(factory.contains("((generated.fixture.Handler) bean).get()"));
         assertFalse(factory.contains("markGeneratedReflectionFree"));
     }
@@ -433,8 +435,25 @@ class ReactorCodegenProcessorsTest {
 
         String writer = Files.readString(output.generated().resolve(
                 "generated/fixture/ResponseDirectJsonWriter.java"));
-        assertTrue(writer.contains("json.fieldLong(\"id\", value.id())"));
-        assertTrue(writer.contains("json.fieldString(\"name\", value.name())"));
+        assertTrue(writer.contains("private static final byte[] FIELD_PREFIXES"));
+        assertTrue(writer.contains("json.fieldPrefix(FIELD_PREFIXES, 0, 5)"));
+        assertTrue(writer.contains("json.number(value.id())"));
+        assertTrue(writer.contains("json.string(value.name())"));
+        assertTrue(!writer.contains("json.fieldLong(\"id\""));
+        assertTrue(writer.contains("ResponseDirectJsonWriter INSTANCE"));
+        Path providerPath;
+        try (var generatedFiles = Files.walk(output.generated().resolve("com/reactor/generated"))) {
+            providerPath = generatedFiles
+                    .filter(path -> path.getFileName().toString().startsWith("ReactorDirectJsonWriterProvider"))
+                    .filter(path -> path.getFileName().toString().endsWith(".java"))
+                    .findFirst()
+                    .orElseThrow();
+        }
+        String provider = Files.readString(providerPath);
+        assertTrue(!provider.contains("boolean supports(Class<?> type)"));
+        assertTrue(provider.contains("findWriter(Class<?> type)"));
+        assertTrue(provider.contains("ResponseDirectJsonWriter.INSTANCE"));
+        assertTrue(!provider.contains("private static final ResponseDirectJsonWriter"));
         assertTrue(Files.readString(output.classes().resolve(
                         "META-INF/services/com.reactor.rust.json.DirectJsonWriterProvider"))
                 .contains("ReactorDirectJsonWriterProvider"));
@@ -454,13 +473,13 @@ class ReactorCodegenProcessorsTest {
 
         String generated = Files.readString(output.generated().resolve(
                 "generated/fixture/NullableResponseDirectJsonWriter.java"));
-        assertTrue(generated.contains("count() == null"));
-        assertTrue(generated.contains("count().intValue()"));
-        assertTrue(generated.contains("enabled().booleanValue()"));
+        assertTrue(generated.contains("var number_0 = value.count()"));
+        assertTrue(generated.contains("number_0.intValue()"));
+        assertTrue(generated.contains("boolean_3.booleanValue()"));
     }
 
     @Test
-    void responseRecordGetsDirectWriterWithoutSecondAnnotation() throws Exception {
+    void responseRecordDoesNotImplicitlySelectDirectWriter() throws Exception {
         Path source = source("generated/fixture/AutomaticResponse.java", """
                 package generated.fixture;
                 import com.reactor.rust.annotations.Response;
@@ -470,10 +489,75 @@ class ReactorCodegenProcessorsTest {
 
         Compilation output = compile(source, new DirectJsonWriterProcessor());
 
-        String generated = Files.readString(output.generated().resolve(
-                "generated/fixture/AutomaticResponseDirectJsonWriter.java"));
-        assertTrue(generated.contains("json.fieldLong(\"id\", value.id())"));
-        assertTrue(generated.contains("json.fieldString(\"status\", value.status())"));
+        assertFalse(Files.exists(output.generated().resolve(
+                "generated/fixture/AutomaticResponseDirectJsonWriter.java")));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void generatedDirectJsonWriterSupportsNestedCollectionsArraysOptionalAndDecimal() throws Exception {
+        Path source = source("generated/fixture/ComplexResponse.java", """
+                package generated.fixture;
+                import com.reactor.rust.annotations.GenerateDirectJsonWriter;
+                @GenerateDirectJsonWriter
+                public record ComplexResponse(
+                        Address address,
+                        java.util.List<Address> items,
+                        String[] tags,
+                        java.util.Optional<String> note,
+                        java.math.BigDecimal total) {
+                    public record Address(String city, int code) {}
+                }
+                """);
+
+        Compilation output = compile(source, new DirectJsonWriterProcessor());
+        try (URLClassLoader loader = new URLClassLoader(
+                new java.net.URL[] {output.classes().toUri().toURL()}, getClass().getClassLoader())) {
+            Class<?> addressType = loader.loadClass("generated.fixture.ComplexResponse$Address");
+            Object address = addressType.getConstructor(String.class, int.class)
+                    .newInstance("İstanbul", 34);
+            Class<?> responseType = loader.loadClass("generated.fixture.ComplexResponse");
+            Object response = responseType.getConstructor(
+                            addressType, List.class, String[].class,
+                            java.util.Optional.class, java.math.BigDecimal.class)
+                    .newInstance(
+                            address,
+                            List.of(address),
+                            new String[] {"one", "iki"},
+                            java.util.Optional.of("hazır"),
+                            new java.math.BigDecimal("123.45"));
+            com.reactor.rust.json.DirectJsonWriter<Object> writer =
+                    (com.reactor.rust.json.DirectJsonWriter<Object>) loader
+                            .loadClass("generated.fixture.ComplexResponseDirectJsonWriter")
+                            .getConstructor()
+                            .newInstance();
+            java.nio.ByteBuffer out = java.nio.ByteBuffer.allocate(1024);
+
+            int written = writer.write(response, out, 0);
+            byte[] bytes = new byte[written];
+            out.position(0);
+            out.get(bytes);
+
+            assertEquals(
+                    "{\"address\":{\"city\":\"İstanbul\",\"code\":34},"
+                            + "\"items\":[{\"city\":\"İstanbul\",\"code\":34}],"
+                            + "\"tags\":[\"one\",\"iki\"],\"note\":\"hazır\",\"total\":123.45}",
+                    new String(bytes, StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
+    void explicitDirectWriterRejectsRecursiveGraphs() throws Exception {
+        Path source = source("generated/fixture/RecursiveResponse.java", """
+                package generated.fixture;
+                import com.reactor.rust.annotations.GenerateDirectJsonWriter;
+                @GenerateDirectJsonWriter
+                public record RecursiveResponse(String name, RecursiveResponse child) {}
+                """);
+
+        String failure = compileFailure(source, new DirectJsonWriterProcessor());
+
+        assertTrue(failure.contains("unsupported or recursive component"));
     }
 
     @Test

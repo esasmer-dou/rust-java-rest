@@ -25,7 +25,11 @@ public final class GeneratedPrimitiveBindings {
                 method.getDeclaringClass(), method.getName(), method.getParameterTypes()));
     }
 
-    static void clear() {
+    public static int size() {
+        return BINDINGS.size();
+    }
+
+    public static void releaseStartupMetadata() {
         BINDINGS.clear();
     }
 

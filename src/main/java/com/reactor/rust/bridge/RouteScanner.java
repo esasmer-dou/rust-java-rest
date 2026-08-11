@@ -2,6 +2,7 @@ package com.reactor.rust.bridge;
 
 import com.reactor.rust.annotations.*;
 import com.reactor.rust.config.PropertiesLoader;
+import com.reactor.rust.exception.ExceptionHandlerRegistry;
 import com.reactor.rust.http.FileResponse;
 import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
@@ -59,10 +61,16 @@ public final class RouteScanner {
             validateUniqueRoutes(routes);
             validateRouteIndex(routes);
             registry.freeze();
+            ExceptionHandlerRegistry.getInstance().freeze();
             routePlans.freeze();
             routePlans.publishStartupMetrics();
             routePlans.logSummary();
             routePlans.validateProductionGate();
+            routePlans.releaseRuntimeDetailsIfConfigured();
+
+            GeneratedRouteInvokers.releaseStartupMetadata();
+            GeneratedPrimitiveBindings.releaseStartupMetadata();
+            MethodMetadata.clearCache();
 
             // Pass NativeBridge class to Rust for JNI callbacks
             NativeBridge.passNativeBridgeClass(NativeBridge.class);
@@ -70,10 +78,16 @@ public final class RouteScanner {
             // Register all routes with Rust
             NativeBridge.registerRoutes(routes);
 
-            FrameworkLogger.info("[RUST] Routes registered: exact=" +
-                    routes.stream().filter(r -> !r.path.contains("{")).count() +
-                    " pattern=" +
-                    routes.stream().filter(r -> r.path.contains("{")).count());
+            if (FrameworkLogger.isInfoEnabled()) {
+                int patternRoutes = 0;
+                for (RouteDef route : routes) {
+                    if (route.path.contains("{")) {
+                        patternRoutes++;
+                    }
+                }
+                FrameworkLogger.info("[RUST] Routes registered: exact="
+                        + (routes.size() - patternRoutes) + " pattern=" + patternRoutes);
+            }
         }
     }
 
@@ -182,7 +196,19 @@ public final class RouteScanner {
         }
 
         for (Method method : routeCandidates) {
-            RouteInfo routeInfo = extractRouteInfo(method, basePath);
+            GeneratedRouteMetadata generatedRoute = GeneratedRouteInvokers.metadata(method);
+            Metrics.getInstance().increment(generatedRoute == null
+                    ? "reactor.startup.reflection_route_metadata"
+                    : "reactor.startup.generated_route_metadata");
+            RouteInfo routeInfo = generatedRoute == null
+                    ? extractRouteInfo(method, basePath)
+                    : new RouteInfo(
+                            generatedRoute.httpMethod(),
+                            generatedRoute.path(),
+                            generatedRoute.requestType(),
+                            generatedRoute.responseType(),
+                            generatedRoute.maxRequestBodyBytes(),
+                            generatedRoute.maxResponseBodyBytes());
             if (routeInfo == null) {
                 continue;
             }
@@ -622,11 +648,13 @@ public final class RouteScanner {
                     HandlerRegistry.getInstance().usesExactInvoker(handlerId)
             ));
 
-            FrameworkLogger.debug("[JAVA] Handler registered: id=" + handlerId +
-                    " bean=" + bean.getClass().getName() +
-                    " method=" + method.getName() +
-                    " reqType=" + routeInfo.requestType.getName() +
-                    " respType=" + routeInfo.responseType.getName());
+            if (FrameworkLogger.isDebugEnabled()) {
+                FrameworkLogger.debug("[JAVA] Handler registered: id=" + handlerId
+                        + " bean=" + bean.getClass().getName()
+                        + " method=" + method.getName()
+                        + " reqType=" + routeInfo.requestType.getName()
+                        + " respType=" + routeInfo.responseType.getName());
+            }
         }
     }
 
@@ -1041,7 +1069,8 @@ public final class RouteScanner {
         Type rawType = parameterized.getRawType();
         if (rawType instanceof Class<?> rawClass
                 && (CompletionStage.class.isAssignableFrom(rawClass)
-                || com.reactor.rust.http.ResponseEntity.class.isAssignableFrom(rawClass))) {
+                || com.reactor.rust.http.ResponseEntity.class.isAssignableFrom(rawClass)
+                || Optional.class.isAssignableFrom(rawClass))) {
             Type[] arguments = parameterized.getActualTypeArguments();
             return arguments.length == 1 ? rawResponseClass(arguments[0]) : Object.class;
         }

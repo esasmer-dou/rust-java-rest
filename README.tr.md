@@ -2,7 +2,7 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.2.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.3.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)]()
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)]()
 
@@ -22,6 +22,22 @@ Temel ayrım nettir:
 
 Framework, Spring Boot kopyası değildir. Benzer REST annotation'ları sunar. Ancak daha küçük ve daha
 öngörülebilir bir runtime yüzeyi hedefler.
+
+## 4.3.0 ile Neler Değişti?
+
+Bu sürüm Java business logic kullanımını değiştirmez. Generated route invoker ve açıkça seçilen
+direct JSON writer trafik başlamadan bağlanır. Böylece ilk request sırasında plan arama veya writer
+oluşturma işi yapılmaz.
+
+- Normal DTO için yalnız `@Response` kullanın.
+- Ölçümde yoğun olduğu görülen response record'una `@GenerateDirectJsonWriter` ekleyin.
+- Desteklenmeyen direct writer şekli sessizce fallback'e düşmez. Build açık hata verir.
+- `/diagnostics/routes` çıktısı route'un generated, direct, native static veya compatibility yolunu
+  kullandığını gösterir.
+- Startup registry'leri, native artefact doğrulaması ve OpenJ9 image hazırlığı daha az geçici durum
+  tutar.
+- REST ABI `26` olarak kalır. Yine de native dosyalar değiştiği için `4.3.0` JAR içindeki DLL/SO
+  kullanılmalıdır.
 
 ## İçindekiler
 
@@ -47,7 +63,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.2.0</version>
+  <version>4.3.0</version>
 </parent>
 
 <dependencies>
@@ -79,6 +95,7 @@ Bir service ve handler ekleyin:
 ```java
 package com.example.catalog;
 
+import com.reactor.rust.annotations.Response;
 import com.reactor.rust.di.annotation.Component;
 
 @Component
@@ -88,6 +105,7 @@ final class CatalogService {
     }
 }
 
+@Response
 record CatalogItem(long id, String status) {}
 ```
 
@@ -246,7 +264,8 @@ Framework, runtime reflection yerine build-time üretimi tercih eder.
 | Constructor parametreleri | Bean factory ve dependency graph | Reflective DI araması yok |
 | REST annotation'ları | Route'a özel invoker | Reflective method çağrısı yok |
 | `@ConfigurationProperties` | Tip güvenli property binder | Hatalı değer startup'ta reddedilir |
-| `@GenerateDirectJsonWriter` | Tipe özel JSON writer | Generic serializer maliyeti azalır |
+| `@Response` | Response DTO metadata'sı | Uyumlu DSL-JSON serialization; kendiliğinden writer üretmez |
+| `@GenerateDirectJsonWriter` | Zorunlu tipe özel JSON writer | Trafik başlamadan bir kez bağlanır; desteklenmeyen yapı build hatası verir |
 | `@GenerateJdbcMapper` | Doğrudan `ResultSet` mapper | Runtime record incelemesi yok |
 | `@ReactorHttpClient` | Typed HTTP client | Dynamic proxy yok |
 | `@Scheduled` | Bounded task kaydı | Scheduler lifecycle framework tarafından kapatılır |
@@ -258,6 +277,41 @@ Bu dosyaları elle yazmayın.
 
 Compatibility scanning yalnız eski projelerin geçişi içindir. Yeni production uygulamasında strict
 AOT yolunu kullanın. Fallback tüm çağrıların sessizce yavaş yola düşmesine izin vermemelidir.
+
+Framework metrics ve diagnostics endpoint'leri isteğe bağlıdır. Bu endpoint'lere ihtiyacınız varsa
+application annotation'ında açın:
+
+```java
+@ReactorApplication(
+        scanBasePackages = "com.example.catalog",
+        metrics = true)
+public final class CatalogApplication { /* main metodu değişmez */ }
+```
+
+Varsayılan değer `metrics = false` olur. Bu durumda metrics handler ve diagnostics route'ları
+kaydedilmez. Küçük REST servisi kullanılmayan bir gözlem yüzeyini memory içinde taşımaz.
+
+`GET /diagnostics/routes` çıktısında `generated_route_metadata=true`, route bilgisinin build sırasında
+üretildiğini gösterir. `generated_response_writer=true`, route'un doğrudan writer'ı bağladığını
+gösterir. Önceden kayıtlı writer route planı hazırlanırken bağlanır. Sonradan kaydedilen writer için
+ilk null olmayan object response sırasında yalnız bir kez daha arama yapılır. Producer, raw, native
+ve file route'ları writer araması yapmaz.
+
+`generated_response_writer_state` alanını şöyle okuyun:
+
+- `unresolved`: Route planı hazırlanırken writer bulunamadı. İlk normal object response sırasında
+  son bir arama yapılır.
+- `bound`: Tipe özel generated writer bağlandı ve kullanılıyor.
+- `miss`: Bildirilen response tipi için writer bulunamadı. Bu durumda üst seviyedeki
+  `direct_json_writer_enabled` ve `direct_json_writer_providers` alanlarını kontrol edin.
+- `disabled`: Direct writer desteği konfigürasyon ile kapatıldı.
+- `not_applicable`: Primitive, producer, raw, native veya file route bu writer'a ihtiyaç duymaz.
+
+Production'da startup reflection istemiyorsanız diagnostics temizlendikten sonra şu gate'i açın:
+
+```properties
+reactor.optimizer.fail-on-reflection-route-metadata=true
+```
 
 ## Response Yolunu Seçin
 
@@ -295,6 +349,16 @@ ancak p99 değerini ve memory kullanımını kötüleştirir.
 Profil seçimi performans garantisi değildir. Kendi endpoint karışımınızla en az c64 ve c256 yükte
 RPS, p99, `503` oranı ve container RSS ölçün. Ağır route için global worker artırmak yerine
 `@RouteAdmission` veya workload bazlı route budget kullanın.
+
+Anon belleği daha düşük bir container image gerekiyorsa Maven `runtime-image` goal ile `8m`
+ROM-only OpenJ9 shared cache üretebilirsiniz. Bu cache AOT metodu tutmaz. Java business logic ve JIT
+akışı değişmez. Bu bir runtime profili değil, image seçimidir. Güncel minimal ölçümde final cgroup
+anon `31,027 MiB` değerinden `28,207 MiB` değerine düştü. Uzun c64 small-route gate'inde useful RPS
+`%11,43` arttı, p99 `%35,18` düştü ve hata oluşmadı. Yine de kendi endpoint karışımınızla c64/c256
+testi yapmadan açmayın. Copy-paste Maven ayarı
+[Production Runtime rehberinde](docs/production-runtime.md#rom-only-openj9-shared-cache) bulunur.
+Üretilen çok aşamalı imajda `binutils` yalnız build katmanında kalır. Uygulama `10001` kullanıcısıyla
+çalışır. Runtime yazma alanı `/app/.reactor/native` ve `/app/work` dizinleriyle sınırlandırılır.
 
 ## Konfigürasyon Önceliği
 
@@ -362,8 +426,8 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Yayınlanmış dependency çizgisi `rust-java-rest:4.2.0`, `java-rust-dubbo:0.7.0` ve
-`java-rust-cache:0.7.0` şeklindedir. Bu çalışma ağacındaki native artefact'ler REST ABI `26`, Dubbo
+Yayınlanmış dependency çizgisi `rust-java-rest:4.3.0`, `java-rust-dubbo:0.7.1` ve
+`java-rust-cache:0.7.1` şeklindedir. Bu çalışma ağacındaki native artefact'ler REST ABI `26`, Dubbo
 ABI `7` ve Redis ABI `6` taşır.
 
 Native DLL/SO dosyasını başka bir sürümden kopyalamayın. Startup; ABI, platform, source revision ve
@@ -381,7 +445,7 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Benchmark metodolojisi ve kanıt arşivi](benchmark/README.md)
-- [Sürüm notları](docs/release-notes/v4.2.0.tr.md)
+- [Sürüm notları](docs/release-notes/v4.3.0.tr.md)
 
 Business logic Java'da kalır. Rust yalnız düşük seviyeli I/O ve seçilmiş serialization/transport
 işlerini üstlenir. Bu sınırı korumak framework'ün temel tasarım kararıdır.

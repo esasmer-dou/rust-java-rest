@@ -53,6 +53,38 @@ class JsonBufferWriterTest {
         assertEquals("{\"sku\":\"test42\"}", read(buffer, written));
     }
 
+    @Test
+    void generatedFieldPrefixWritesOnlyTheSelectedUtf8Slice() {
+        byte[] fields = "ignored\"şehir\":".getBytes(StandardCharsets.UTF_8);
+        int offset = "ignored".getBytes(StandardCharsets.UTF_8).length;
+        int length = fields.length - offset;
+        ByteBuffer buffer = ByteBuffer.allocate(64);
+
+        int written = JsonBufferWriter.reusable(buffer, 0)
+                .beginObject()
+                .fieldPrefix(fields, offset, length)
+                .string("İstanbul")
+                .endObject()
+                .result();
+
+        assertEquals("{\"şehir\":\"İstanbul\"}", read(buffer, written));
+    }
+
+    @Test
+    void generatedFieldPrefixPreservesExactRetryLength() {
+        byte[] field = "\"customerName\":".getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buffer = ByteBuffer.allocate(5);
+
+        int result = JsonBufferWriter.reusable(buffer, 0)
+                .beginObject()
+                .fieldPrefix(field, 0, field.length)
+                .string("Ada")
+                .endObject()
+                .result();
+
+        assertEquals(-"{\"customerName\":\"Ada\"}".getBytes(StandardCharsets.UTF_8).length, result);
+    }
+
     private static String read(ByteBuffer buffer, int length) {
         byte[] bytes = new byte[length];
         buffer.position(0);

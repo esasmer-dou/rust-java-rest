@@ -24,6 +24,10 @@ public final class FrameworkLogger {
         return level() >= DEBUG;
     }
 
+    public static boolean isInfoEnabled() {
+        return level() >= INFO;
+    }
+
     public static void error(String message) {
         if (level() >= ERROR) {
             System.err.println(message);

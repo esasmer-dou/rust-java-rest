@@ -31,6 +31,101 @@ Use `micro-rest` as the memory-first baseline. Use `micro-rest-plus` only for me
 Keep benchmark-only routes out of production route reports. The full sample process is not the RSS
 baseline for a minimal service.
 
+## Paired Image Gate
+
+Use `paired_image_gate.ps1` when a framework change must prove that it does not trade throughput or
+tail latency for memory. The runner alternates the outer positions on every cycle:
+
+- Odd cycles: baseline, candidate, candidate, baseline.
+- Even cycles: candidate, baseline, baseline, candidate.
+
+This order prevents page cache, host temperature, and scheduler drift from consistently favouring
+one image. Always use an even repeat count so both images occupy outer and middle positions equally.
+Use `PairRepeats = 2` for local engineering evidence and `PairRepeats >= 4` for a release decision.
+`-FailOnGate` rejects an odd repeat count. Runs shorter than five seconds are diagnostic only. Judge
+useful `200` RPS, p99, `503`, container memory, and RSS together.
+
+The paired gate builds the load-runner image once and probes applications through the Docker
+benchmark network. Normal source builds use clean Maven outputs. This prevents a local host port or
+an older shaded sample JAR from contaminating the comparison.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\paired_image_gate.ps1 `
+  -BaselineImage rust-java-rest:baseline `
+  -CandidateImage rust-java-rest:candidate `
+  -ConcurrencyLevels "64,256" `
+  -EndpointClasses "small-json-direct,direct-json-writer,dynamic-producer-json,raw-json" `
+  -Duration 10s `
+  -Warmup 3s `
+  -PairRepeats 4 `
+  -CalibrationCycles 1 `
+  -PlanPreWarm `
+  -PlanPreWarmDuration 10s `
+  -FailOnGate
+```
+
+`PlanPreWarmDuration` runs each selected route before measurement. Use at least `10s` for release
+evidence on OpenJ9 Java-heavy routes. This keeps a faster-starting candidate from being measured at
+a younger JIT compilation state than the baseline. The selected value is stored in `metadata.json`.
+
+`CalibrationCycles 1` runs one unrecorded baseline/candidate pass before the balanced measurements.
+Use it for release evidence when Docker Desktop page cache, image loading, or the first host cycle is
+visibly noisier than later cycles. Calibration results stay under `runs/cycle-00-*` but are excluded
+from the comparison.
+
+### Resident crossover and startup regression gates
+
+Use the resident crossover gate for a surgical comparison of generated invocation, echo parsing, or
+the native-static control route. Both images stay resident during a phase. The second phase swaps the
+images between CPU slots. Cooldowns reduce thermal drift, and process RSS is read separately from
+container memory. The effect size uses crossover-pooled candidate/baseline medians. Same-phase
+candidate/baseline delta spread is the stability check. The unnormalized report remains under
+`comparison/absolute` for diagnostics, but phase-level host drift does not inflate the release
+stability statistic.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\resident_crossover_gate.ps1 `
+  -BaselineImage rust-java-rest:baseline `
+  -CandidateImage rust-java-rest:candidate `
+  -Concurrency 64 `
+  -Duration 15s `
+  -EndpointClasses "annotated-generated-json,echo-parse,small-json-direct" `
+  -RepeatCountPerSlot 3 `
+  -SlotACpuSet 2 `
+  -SlotBCpuSet 3 `
+  -RunnerCpuSet 4-7
+```
+
+Use `image_startup_gate.ps1` for startup. It reports framework internal-ready and host HTTP-ready
+separately. Startup order is balanced and the decision uses same-cycle paired deltas. A noisy
+baseline cannot hide an unstable candidate; candidate CV remains a mandatory gate.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\benchmark\image_startup_gate.ps1 `
+  -BaselineImage rust-java-rest:baseline `
+  -CandidateImage rust-java-rest:candidate `
+  -RepeatCount 6 `
+  -CpuSet 2
+```
+
+`small-json-direct` is a native-static control. Its Java invocation count must remain zero. If that
+route is unstable while both images contain the same native binary, classify the run as host noise
+and repeat it on a quiet Linux runner. Do not tune Java code to compensate for a bypassed route.
+
+### Generated response writer gate
+
+The build-time route plan binds an already registered generated response writer directly. It does
+not initialize the generic DSL-JSON serializer to perform this lookup. Writer registration after
+route compilation does not mutate a published route descriptor; register custom writers before
+route compilation.
+
+The 2026-08-10 paired c64 gate used four balanced cycles, one calibration cycle, a 10-second route
+pre-warm, and a 15-second measurement. Compared with the lazy writer proxy, direct AOT binding
+produced `+1.73%` useful `200` RPS, `-1.15%` p99, zero `503`, and `-1.29 MiB` average sampled peak
+container memory. A separate 30-second load plus 30-second idle A/B measured `-1.24 MiB` cgroup
+memory, `-1.19 MiB` anon, and `-0.52 MiB` process RSS after idle. The earlier lazy proxy has since
+been removed; explicit writers now have to be available when routes are compiled.
+
 ## Historical v3.2.2 Release Gate Snapshot
 
 Latest release-gate artefacts:
@@ -201,6 +296,7 @@ Default comparison:
 - Spring Boot memory limit: `512m`
 - Endpoint classes:
   - `small-json`: common Rust-Java and Spring Boot endpoints, `GET /api/v1/candidates` and `POST /api/v1/echo`.
+  - `annotated-generated-json`: declarative Java handler with generated route invocation and generated response writer, `GET /users/search?name=load&page=1`.
   - `dynamic-producer-json`: optimized DTO-shaped heavy JSON, Rust-Java `GET /api/v1/heavy/dto?items=100`. This is the recommended hot-route replacement once a DTO graph becomes too expensive.
   - `dynamic-dto-json`: benchmark-only legacy Java DTO graph endpoint, Rust-Java `GET /api/v1/heavy/dto/legacy?items=100` vs Spring Boot `GET /api/v1/heavy?items=100`. Use it only to quantify object-graph cost.
   - `direct-json-writer`: Rust-Java direct JSON writer endpoint, `GET /api/v1/heavy?items=100`. No Spring Boot ratio is calculated because this is a framework-specific zero-DTO path.
@@ -916,6 +1012,28 @@ successful `200` responses. Compare useful `200` RPS, not total response count a
 anon, but c64 RPS fell from `5,573` to `3,571` and p99 rose from `41.09 ms` to `122.74 ms`.
 Therefore the production Docker baseline remains `MALLOC_ARENA_MAX=2`. Arena `1` is not a default
 low-RSS recommendation.
+
+### 2026-08-10 ROM-Only SCC And Optional-State Gate
+
+The second anon cycle tested each lever separately before combining them:
+
+| Candidate | Anon result | Performance decision |
+| --- | ---: | --- |
+| OpenJ9 idle GC | No material reduction | Rejected as a generated-image default |
+| `MALLOC_ARENA_MAX=1` | About `-0.46 MiB` against the fresh arena-2 control | Rejected as default after small/direct RPS loss |
+| `-Xms4m -Xmx32m` | About `-1.85 MiB` | Kept as service-local experiment because small-route p99 was unstable |
+| ROM-only SCC `4m` | About `-3.37 MiB` | Rejected; cache was 100% full and several route classes regressed |
+| Java metrics disabled when routes are absent | About `-0.92 MiB` | Accepted; no request-path behavior change |
+| Startup route details released with metrics disabled | About another `-0.20 MiB` | Accepted; route details remain when metrics are enabled |
+| ROM-only SCC `8m`, combined low-anon image | `31.027 -> 28.207 MiB` final cgroup anon | Accepted as an opt-in image after the endpoint gates |
+
+The long balanced small-route c64 gate reported useful 200 RPS `+11.43%`, p99 `-35.18%`, memory
+`-2.11 MiB`, and no errors. The focused c256 small-route row and direct/producer/raw c64/c256 rows
+also passed. AOT-bearing SCC was not accepted because direct-writer p99 crossed the 10% regression
+limit.
+
+`linux_smaps_breakdown.ps1` now records `-MallocArenaMax` and `-MallocTrimThreshold` in every report,
+so allocator experiments are reproducible instead of relying on an image's implicit environment.
 
 Compare DTO graph vs producer/direct writer paths:
 

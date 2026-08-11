@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3.0] - 2026-08-11
+
+### Added
+
+- Added build-time route metadata, native artifact digest validation, and OpenJ9 shared class cache
+  preparation without adding request-time reflection.
+- Added resident-image, crossover, and startup benchmark gates for generated invocation, echo,
+  small direct responses, RSS, and startup time.
+- Added explicit generated writer diagnostics and tests for packaged native extraction and startup
+  provenance.
+
+### Changed
+
+- Resolved generated route invokers and explicit direct JSON writers before traffic starts.
+- Made `@GenerateDirectJsonWriter` the explicit opt-in for generated direct response writers;
+  `@Response` remains a normal DTO marker.
+- Reduced startup registry retention, empty-frame work, generated primitive binding overhead, JSON
+  buffer retention, and duplicate native static-response lookup/header copying.
+- Rebuilt Windows and Linux native artifacts from clean native source revision `b26285a1d973`.
+
+### Compatibility
+
+- Java handlers, services, records, REST annotations, validation, and business logic are unchanged.
+- REST ABI remains `26`; Dubbo ABI remains `7`; Redis ABI remains `6`.
+- Use the DLL/SO packaged with `4.3.0` even though the ABI is unchanged, because the native
+  implementation and artifact hashes changed.
+
+---
+
 ## [4.2.0] - 2026-08-10
 
 ### Added

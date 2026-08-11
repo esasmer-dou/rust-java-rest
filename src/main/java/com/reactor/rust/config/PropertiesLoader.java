@@ -91,6 +91,7 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.runtime.profile", "micro-rest");
         properties.setProperty("reactor.application.name", "reactor-application");
         properties.setProperty("reactor.health.enabled", "true");
+        properties.setProperty("reactor.metrics.collection-enabled", "false");
         properties.setProperty("reactor.openapi.enabled", "false");
         properties.setProperty("reactor.openapi.ui.enabled", "false");
         properties.setProperty("reactor.openapi.swagger-ui.enabled", "false");
@@ -238,11 +239,13 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.optimizer.report.enabled", "true");
         properties.setProperty("reactor.optimizer.report.verbose", "true");
         properties.setProperty("reactor.optimizer.runtime-metrics-enabled", "false");
+        properties.setProperty("reactor.optimizer.retain-route-plans", "auto");
         properties.setProperty("reactor.optimizer.fail-on-fallback", "false");
         properties.setProperty("reactor.optimizer.fail-on-legacy", "false");
         properties.setProperty("reactor.optimizer.fail-on-implicit-raw-request-data", "false");
         properties.setProperty("reactor.optimizer.fail-on-heavy-json-object-graph", "false");
         properties.setProperty("reactor.optimizer.fail-on-benchmark-only-routes", "false");
+        properties.setProperty("reactor.optimizer.fail-on-reflection-route-metadata", "false");
         properties.setProperty("reactor.optimizer.required-fast-routes", "");
     }
 

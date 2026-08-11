@@ -11,7 +11,7 @@ platform parent to align versions, then add only the starters required by the pr
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.2.0</version>
+  <version>4.3.0</version>
 </parent>
 
 <artifactId>customer-api</artifactId>

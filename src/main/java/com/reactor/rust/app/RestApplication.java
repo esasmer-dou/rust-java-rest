@@ -15,6 +15,8 @@ import com.reactor.rust.di.BeanContainer;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.exception.ExceptionHandlerRegistry;
 import com.reactor.rust.memory.NativeIdleMemoryTrimmer;
+import com.reactor.rust.metrics.MetricsHandler;
+import com.reactor.rust.metrics.Metrics;
 import com.reactor.rust.health.HealthContributor;
 import com.reactor.rust.health.HealthEndpoint;
 import com.reactor.rust.health.HealthStarter;
@@ -184,6 +186,9 @@ public final class RestApplication {
         if (application.standardRuntime()) {
             builder.standardRuntimeFeatures();
         }
+        if (application.metrics()) {
+            builder.metrics();
+        }
         return builder;
     }
 
@@ -203,6 +208,7 @@ public final class RestApplication {
         private boolean applyRuntimeProfiles = true;
         private boolean disableRouteIndexValidation;
         private boolean standardRuntimeFeatures;
+        private boolean builtInMetrics;
         private boolean aotDefault;
         private boolean started;
 
@@ -301,6 +307,12 @@ public final class RestApplication {
             return this;
         }
 
+        /** Enables the optional built-in metrics and diagnostics routes. */
+        public Builder metrics() {
+            this.builtInMetrics = true;
+            return this;
+        }
+
         /** Requires build-time generated application metadata and disables reflection fallback. */
         public Builder strictAot() {
             this.aotDefault = true;
@@ -337,6 +349,10 @@ public final class RestApplication {
             if (applyRuntimeProfiles) {
                 phase("runtime.profile", RuntimeProfiles::apply);
             }
+            phase("metrics.configure", () -> Metrics.getInstance().configureCollection(
+                    builtInMetrics || PropertiesLoader.getBoolean(
+                            "reactor.metrics.collection-enabled",
+                            false)));
             phase("startup.mode", () -> StartupMode.configure(aotDefault));
             if (standardRuntimeFeatures) {
                 RuntimeFootprintGate.validate();
@@ -474,10 +490,11 @@ public final class RestApplication {
         }
 
         private void registerFrameworkHandlers(ApplicationContext context) {
-            if (!standardRuntimeFeatures
-                    || !PropertiesLoader.getBoolean("reactor.health.enabled", true)) {
-                return;
+            if (builtInMetrics) {
+                context.handlers().registerBean(new MetricsHandler());
             }
+            if (!standardRuntimeFeatures) return;
+            if (!PropertiesLoader.getBoolean("reactor.health.enabled", true)) return;
             List<HealthContributor> contributors = context.beans().getBeansOfType(HealthContributor.class);
             HealthEndpoint endpoint = HealthStarter.fromContributors(
                     PropertiesLoader.get("reactor.application.name", "reactor-application"),

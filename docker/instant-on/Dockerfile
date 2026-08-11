@@ -32,6 +32,8 @@ RUN /usr/local/sbin/criu --version >/dev/null 2>&1 || true
 ENV APP_MAIN=com.reactor.rust.example.ReactorRustHyperApplication
 ENV APP_CP=/app/app.jar
 ENV SERVER_PORT=8080
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 ENV REACTOR_RUNTIME_PROFILE=fast-start
 ENV REACTOR_RUST_JAVA_LOG_LEVEL=warn
 ENV REACTOR_INSTANTON_CHECKPOINT_DIR=/checkpoint

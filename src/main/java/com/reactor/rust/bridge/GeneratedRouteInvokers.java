@@ -3,88 +3,177 @@ package com.reactor.rust.bridge;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 
-/** Startup registry populated by generated application factories. */
+/** Startup-only registry populated by generated application factories. */
 public final class GeneratedRouteInvokers {
 
-    private static final ConcurrentHashMap<MethodKey, GeneratedRouteInvoker> INVOKERS =
-            new ConcurrentHashMap<>(64);
+    private static final Map<Class<?>, OwnerRoutes> OWNERS = new HashMap<>(32);
 
     private GeneratedRouteInvokers() {}
 
-    public static void register(
+    public static synchronized void register(
             Class<?> owner,
             String methodName,
             Class<?>[] parameterTypes,
             GeneratedRouteInvoker invoker) {
-        MethodKey key = new MethodKey(owner, methodName, parameterTypes);
-        GeneratedRouteInvoker previous = INVOKERS.putIfAbsent(key, Objects.requireNonNull(invoker, "invoker"));
-        if (previous != null && previous.getClass() != invoker.getClass()) {
-            throw new IllegalStateException("Generated route invoker already registered: " + key);
-        }
+        register(owner, methodName, parameterTypes, invoker, null);
     }
 
-    static GeneratedRouteInvoker find(Method method) {
-        return INVOKERS.get(new MethodKey(
-                method.getDeclaringClass(),
-                method.getName(),
-                method.getParameterTypes()));
+    public static synchronized void register(
+            Class<?> owner,
+            String methodName,
+            Class<?>[] parameterTypes,
+            GeneratedRouteInvoker invoker,
+            GeneratedRouteMetadata metadata) {
+        Objects.requireNonNull(owner, "owner");
+        Objects.requireNonNull(methodName, "methodName");
+        Objects.requireNonNull(invoker, "invoker");
+        OwnerRoutes routes = OWNERS.computeIfAbsent(owner, OwnerRoutes::new);
+        routes.register(methodName, parameterTypes, invoker, metadata);
+    }
+
+    static synchronized GeneratedRouteInvoker find(Method method) {
+        OwnerRoutes routes = OWNERS.get(method.getDeclaringClass());
+        return routes == null ? null : routes.find(method);
+    }
+
+    static synchronized GeneratedRouteMetadata metadata(Method method) {
+        OwnerRoutes routes = OWNERS.get(method.getDeclaringClass());
+        return routes == null ? null : routes.metadata(method);
     }
 
     /** Returns only build-time known route methods for the owner. */
-    static Method[] routeMethods(Class<?> owner) {
-        ArrayList<Method> methods = new ArrayList<>();
-        for (MethodKey key : INVOKERS.keySet()) {
-            if (key.owner != owner) continue;
-            try {
-                methods.add(owner.getDeclaredMethod(key.methodName, key.parameterTypes));
-            } catch (NoSuchMethodException failure) {
-                throw new IllegalStateException("Generated route method no longer exists: " + key, failure);
-            }
+    static synchronized Method[] routeMethods(Class<?> owner) {
+        OwnerRoutes routes = OWNERS.get(owner);
+        return routes == null ? OwnerRoutes.EMPTY_METHODS : routes.methods();
+    }
+
+    public static synchronized int size() {
+        int size = 0;
+        for (OwnerRoutes routes : OWNERS.values()) {
+            size += routes.registrations.size();
         }
-        return methods.toArray(Method[]::new);
+        return size;
     }
 
-    public static int size() {
-        return INVOKERS.size();
+    public static synchronized void releaseStartupMetadata() {
+        OWNERS.clear();
     }
 
-    static void clear() {
-        INVOKERS.clear();
-    }
+    private static final class OwnerRoutes {
+        private static final Method[] EMPTY_METHODS = new Method[0];
 
-    private static final class MethodKey {
         private final Class<?> owner;
+        private final ArrayList<Registration> registrations = new ArrayList<>(4);
+        private Method[] methods;
+
+        private OwnerRoutes(Class<?> owner) {
+            this.owner = owner;
+        }
+
+        private void register(
+                String methodName,
+                Class<?>[] parameterTypes,
+                GeneratedRouteInvoker invoker,
+                GeneratedRouteMetadata metadata) {
+            Class<?>[] safeParameterTypes = parameterTypes == null
+                    ? Registration.EMPTY_TYPES
+                    : parameterTypes.clone();
+            for (Registration registration : registrations) {
+                if (registration.matches(methodName, safeParameterTypes)) {
+                    if (registration.invoker.getClass() != invoker.getClass()) {
+                        throw new IllegalStateException(
+                                "Generated route invoker already registered: "
+                                        + owner.getName() + '#' + methodName);
+                    }
+                    if (!Objects.equals(registration.metadata, metadata)) {
+                        throw new IllegalStateException(
+                                "Generated route metadata already registered: "
+                                        + owner.getName() + '#' + methodName);
+                    }
+                    return;
+                }
+            }
+            registrations.add(new Registration(methodName, safeParameterTypes, invoker, metadata));
+            methods = null;
+        }
+
+        private GeneratedRouteInvoker find(Method method) {
+            for (Registration registration : registrations) {
+                if (registration.method == method || registration.matches(method)) {
+                    return registration.invoker;
+                }
+            }
+            return null;
+        }
+
+        private GeneratedRouteMetadata metadata(Method method) {
+            for (Registration registration : registrations) {
+                if (registration.method == method || registration.matches(method)) {
+                    return registration.metadata;
+                }
+            }
+            return null;
+        }
+
+        private Method[] methods() {
+            Method[] current = methods;
+            if (current != null) {
+                return current;
+            }
+            current = new Method[registrations.size()];
+            for (int index = 0; index < registrations.size(); index++) {
+                Registration registration = registrations.get(index);
+                try {
+                    Method method = owner.getDeclaredMethod(
+                            registration.methodName, registration.parameterTypes);
+                    registration.method = method;
+                    current[index] = method;
+                } catch (NoSuchMethodException failure) {
+                    throw new IllegalStateException(
+                            "Generated route method no longer exists: "
+                                    + owner.getName() + '#' + registration.methodName,
+                            failure);
+                }
+            }
+            methods = current;
+            return current;
+        }
+    }
+
+    private static final class Registration {
+        private static final Class<?>[] EMPTY_TYPES = new Class<?>[0];
+
         private final String methodName;
         private final Class<?>[] parameterTypes;
-        private final int hash;
+        private final GeneratedRouteInvoker invoker;
+        private final GeneratedRouteMetadata metadata;
+        private Method method;
 
-        private MethodKey(Class<?> owner, String methodName, Class<?>[] parameterTypes) {
-            this.owner = Objects.requireNonNull(owner, "owner");
-            this.methodName = Objects.requireNonNull(methodName, "methodName");
-            this.parameterTypes = parameterTypes == null ? new Class<?>[0] : parameterTypes.clone();
-            this.hash = 31 * (31 * owner.hashCode() + methodName.hashCode())
-                    + Arrays.hashCode(this.parameterTypes);
+        private Registration(
+                String methodName,
+                Class<?>[] parameterTypes,
+                GeneratedRouteInvoker invoker,
+                GeneratedRouteMetadata metadata) {
+            this.methodName = methodName;
+            this.parameterTypes = parameterTypes;
+            this.invoker = invoker;
+            this.metadata = metadata;
         }
 
-        @Override
-        public boolean equals(Object other) {
-            return other instanceof MethodKey key
-                    && owner == key.owner
-                    && methodName.equals(key.methodName)
-                    && Arrays.equals(parameterTypes, key.parameterTypes);
+        private boolean matches(Method candidate) {
+            if (method != null && method.equals(candidate)) {
+                return true;
+            }
+            return methodName.equals(candidate.getName())
+                    && Arrays.equals(parameterTypes, candidate.getParameterTypes());
         }
 
-        @Override
-        public int hashCode() {
-            return hash;
-        }
-
-        @Override
-        public String toString() {
-            return owner.getName() + '#' + methodName + Arrays.toString(parameterTypes);
+        private boolean matches(String candidateName, Class<?>[] candidateTypes) {
+            return methodName.equals(candidateName) && Arrays.equals(parameterTypes, candidateTypes);
         }
     }
 }

@@ -232,6 +232,60 @@ RSS snapshot. In the focused CPU=1 async-producer A/B, arena `1` reclaimed anoth
 but c64 RPS fell from `5,573` to `3,571` and p99 rose from `41.09 ms` to `122.74 ms`. The allocator
 became smaller but less concurrent; that violates the framework's latency/throughput objective.
 
+## ROM-Only OpenJ9 Shared Cache
+
+For a memory-first image, the Maven plugin can build a read-only OpenJ9 shared class cache. This
+mode shares ROM class metadata but deliberately stores no AOT methods. Java business logic and JIT
+compilation remain unchanged.
+
+```xml
+<plugin>
+  <groupId>com.reactor</groupId>
+  <artifactId>rust-java-maven-plugin</artifactId>
+  <version>${rust-java-rest.version}</version>
+  <configuration>
+    <mainClass>com.example.Application</mainClass>
+    <openJ9SharedClassCacheEnabled>true</openJ9SharedClassCacheEnabled>
+    <openJ9SharedClassCacheName>orders_rom</openJ9SharedClassCacheName>
+    <openJ9SharedClassCacheSize>8m</openJ9SharedClassCacheSize>
+    <openJ9SharedClassCachePrefixes>com.example.</openJ9SharedClassCachePrefixes>
+    <mallocArenaMax>2</mallocArenaMax>
+    <mallocTrimThreshold>131072</mallocTrimThreshold>
+  </configuration>
+</plugin>
+```
+
+Run `mvn reactor:runtime-image` after packaging. The generated recipe is written under
+`target/reactor-runtime/`. The build stage populates the cache with the same Semeru/OpenJ9 build
+used by the runtime stage. Runtime opens it with `readonly,fatal`; an incompatible or missing cache
+therefore fails early instead of silently changing memory behavior.
+
+The generated multi-stage image installs `binutils` only in the build stage because
+`jlink --strip-debug` needs `objcopy`. It is not copied into the runtime image. When SCC is enabled,
+the recipe copies only OpenJ9's `libj9shr*.so` SCC library into the JLink runtime. The process runs
+as user `10001`; `/app/.reactor/native` is reserved for native extraction and `/app/work` is the
+only general writable working directory.
+
+The 2026-08-10 minimal-production gate selected `8m`:
+
+| Decision | Evidence |
+| --- | --- |
+| `8m`, ROM-only | Final cgroup anon moved from `31.027 MiB` to `28.207 MiB` with metrics disabled and startup route plans released |
+| Long c64 small route | Useful 200 RPS `+11.43%`, p99 `-35.18%`, memory `-2.11 MiB`, no errors or `503` |
+| c256 small route | Passed the balanced threshold; useful RPS `+1.74%`, p99 `-8.57%` |
+| Direct, producer, and raw JSON | All c64/c256 rows passed the useful-RPS, p99, `503`, and memory thresholds |
+| `4m` cache | Rejected: the cache reached 100% and small/raw/direct throughput regressed |
+| AOT-bearing cache | Rejected: direct-writer p99 exceeded the 10% regression limit |
+
+Keep this mode opt-in. Re-run the same endpoint matrix for the service image because class mix and
+JIT warmup differ by application. Do not replace `8m` with a smaller cache just to reduce image
+size; an undersized cache can be slower even when its anon number looks lower.
+
+When built-in metrics are not needed, leave `reactor.metrics.collection-enabled=false` and
+`reactor.optimizer.retain-route-plans=auto`. The framework then drops the unused Java metric
+registry and startup-only route-plan objects. If `@ReactorApplication(metrics = true)` or
+`RestApplication.Builder.metrics()` is used, metrics and route diagnostics remain fully available.
+
 ## Idle Native Trim
 
 Native allocator retention can keep RSS/anonymous memory elevated after a burst even when the Java

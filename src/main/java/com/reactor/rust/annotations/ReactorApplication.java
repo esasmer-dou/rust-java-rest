@@ -26,4 +26,7 @@ public @interface ReactorApplication {
 
     /** Enables framework-owned health, WebSocket and static-file lifecycle hooks. */
     boolean standardRuntime() default false;
+
+    /** Adds the optional built-in metrics and diagnostics routes without a manual module. */
+    boolean metrics() default false;
 }

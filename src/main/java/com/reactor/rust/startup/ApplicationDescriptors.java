@@ -66,54 +66,15 @@ public final class ApplicationDescriptors {
 
     public static boolean isComponentEnabled(String componentType) {
         for (ApplicationDescriptor descriptor : DESCRIPTORS) {
-            if (descriptor.components().contains(componentType)) {
-                return descriptor.isComponentEnabled(componentType);
-            }
+            if (!descriptor.isComponentEnabled(componentType)) return false;
         }
         return true;
     }
 
     /** Returns true only when generated application metadata covers the requested package. */
     public static boolean hasApplicationDescriptor(String basePackage) {
-        String prefix = basePackage == null || basePackage.isBlank() ? "" : basePackage + ".";
         for (ApplicationDescriptor descriptor : DESCRIPTORS) {
-            if (containsPackageEntry(descriptor.components(), basePackage, prefix)
-                    || containsRouteOwner(descriptor.routes(), basePackage, prefix)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean containsPackageEntry(
-            List<String> entries,
-            String basePackage,
-            String prefix) {
-        for (String entry : entries) {
-            if (prefix.isEmpty() || entry.equals(basePackage) || entry.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean containsRouteOwner(
-            List<String> routes,
-            String basePackage,
-        String prefix) {
-        for (String route : routes) {
-            String[] columns = route.split("\\s+", 3);
-            if (columns.length < 3) {
-                continue;
-            }
-            String owner = columns[2];
-            int methodSeparator = owner.indexOf('#');
-            if (methodSeparator > 0) {
-                owner = owner.substring(0, methodSeparator);
-            }
-            if (prefix.isEmpty() || owner.equals(basePackage) || owner.startsWith(prefix)) {
-                return true;
-            }
+            if (descriptor.coversPackage(basePackage)) return true;
         }
         return false;
     }

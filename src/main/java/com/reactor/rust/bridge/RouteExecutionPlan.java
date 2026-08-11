@@ -91,6 +91,8 @@ public final class RouteExecutionPlan {
     public final boolean legacyV4;
     public final boolean compiledInvoker;
     public final boolean exactInvoker;
+    public final boolean generatedRouteMetadata;
+    public final boolean generatedResponseWriter;
     public final boolean benchmarkOnly;
 
     private RouteExecutionPlan(
@@ -133,6 +135,8 @@ public final class RouteExecutionPlan {
             boolean legacyV4,
             boolean compiledInvoker,
             boolean exactInvoker,
+            boolean generatedRouteMetadata,
+            boolean generatedResponseWriter,
             boolean benchmarkOnly
     ) {
         this.httpMethod = httpMethod;
@@ -174,6 +178,8 @@ public final class RouteExecutionPlan {
         this.legacyV4 = legacyV4;
         this.compiledInvoker = compiledInvoker;
         this.exactInvoker = exactInvoker;
+        this.generatedRouteMetadata = generatedRouteMetadata;
+        this.generatedResponseWriter = generatedResponseWriter;
         this.benchmarkOnly = benchmarkOnly;
     }
 
@@ -233,7 +239,10 @@ public final class RouteExecutionPlan {
     ) {
         Strategy strategy;
         String reason;
-        boolean directJsonResponse = returnsDirectJsonResponse(method);
+        boolean generatedRouteMetadata = GeneratedRouteInvokers.metadata(method) != null;
+        boolean generatedResponseWriter = HandlerRegistry.getInstance()
+                .usesGeneratedResponseWriter(route.handlerId, method);
+        boolean directJsonResponse = returnsDirectJsonResponse(method) || generatedResponseWriter;
 
         if (nativeStaticResponseId > 0) {
             strategy = Strategy.NATIVE_STATIC_RESPONSE;
@@ -285,7 +294,9 @@ public final class RouteExecutionPlan {
             reason = "bodyless_route_writes_direct_response_without_request_metadata";
         } else if (directJsonResponse) {
             strategy = Strategy.DIRECT_JSON_RESPONSE;
-            reason = "handler_returns_direct_json_response_writer_bypasses_dsl_json";
+            reason = generatedResponseWriter
+                    ? "generated_response_writer_bound_to_route_bypasses_dsl_json_lookup"
+                    : "handler_returns_direct_json_response_writer_bypasses_dsl_json";
         } else if (route.asyncRoute) {
             strategy = Strategy.ASYNC_COMPLETION_STAGE;
             reason = "completion_stage_route";
@@ -353,6 +364,8 @@ public final class RouteExecutionPlan {
                 legacyV4,
                 compiledInvoker,
                 compiledInvoker && exactInvoker,
+                generatedRouteMetadata,
+                generatedResponseWriter,
                 benchmarkOnly
         );
     }
@@ -409,6 +422,8 @@ public final class RouteExecutionPlan {
                 + ",bodyless=" + bodyless + "}"
                 + " compiledInvoker=" + compiledInvoker
                 + " exactInvoker=" + exactInvoker
+                + " generatedRouteMetadata=" + generatedRouteMetadata
+                + " generatedResponseWriter=" + generatedResponseWriter
                 + " benchmarkOnly=" + benchmarkOnly
                 + " heavyJsonObjectGraph=" + heavyJsonObjectGraph()
                 + " directBodylessOutput=" + directBodylessOutput
@@ -424,6 +439,9 @@ public final class RouteExecutionPlan {
     }
 
     String toJson(long invocations) {
+        boolean generatedResponseWriterBound = isGeneratedResponseWriterBound();
+        String generatedResponseWriterState = HandlerRegistry.getInstance()
+                .generatedResponseWriterState(handlerId);
         return new StringBuilder(384)
                 .append('{')
                 .append("\"method\":").append(json(httpMethod)).append(',')
@@ -460,6 +478,9 @@ public final class RouteExecutionPlan {
                 .append("\"direct_bodyless_output\":").append(directBodylessOutput).append(',')
                 .append("\"direct_primitive_output\":").append(directPrimitiveOutput).append(',')
                 .append("\"direct_json_response\":").append(directJsonResponse).append(',')
+                .append("\"generated_route_metadata\":").append(generatedRouteMetadata).append(',')
+                .append("\"generated_response_writer\":").append(generatedResponseWriterBound).append(',')
+                .append("\"generated_response_writer_state\":").append(json(generatedResponseWriterState)).append(',')
                 .append("\"native_static_response\":").append(nativeStaticResponseId > 0).append(',')
                 .append("\"native_static_response_id\":").append(nativeStaticResponseId).append(',')
                 .append("\"native_static_file\":").append(nativeStaticFileResponseId > 0).append(',')
@@ -475,6 +496,11 @@ public final class RouteExecutionPlan {
                 .append("\"exact_invoker\":").append(exactInvoker)
                 .append('}')
                 .toString();
+    }
+
+    boolean isGeneratedResponseWriterBound() {
+        return generatedResponseWriter
+                || HandlerRegistry.getInstance().usesGeneratedResponseWriter(handlerId);
     }
 
     private static boolean returnsDirectJsonResponse(Method method) {

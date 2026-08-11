@@ -81,6 +81,13 @@ Optional quick-start profile:
 Use `-Xquickstart` only after measuring steady-state throughput. It can improve startup but may reduce
 JIT quality for longer-running/high-throughput services.
 
+The writable `64m` cache above is a startup experiment. It is not the low-anon production recipe.
+For low anonymous memory, use the Maven `runtime-image` goal with an `8m` ROM-only cache. The build
+uses `noaot`, and runtime uses `readonly,fatal`. A `4m` cache was measured at 100% full and rejected;
+an AOT-bearing cache was also rejected after a direct-writer p99 regression. See
+[Production Runtime](production-runtime.md#rom-only-openj9-shared-cache) for the copy-paste Maven
+configuration and the c64/c256 gate results.
+
 ## OpenJ9 Micro-RSS Presets
 
 For small Kubernetes pods, do not let the JVM size internal workers from a large host CPU count. Use
@@ -208,7 +215,7 @@ Generate indexes while Java sources compile. This is the preferred path:
       <path>
         <groupId>com.reactor</groupId>
         <artifactId>rust-java-rest</artifactId>
-        <version>4.2.0</version>
+        <version>4.3.0</version>
         <classifier>codegen</classifier>
       </path>
     </annotationProcessorPaths>

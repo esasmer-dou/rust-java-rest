@@ -2,8 +2,11 @@ package com.reactor.rust.bridge;
 
 import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.exception.BadRequestException;
+import com.reactor.rust.exception.ValidationException;
 import com.reactor.rust.util.RequestValueMap;
 import com.reactor.rust.util.UrlCodec;
+import com.reactor.rust.validation.DTOValidator;
+import com.reactor.rust.validation.ValidationResult;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
@@ -353,7 +356,9 @@ final class CompiledRouteInvoker {
                     );
             case COOKIE_VALUE ->
                     new CookieResolver(info.name, converterFor(info.type), info.defaultValue, info.required);
-            case REQUEST_BODY -> new BodyResolver(info.type, info.required);
+            case REQUEST_BODY -> info.validate
+                    ? new ValidatingBodyResolver(new BodyResolver(info.type, info.required))
+                    : new BodyResolver(info.type, info.required);
             case LEGACY_BUFFER -> NullResolver.INSTANCE;
             case LEGACY_INT -> ZeroIntResolver.INSTANCE;
             default -> NullResolver.INSTANCE;
@@ -517,6 +522,33 @@ final class CompiledRouteInvoker {
             if (required) {
                 throw new BadRequestException("Request body is required");
             }
+        }
+    }
+
+    private record ValidatingBodyResolver(BodyResolver delegate) implements ArgumentResolver {
+        @Override
+        public Object resolve(byte[] body, RequestValueMap params, RequestValueMap headers) {
+            return validate(delegate.resolve(body, params, headers));
+        }
+
+        @Override
+        public Object resolveDirect(
+                ByteBuffer body,
+                int bodyLen,
+                RequestValueMap params,
+                RequestValueMap headers) {
+            return validate(delegate.resolveDirect(body, bodyLen, params, headers));
+        }
+
+        private static Object validate(Object value) {
+            if (value == null) {
+                return null;
+            }
+            ValidationResult result = DTOValidator.getInstance().validate(value);
+            if (result.hasErrors()) {
+                throw new ValidationException(result);
+            }
+            return value;
         }
     }
 

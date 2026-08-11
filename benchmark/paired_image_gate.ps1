@@ -14,10 +14,16 @@ param(
     [double] $CpuLimit = 1.0,
     [string] $RuntimeProfile = "micro-rest",
     [string] $FrameworkJavaToolOptions = "",
+    [string] $FrameworkJavaOptsAppend = "",
+    [string] $BaselineJavaOptsAppend = "",
+    [string] $CandidateJavaOptsAppend = "",
     [string] $FrameworkMemory = "128m",
     [int] $RandomSeed = 20260715,
     [string] $ResultsDir = "",
     [switch] $PlanPreWarm,
+    [string] $PlanPreWarmDuration = "3s",
+    [ValidateRange(0, 1)]
+    [int] $CalibrationCycles = 1,
     [switch] $FailOnGate
 )
 
@@ -25,13 +31,22 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
 if ($PairRepeats -lt 1) {
-    throw "PairRepeats must be >= 1. Each repeat executes baseline/candidate/candidate/baseline."
+    throw "PairRepeats must be >= 1. Cycles alternate the baseline/candidate outer positions."
+}
+if (($PairRepeats % 2) -ne 0) {
+    $message = "Odd PairRepeats leaves outer/middle position exposure unbalanced. " +
+        "Use an even value; release evidence should use PairRepeats >= 4."
+    if ($FailOnGate) {
+        throw $message
+    }
+    Write-Warning $message
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Runner = Join-Path $ScriptDir "container_benchmark.ps1"
 $Comparer = Join-Path $ScriptDir "compare_framework_results.ps1"
 $BenchmarkTag = "rust-java-rest:benchmark"
+$RunnerImage = "reactor-benchmark-runner:local"
 
 if ([string]::IsNullOrWhiteSpace($ResultsDir)) {
     $ResultsDir = Join-Path $ScriptDir ("results\paired_image_gate_{0}" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
@@ -41,6 +56,11 @@ $BaselineAggregateDir = Join-Path $ResultsDir "baseline"
 $CandidateAggregateDir = Join-Path $ResultsDir "candidate"
 $ComparisonDir = Join-Path $ResultsDir "comparison"
 New-Item -ItemType Directory -Force -Path $BaselineAggregateDir, $CandidateAggregateDir | Out-Null
+
+& docker build -t $RunnerImage -f (Join-Path $ScriptDir "Dockerfile.benchmark") $ScriptDir | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    throw "Benchmark runner image build failed."
+}
 
 function Invoke-DockerCapture {
     param([string[]] $Arguments)
@@ -67,6 +87,16 @@ function Invoke-ImageRun {
 
     Invoke-DockerCapture @("tag", $Image, $BenchmarkTag) | Out-Null
     $runDir = Join-Path $ResultsDir ("runs\cycle-{0:D2}-{1:D2}-{2}" -f $Cycle, $Position, $Variant)
+    $variantJavaOptsAppend = if ($Variant -eq "baseline") {
+        $BaselineJavaOptsAppend
+    } else {
+        $CandidateJavaOptsAppend
+    }
+    $effectiveJavaOptsAppend = @(
+        $FrameworkJavaOptsAppend,
+        $variantJavaOptsAppend
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
     $arguments = @{
         ConcurrencyLevels = $ConcurrencyLevels
         Duration = $Duration
@@ -75,6 +105,7 @@ function Invoke-ImageRun {
         CpuLimit = $CpuLimit
         RuntimeProfile = $RuntimeProfile
         FrameworkJavaToolOptions = $FrameworkJavaToolOptions
+        FrameworkJavaOptsAppend = ($effectiveJavaOptsAppend -join " ")
         FrameworkMemory = $FrameworkMemory
         ResultsDir = $runDir
         RepeatCount = 1
@@ -84,9 +115,11 @@ function Invoke-ImageRun {
         FrameworkOnly = $true
         SkipBuild = $true
         SkipImageBuild = $true
+        SkipRunnerImageBuild = $true
     }
     if ($PlanPreWarm) {
         $arguments.PlanPreWarm = $true
+        $arguments.PlanPreWarmDuration = $PlanPreWarmDuration
     }
     & $Runner @arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
@@ -107,8 +140,9 @@ function Invoke-ImageRun {
 
 $baselineId = Get-ImageId $BaselineImage
 $candidateId = Get-ImageId $CandidateImage
-if ($baselineId -eq $candidateId) {
-    throw "Baseline and candidate resolve to the same image id: $baselineId"
+if ($baselineId -eq $candidateId `
+        -and $BaselineJavaOptsAppend.Trim() -eq $CandidateJavaOptsAppend.Trim()) {
+    throw "Baseline and candidate resolve to the same image id with identical JVM options: $baselineId"
 }
 
 $previousBenchmarkId = $null
@@ -120,15 +154,61 @@ try {
 
 $baselineRows = [System.Collections.Generic.List[object]]::new()
 $candidateRows = [System.Collections.Generic.List[object]]::new()
-$sequence = @(
+
+function Save-AggregateCheckpoint {
+    param([int] $CompletedCycle, [int] $CompletedPosition)
+
+    if ($baselineRows.Count -gt 0) {
+        $baselineRows | Export-Csv -LiteralPath (Join-Path $BaselineAggregateDir "results.csv") `
+                -NoTypeInformation -Encoding utf8
+    }
+    if ($candidateRows.Count -gt 0) {
+        $candidateRows | Export-Csv -LiteralPath (Join-Path $CandidateAggregateDir "results.csv") `
+                -NoTypeInformation -Encoding utf8
+    }
+    [ordered]@{
+        completed_cycle = $CompletedCycle
+        completed_position = $CompletedPosition
+        baseline_rows = $baselineRows.Count
+        candidate_rows = $candidateRows.Count
+        complete = $false
+        updated_at = (Get-Date).ToString("o")
+    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ResultsDir "progress.json") -Encoding utf8
+}
+
+$forwardSequence = @(
     [PSCustomObject]@{ Variant = "baseline"; Image = $BaselineImage },
     [PSCustomObject]@{ Variant = "candidate"; Image = $CandidateImage },
     [PSCustomObject]@{ Variant = "candidate"; Image = $CandidateImage },
     [PSCustomObject]@{ Variant = "baseline"; Image = $BaselineImage }
 )
+$reverseSequence = @(
+    [PSCustomObject]@{ Variant = "candidate"; Image = $CandidateImage },
+    [PSCustomObject]@{ Variant = "baseline"; Image = $BaselineImage },
+    [PSCustomObject]@{ Variant = "baseline"; Image = $BaselineImage },
+    [PSCustomObject]@{ Variant = "candidate"; Image = $CandidateImage }
+)
 
 try {
+    if ($CalibrationCycles -eq 1) {
+        Write-Host "Running unrecorded baseline/candidate calibration cycle."
+        $calibrationSequence = @(
+            [PSCustomObject]@{ Variant = "baseline"; Image = $BaselineImage },
+            [PSCustomObject]@{ Variant = "candidate"; Image = $CandidateImage }
+        )
+        for ($position = 1; $position -le $calibrationSequence.Count; $position++) {
+            $item = $calibrationSequence[$position - 1]
+            Invoke-ImageRun `
+                    -Variant $item.Variant `
+                    -Image $item.Image `
+                    -Cycle 0 `
+                    -Position $position | Out-Null
+        }
+    }
     for ($cycle = 1; $cycle -le $PairRepeats; $cycle++) {
+        # Alternate the outer positions so page-cache, thermal and scheduler drift do not
+        # consistently favour one image across repeated cycles.
+        $sequence = if (($cycle % 2) -eq 1) { $forwardSequence } else { $reverseSequence }
         for ($position = 1; $position -le $sequence.Count; $position++) {
             $item = $sequence[$position - 1]
             $result = Invoke-ImageRun -Variant $item.Variant -Image $item.Image -Cycle $cycle -Position $position
@@ -138,6 +218,7 @@ try {
             } else {
                 $rows | ForEach-Object { $candidateRows.Add($_) }
             }
+            Save-AggregateCheckpoint -CompletedCycle $cycle -CompletedPosition $position
         }
     }
 } finally {
@@ -146,22 +227,35 @@ try {
     }
 }
 
-$baselineRows | Export-Csv -LiteralPath (Join-Path $BaselineAggregateDir "results.csv") -NoTypeInformation -Encoding utf8
-$candidateRows | Export-Csv -LiteralPath (Join-Path $CandidateAggregateDir "results.csv") -NoTypeInformation -Encoding utf8
+Save-AggregateCheckpoint -CompletedCycle $PairRepeats -CompletedPosition 4
+[ordered]@{
+    completed_cycle = $PairRepeats
+    completed_position = 4
+    baseline_rows = $baselineRows.Count
+    candidate_rows = $candidateRows.Count
+    complete = $true
+    updated_at = (Get-Date).ToString("o")
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ResultsDir "progress.json") -Encoding utf8
 
 $metadata = [ordered]@{
     baseline_image = $BaselineImage
     baseline_image_id = $baselineId
     candidate_image = $CandidateImage
     candidate_image_id = $candidateId
-    sequence = "baseline,candidate,candidate,baseline"
+    sequence_policy = "odd=baseline,candidate,candidate,baseline;even=candidate,baseline,baseline,candidate"
     pair_repeats = $PairRepeats
+    calibration_cycles = $CalibrationCycles
     endpoint_classes = $EndpointClasses
     concurrency_levels = "$ConcurrencyLevels"
     duration = $Duration
     warmup = $Warmup
+    plan_pre_warm = $PlanPreWarm.IsPresent
+    plan_pre_warm_duration = if ($PlanPreWarm) { $PlanPreWarmDuration } else { "disabled" }
     runtime_profile = $RuntimeProfile
     framework_java_tool_options = $FrameworkJavaToolOptions
+    framework_java_opts_append = $FrameworkJavaOptsAppend
+    baseline_java_opts_append = $BaselineJavaOptsAppend
+    candidate_java_opts_append = $CandidateJavaOptsAppend
     cpu_limit = $CpuLimit
     memory_limit = $FrameworkMemory
 }

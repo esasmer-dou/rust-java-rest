@@ -89,6 +89,18 @@ public final class JsonBufferWriter {
         return this;
     }
 
+    /**
+     * Writes a build-time encoded {@code "field":} prefix without scanning a String.
+     *
+     * <p>Generated writers keep every field prefix in one class-local byte table and pass the
+     * matching slice here. Application code should normally use the String-based field methods;
+     * this overload exists for generated hot paths.</p>
+     */
+    public JsonBufferWriter fieldPrefix(byte[] encodedFields, int offset, int length) {
+        writeBytes(encodedFields, offset, length);
+        return this;
+    }
+
     public JsonBufferWriter fieldString(String name, String value) {
         fieldName(name);
         string(value);
@@ -308,12 +320,15 @@ public final class JsonBufferWriter {
     }
 
     private void writeBytes(byte[] value) {
-        int len = value.length;
-        int writable = Math.min(len, Math.max(0, limit - cursor));
+        writeBytes(value, 0, value.length);
+    }
+
+    private void writeBytes(byte[] value, int offset, int length) {
+        int writable = Math.min(length, Math.max(0, limit - cursor));
         if (writable > 0) {
-            out.put(cursor, value, 0, writable);
+            out.put(cursor, value, offset, writable);
         }
-        cursor += len;
-        required += len;
+        cursor += length;
+        required += length;
     }
 }

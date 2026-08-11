@@ -12,6 +12,9 @@ import com.reactor.rust.annotations.DirectQueryInt;
 import com.reactor.rust.annotations.DirectQueryLong;
 import com.reactor.rust.annotations.DirectQueryShort;
 import com.reactor.rust.annotations.RequestBody;
+import com.reactor.rust.annotations.NotBlank;
+import com.reactor.rust.annotations.Request;
+import com.reactor.rust.annotations.Valid;
 import com.reactor.rust.annotations.CookieValue;
 import com.reactor.rust.annotations.HeaderParam;
 import com.reactor.rust.annotations.PathVariable;
@@ -22,6 +25,7 @@ import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DirectJsonWriter;
+import com.reactor.rust.json.DirectJsonWriterRegistry;
 import com.reactor.rust.json.JsonBodyProducer;
 import com.reactor.rust.json.JsonBufferWriter;
 import org.junit.jupiter.api.Test;
@@ -41,6 +45,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -322,6 +327,58 @@ class HandlerRegistryNativeFrameTest {
                     .accepted(DirectJsonResponse.ok(new DirectCity("Ankara", 6), DirectCityJsonWriter.INSTANCE)
                             .header("X-Direct", "1"))
                     .header("X-Entity", "1");
+        }
+    }
+
+    static class GeneratedWriterHandler {
+        public DirectCity city() {
+            return new DirectCity("İstanbul", 34);
+        }
+
+        public ResponseEntity<DirectCity> acceptedCity() {
+            return ResponseEntity.accepted(new DirectCity("Ankara", 6));
+        }
+    }
+
+    @com.dslplatform.json.CompiledJson
+    record LateRegisteredCity(String city, int plate) {}
+
+    enum LateRegisteredCityJsonWriter implements DirectJsonWriter<LateRegisteredCity> {
+        INSTANCE;
+
+        @Override
+        public int write(LateRegisteredCity value, ByteBuffer out, int offset) {
+            return JsonBufferWriter.reusable(out, offset)
+                    .beginObject()
+                    .fieldString("city", value.city())
+                    .comma()
+                    .fieldInt("plate", value.plate())
+                    .endObject()
+                    .result();
+        }
+    }
+
+    static class LateRegisteredWriterHandler {
+        public LateRegisteredCity city() {
+            return new LateRegisteredCity("İzmir", 35);
+        }
+    }
+
+    record FrozenWriterMiss(String value) {}
+
+    static class FrozenWriterMissHandler {
+        public FrozenWriterMiss value() {
+            return new FrozenWriterMiss("miss");
+        }
+    }
+
+    @Request
+    @com.dslplatform.json.CompiledJson
+    public record ValidatedBody(@NotBlank String name) {}
+
+    static class ValidatedBodyHandler {
+        public ResponseEntity<String> create(@RequestBody @Valid ValidatedBody body) {
+            return ResponseEntity.ok(body.name());
         }
     }
 
@@ -633,6 +690,44 @@ class HandlerRegistryNativeFrameTest {
         int bodyLen = frame.getInt();
         String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
         assertEquals("\"async-created\"", encodedBody);
+    }
+
+    @Test
+    void synchronousGuardWrapsBufferedInvocationOnce() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        ModernHandler handler = new ModernHandler();
+        Method method = ModernHandler.class.getDeclaredMethod("created");
+        CompletionTrackingGuard guard = new CompletionTrackingGuard();
+        int handlerId = registry.registerHandler(handler, method, Void.class, ResponseEntity.class);
+        registry.attachGuard(handlerId, guard);
+
+        ByteBuffer out = ByteBuffer.allocateDirect(256);
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        assertTrue(written > 0);
+        assertEquals(1, guard.beforeCalls.get());
+        assertEquals(1, guard.afterCalls.get());
+        assertEquals(null, guard.failure.get());
+    }
+
+    @Test
+    void synchronousGuardWrapsDirectBufferInvocationOnce() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        DirectBodyHandler handler = new DirectBodyHandler();
+        Method method = DirectBodyHandler.class.getDeclaredMethod("bodySize", byte[].class);
+        CompletionTrackingGuard guard = new CompletionTrackingGuard();
+        int handlerId = registry.registerHandler(handler, method, byte[].class, ResponseEntity.class);
+        registry.attachGuard(handlerId, guard);
+
+        ByteBuffer body = ByteBuffer.allocateDirect(3);
+        body.put(new byte[] {1, 2, 3});
+        ByteBuffer out = ByteBuffer.allocateDirect(256);
+        int written = registry.invokeBufferedDirect(handlerId, out, 0, body, 3, "", "", "");
+
+        assertTrue(written > 0);
+        assertEquals(1, guard.beforeCalls.get());
+        assertEquals(1, guard.afterCalls.get());
+        assertEquals(null, guard.failure.get());
     }
 
     @Test
@@ -1403,6 +1498,155 @@ class HandlerRegistryNativeFrameTest {
         assertTrue(encodedHeaders.contains("Content-Type: application/json; charset=utf-8"));
         assertTrue(encodedHeaders.contains("X-Direct: 1"));
         assertEquals("{\"city\":\"İstanbul\",\"plate\":34}", encodedBody);
+    }
+
+    @Test
+    void normalRecordReturnUsesGeneratedWriterBoundToRoute() throws Exception {
+        AtomicInteger writes = new AtomicInteger();
+        DirectJsonWriterRegistry.register(DirectCity.class, (value, out, offset) -> {
+            writes.incrementAndGet();
+            return DirectCityJsonWriter.INSTANCE.write(value, out, offset);
+        });
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        GeneratedWriterHandler handler = new GeneratedWriterHandler();
+        Method method = GeneratedWriterHandler.class.getDeclaredMethod("city");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, DirectCity.class);
+        assertTrue(registry.usesGeneratedResponseWriter(handlerId));
+        ByteBuffer out = ByteBuffer.allocate(1024);
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        assertEquals(1, writes.get());
+        assertTrue(registry.usesGeneratedResponseWriter(handlerId));
+        assertEquals("{\"city\":\"İstanbul\",\"plate\":34}", frameBody(out, written));
+    }
+
+    @Test
+    void routeDiagnosticsShowsWriterBoundDuringRouteCompilationWhenAlreadyRegistered() throws Exception {
+        DirectJsonWriterRegistry.register(DirectCity.class, DirectCityJsonWriter.INSTANCE);
+        HandlerRegistry handlers = HandlerRegistry.getInstance();
+        GeneratedWriterHandler handler = new GeneratedWriterHandler();
+        Method method = GeneratedWriterHandler.class.getDeclaredMethod("city");
+        int handlerId = handlers.registerHandler(handler, method, Void.class, DirectCity.class);
+        RouteDef route = new RouteDef(
+                "GET", "/generated-city", handlerId,
+                Void.class.getName(), DirectCity.class.getName(),
+                true, false, false, false, false, 0, 0);
+        RoutePlanRegistry routes = RoutePlanRegistry.getInstance();
+        routes.clear();
+        routes.add(RouteExecutionPlan.from(
+                route, handler, method,
+                false, false,
+                false, false, false, false, false,
+                false, false, false, false, false,
+                false,
+                false,
+                true));
+
+        String before = routes.toJson();
+        assertTrue(before.contains("\"generated_response_writer\":true"));
+        assertTrue(before.contains("\"generated_response_writer_state\":\"bound\""));
+
+        ByteBuffer out = ByteBuffer.allocate(1024);
+        handlers.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        String after = routes.toJson();
+        assertTrue(after.contains("\"generated_response_writer\":true"));
+        assertTrue(after.contains("\"generated_response_writer_state\":\"bound\""));
+        routes.clear();
+    }
+
+    @Test
+    void writerRegistrationMustPrecedeRouteCompilation() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        LateRegisteredWriterHandler handler = new LateRegisteredWriterHandler();
+        Method method = LateRegisteredWriterHandler.class.getDeclaredMethod("city");
+        int handlerId = registry.registerHandler(
+                handler, method, Void.class, LateRegisteredCity.class);
+
+        assertFalse(registry.usesGeneratedResponseWriter(handlerId));
+        assertEquals("miss", registry.generatedResponseWriterState(handlerId));
+
+        DirectJsonWriterRegistry.register(
+                LateRegisteredCity.class,
+                LateRegisteredCityJsonWriter.INSTANCE);
+        ByteBuffer out = ByteBuffer.allocate(1024);
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        assertFalse(registry.usesGeneratedResponseWriter(handlerId));
+        assertEquals("miss", registry.generatedResponseWriterState(handlerId));
+        assertEquals("{\"city\":\"İzmir\",\"plate\":35}", frameBody(out, written));
+    }
+
+    @Test
+    void routeWithoutDirectWriterRemainsAStableMissAfterFreeze() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.create(
+                com.reactor.rust.exception.ExceptionHandlerRegistry.create());
+        FrozenWriterMissHandler handler = new FrozenWriterMissHandler();
+        Method method = FrozenWriterMissHandler.class.getDeclaredMethod("value");
+        int handlerId = registry.registerHandler(handler, method, Void.class, FrozenWriterMiss.class);
+
+        assertEquals("miss", registry.generatedResponseWriterState(handlerId));
+        registry.freeze();
+
+        assertFalse(registry.usesGeneratedResponseWriter(handlerId));
+        assertEquals("miss", registry.generatedResponseWriterState(handlerId));
+    }
+
+    @Test
+    void responseEntityRecordUsesGeneratedWriterBoundToRoute() throws Exception {
+        AtomicInteger writes = new AtomicInteger();
+        DirectJsonWriterRegistry.register(DirectCity.class, (value, out, offset) -> {
+            writes.incrementAndGet();
+            return DirectCityJsonWriter.INSTANCE.write(value, out, offset);
+        });
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        GeneratedWriterHandler handler = new GeneratedWriterHandler();
+        Method method = GeneratedWriterHandler.class.getDeclaredMethod("acceptedCity");
+
+        int handlerId = registry.registerHandler(handler, method, Void.class, DirectCity.class);
+        assertTrue(registry.usesGeneratedResponseWriter(handlerId));
+        ByteBuffer out = ByteBuffer.allocate(1024);
+        int written = registry.invokeBuffered(handlerId, out, 0, new byte[0], "", "", "");
+
+        assertEquals(1, writes.get());
+        assertTrue(registry.usesGeneratedResponseWriter(handlerId));
+        assertEquals(202, frameStatus(out));
+        assertEquals("{\"city\":\"Ankara\",\"plate\":6}", frameBody(out, written));
+    }
+
+    @Test
+    void compiledBodyResolverPreservesValidConstraint() throws Exception {
+        HandlerRegistry registry = HandlerRegistry.getInstance();
+        ValidatedBodyHandler handler = new ValidatedBodyHandler();
+        Method method = ValidatedBodyHandler.class.getDeclaredMethod("create", ValidatedBody.class);
+        int handlerId = registry.registerHandler(
+                handler, method, ValidatedBody.class, String.class);
+
+        ByteBuffer invalidOut = ByteBuffer.allocate(2048);
+        int invalidWritten = registry.invokeBuffered(
+                handlerId,
+                invalidOut,
+                0,
+                "{\"name\":\"\"}".getBytes(StandardCharsets.UTF_8),
+                "",
+                "",
+                "");
+        assertEquals(400, frameStatus(invalidOut));
+        assertTrue(!frameBody(invalidOut, invalidWritten).isBlank());
+
+        ByteBuffer validOut = ByteBuffer.allocate(2048);
+        int validWritten = registry.invokeBuffered(
+                handlerId,
+                validOut,
+                0,
+                "{\"name\":\"Ada\"}".getBytes(StandardCharsets.UTF_8),
+                "",
+                "",
+                "");
+        String validBody = frameBody(validOut, validWritten);
+        assertEquals(200, frameStatus(validOut), validBody);
+        assertTrue(validBody.contains("Ada"));
     }
 
     @Test

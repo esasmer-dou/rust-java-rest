@@ -7,7 +7,9 @@ import java.lang.annotation.Target;
 
 /**
  * Response Record'larını işaretler (Constraint #9).
- * REST API response body'leri için kullanılır.
+ * REST API response body'leri için kullanılır. Bu annotation tek başına direct JSON writer
+ * seçmez; ölçülmüş serialization-heavy DTO'lar için ayrıca
+ * {@link GenerateDirectJsonWriter} kullanılabilir.
  *
  * Örnek:
  * @Response

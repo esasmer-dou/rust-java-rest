@@ -16,7 +16,25 @@ class MetricsTest {
     @BeforeEach
     void setUp() {
         metrics = Metrics.getInstance();
+        metrics.configureCollection(true);
         metrics.reset();
+    }
+
+    @Test
+    @DisplayName("Disabled collection releases registry state and ignores writes")
+    void testDisabledCollection() {
+        metrics.increment("temporary", 1);
+
+        metrics.configureCollection(false);
+        metrics.increment("ignored", 1);
+
+        assertFalse(metrics.collectionEnabled());
+        assertEquals(0, metrics.getCounter("temporary"));
+        assertEquals(0, metrics.getCounter("ignored"));
+
+        metrics.configureCollection(true);
+        assertTrue(metrics.collectionEnabled());
+        assertEquals(0, metrics.getCounter("temporary"));
     }
 
     @Test

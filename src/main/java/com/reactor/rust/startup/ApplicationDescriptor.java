@@ -9,11 +9,37 @@ import java.util.List;
 /** Build-time generated application metadata and component factory contract. */
 public interface ApplicationDescriptor {
 
-    List<String> components();
+    default List<String> components() {
+        return List.of();
+    }
 
-    List<String> routes();
+    default List<String> routes() {
+        return List.of();
+    }
 
-    List<String> properties();
+    default List<String> properties() {
+        return List.of();
+    }
+
+    /** Compact package ownership check used by strict-AOT startup. */
+    default boolean coversPackage(String basePackage) {
+        String prefix = basePackage == null || basePackage.isBlank() ? "" : basePackage + ".";
+        if (prefix.isEmpty()) {
+            return !components().isEmpty() || !routes().isEmpty();
+        }
+        for (String component : components()) {
+            if (component.equals(basePackage) || component.startsWith(prefix)) return true;
+        }
+        for (String route : routes()) {
+            String[] columns = route.split("\\s+", 3);
+            if (columns.length < 3) continue;
+            String owner = columns[2];
+            int methodSeparator = owner.indexOf('#');
+            if (methodSeparator > 0) owner = owner.substring(0, methodSeparator);
+            if (owner.equals(basePackage) || owner.startsWith(prefix)) return true;
+        }
+        return false;
+    }
 
     /** Request/response types with generated validation metadata. */
     default List<String> validators() {

@@ -30,8 +30,26 @@ public final class RuntimeImageMojo extends AbstractMojo {
     @Parameter(property = "reactor.runtime.mainClass", required = true)
     private String mainClass;
 
-    @Parameter(property = "reactor.runtime.jvmArgs", defaultValue = "-XX:+IdleTuningGcOnIdle -Xss256k")
+    @Parameter(property = "reactor.runtime.jvmArgs", defaultValue = "-Xss256k")
     private String jvmArgs;
+
+    @Parameter(property = "reactor.runtime.image.malloc.arena-max", defaultValue = "2")
+    private int mallocArenaMax;
+
+    @Parameter(property = "reactor.runtime.image.malloc.trim-threshold", defaultValue = "131072")
+    private int mallocTrimThreshold;
+
+    @Parameter(property = "reactor.runtime.openj9.scc.enabled", defaultValue = "false")
+    private boolean openJ9SharedClassCacheEnabled;
+
+    @Parameter(property = "reactor.runtime.openj9.scc.name", defaultValue = "reactor_rom")
+    private String openJ9SharedClassCacheName;
+
+    @Parameter(property = "reactor.runtime.openj9.scc.size", defaultValue = "8m")
+    private String openJ9SharedClassCacheSize;
+
+    @Parameter(property = "reactor.runtime.openj9.scc.class-prefixes", defaultValue = "")
+    private String openJ9SharedClassCachePrefixes;
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -55,24 +73,103 @@ public final class RuntimeImageMojo extends AbstractMojo {
         return String.join(",", ordered);
     }
 
-    private String dockerfile(String normalizedModules) throws MojoExecutionException {
+    String dockerfile(String normalizedModules) throws MojoExecutionException {
         String jar = project.getBuild().getFinalName() + ".jar";
+        int arenaMax = validateMallocArenaMax(mallocArenaMax);
+        int trimThreshold = validateMallocTrimThreshold(mallocTrimThreshold);
         List<String> entrypoint = new ArrayList<>();
         entrypoint.add("/opt/java/bin/java");
+        entrypoint.add("-Duser.home=/app");
         entrypoint.addAll(tokenize(jvmArgs));
+        String sccBuild = "";
+        String sccCopy = "";
+        if (openJ9SharedClassCacheEnabled) {
+            String cacheName = validateCacheName(openJ9SharedClassCacheName);
+            String cacheSize = validateMemorySize(openJ9SharedClassCacheSize);
+            String prefixes = validateClassPrefixes(openJ9SharedClassCachePrefixes);
+            sccBuild = "RUN cp /opt/java/openjdk/lib/default/libj9shr*.so /opt/reactor-jre/lib/default/\n"
+                    + "COPY target/" + jar + " /app/app.jar\n"
+                    + "RUN mkdir -p /opt/reactor-scc && java "
+                    + "-Xshareclasses:name=" + cacheName + ",cacheDir=/opt/reactor-scc,noaot "
+                    + "-Xscmx" + cacheSize + " -cp /app/app.jar "
+                    + "com.reactor.rust.startup.OpenJ9SharedClassCachePreloader /app/app.jar"
+                    + (prefixes.isEmpty() ? "" : " " + prefixes) + "\n";
+            sccCopy = "COPY --from=runtime /opt/reactor-scc /opt/reactor-scc\n";
+            entrypoint.add("-Xshareclasses:name=" + cacheName
+                    + ",cacheDir=/opt/reactor-scc,readonly,fatal");
+        }
         entrypoint.add("-cp");
         entrypoint.add("/app/app.jar");
         entrypoint.add(mainClass);
         return """
                 FROM ibm-semeru-runtimes:open-21-jdk AS runtime
+                RUN apt-get update \\
+                    && apt-get install --yes --no-install-recommends binutils \\
+                    && rm -rf /var/lib/apt/lists/*
                 RUN jlink --add-modules %s --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output /opt/reactor-jre
-                FROM ubuntu:24.04
+                %sFROM ubuntu:24.04
                 COPY --from=runtime /opt/reactor-jre /opt/java
-                COPY target/%s /app/app.jar
-                ENV PATH=/opt/java/bin:$PATH
+                %sCOPY target/%s /app/app.jar
+                RUN mkdir -p /app/.reactor/native /app/work \\
+                    && chown -R 10001:0 /app/.reactor /app/work
+                ENV HOME=/app \\
+                    PATH=/opt/java/bin:$PATH \\
+                    LANG=C.UTF-8 \\
+                    LC_ALL=C.UTF-8 \\
+                    MALLOC_ARENA_MAX=%d \\
+                    MALLOC_TRIM_THRESHOLD_=%d
+                WORKDIR /app/work
                 USER 10001
                 ENTRYPOINT %s
-                """.formatted(normalizedModules, jar, jsonArray(entrypoint));
+                """.formatted(
+                        normalizedModules,
+                        sccBuild,
+                        sccCopy,
+                        jar,
+                        arenaMax,
+                        trimThreshold,
+                        jsonArray(entrypoint));
+    }
+
+    static int validateMallocArenaMax(int value) throws MojoExecutionException {
+        if (value < 1 || value > 64) {
+            throw new MojoExecutionException(
+                    "reactor.runtime.image.malloc.arena-max must be between 1 and 64");
+        }
+        return value;
+    }
+
+    static int validateMallocTrimThreshold(int value) throws MojoExecutionException {
+        if (value < 0) {
+            throw new MojoExecutionException(
+                    "reactor.runtime.image.malloc.trim-threshold must be zero or greater");
+        }
+        return value;
+    }
+
+    static String validateCacheName(String value) throws MojoExecutionException {
+        String normalized = value == null ? "" : value.trim();
+        if (!normalized.matches("[A-Za-z0-9_.-]+")) {
+            throw new MojoExecutionException("reactor.runtime.openj9.scc.name contains unsafe characters");
+        }
+        return normalized;
+    }
+
+    static String validateMemorySize(String value) throws MojoExecutionException {
+        String normalized = value == null ? "" : value.trim();
+        if (!normalized.matches("[1-9][0-9]*[kKmMgG]")) {
+            throw new MojoExecutionException("reactor.runtime.openj9.scc.size must look like 8m or 64m");
+        }
+        return normalized.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    static String validateClassPrefixes(String value) throws MojoExecutionException {
+        String normalized = value == null ? "" : value.trim();
+        if (!normalized.matches("[A-Za-z0-9_.$,-]*")) {
+            throw new MojoExecutionException(
+                    "reactor.runtime.openj9.scc.class-prefixes must be comma-separated Java package prefixes");
+        }
+        return normalized;
     }
 
     static List<String> tokenize(String value) throws MojoExecutionException {

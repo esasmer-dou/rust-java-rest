@@ -88,6 +88,8 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
     private static final String REQUEST_MAPPING = "com.reactor.rust.annotations.RequestMapping";
     private static final String REST_CONTROLLER = "com.reactor.rust.annotations.RestController";
     private static final String RUST_ROUTE = "com.reactor.rust.annotations.RustRoute";
+    private static final String MAX_REQUEST_BODY_SIZE = "com.reactor.rust.annotations.MaxRequestBodySize";
+    private static final String MAX_RESPONSE_SIZE = "com.reactor.rust.annotations.MaxResponseSize";
     private static final String OPENAPI_OPERATION = "com.reactor.rust.openapi.Operation";
     private static final String OPENAPI_RESPONSE = "com.reactor.rust.openapi.ApiResponse";
     private static final String OPENAPI_RESPONSES = "com.reactor.rust.openapi.ApiResponses";
@@ -676,6 +678,7 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
         String httpMethod = null;
         String path = null;
         AnnotationMirror rustRoute = annotation(method, RUST_ROUTE);
+        AnnotationMirror routeAnnotation = rustRoute;
         if (rustRoute != null) {
             httpMethod = annotationString(rustRoute, "method", "GET").toUpperCase(Locale.ROOT);
             path = annotationString(rustRoute, "path", "/");
@@ -683,6 +686,7 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
             for (Map.Entry<String, String> mapping : MAPPINGS.entrySet()) {
                 AnnotationMirror route = annotation(method, mapping.getKey());
                 if (route != null) {
+                    routeAnnotation = route;
                     httpMethod = mapping.getValue();
                     path = annotationString(route, "value", "");
                     break;
@@ -705,7 +709,8 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
         routeOwners.add(owner.getQualifiedName().toString());
         openApiRoutes.putIfAbsent(key, openApiRouteModel(owner, method, httpMethod, fullPath));
         routeMethods.computeIfAbsent(owner.getQualifiedName().toString(), ignored -> new TreeMap<>())
-                .putIfAbsent(methodSignature(method), routeMethodModel(method));
+                .putIfAbsent(methodSignature(method), routeMethodModel(
+                        method, routeAnnotation, httpMethod, fullPath));
     }
 
     private OpenApiRouteModel openApiRouteModel(
@@ -884,13 +889,7 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                     }
                     writer.write("    }\n\n");
                 }
-                writeListMethod(writer, "components", new ArrayList<>(allComponentTypes()));
-                writeListMethod(writer, "routes", new ArrayList<>(routes.values()));
-                writeListMethod(writer, "properties", new ArrayList<>(properties));
-                writeListMethod(writer, "validators", new ArrayList<>(validationTypes.keySet()));
-                writeListMethod(writer, "codecs", new ArrayList<>(validationTypes.keySet()));
-                writeListMethod(writer, "conditions", conditionMetadata());
-                writeListMethod(writer, "healthRoutes", healthRouteMetadata());
+                writePackageCoverageMethod(writer, descriptorPackages());
                 writer.write("    @Override\n");
                 writer.write("    public boolean isComponentEnabled(String componentType) {\n");
                 writer.write("        return switch (componentType) {\n");
@@ -1008,6 +1007,40 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
         TreeSet<String> all = new TreeSet<>(components.keySet());
         all.addAll(httpClients.keySet());
         return all;
+    }
+
+    private List<String> descriptorPackages() {
+        TreeSet<String> packages = new TreeSet<>();
+        TreeSet<String> owners = new TreeSet<>(allComponentTypes());
+        owners.addAll(routeOwners);
+        for (String owner : owners) {
+            TypeElement type = processingEnv.getElementUtils().getTypeElement(owner);
+            if (type != null) {
+                String packageName = processingEnv.getElementUtils().getPackageOf(type)
+                        .getQualifiedName().toString();
+                if (!packageName.isBlank()) packages.add(packageName);
+            }
+        }
+        return List.copyOf(packages);
+    }
+
+    private void writePackageCoverageMethod(Writer writer, List<String> packages) throws IOException {
+        writer.write("    @Override\n");
+        writer.write("    public boolean coversPackage(String basePackage) {\n");
+        if (packages.isEmpty()) {
+            writer.write("        return false;\n");
+        } else {
+            writer.write("        if (basePackage == null || basePackage.isBlank()) return true;\n");
+            writer.write("        return ");
+            for (int index = 0; index < packages.size(); index++) {
+                String packageName = packages.get(index);
+                if (index > 0) writer.write("\n                || ");
+                writer.write(javaString(packageName) + ".equals(basePackage)"
+                        + " || " + javaString(packageName) + ".startsWith(basePackage + \".\")");
+            }
+            writer.write(";\n");
+        }
+        writer.write("    }\n\n");
     }
 
     private void generateHttpClient(HttpClientModel client) {
@@ -2304,7 +2337,11 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
         return String.join(" && ", checks);
     }
 
-    private RouteMethodModel routeMethodModel(ExecutableElement method) {
+    private RouteMethodModel routeMethodModel(
+            ExecutableElement method,
+            AnnotationMirror routeAnnotation,
+            String httpMethod,
+            String path) {
         if (method.getModifiers().contains(Modifier.PRIVATE)
                 || method.getModifiers().contains(Modifier.STATIC)) {
             processingEnv.getMessager().printMessage(
@@ -2324,11 +2361,56 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                         processingEnv.getTypeUtils().erasure(parameter.asType()).toString(),
                         parameter.asType().getKind()))
                 .toList();
+        TypeMirror requestType = inferredRequestType(method, routeAnnotation);
+        TypeMirror responseType = inferredResponseType(method, routeAnnotation);
+        AnnotationMirror maxRequest = annotation(method, MAX_REQUEST_BODY_SIZE);
+        AnnotationMirror maxResponse = annotation(method, MAX_RESPONSE_SIZE);
         return new RouteMethodModel(
                 method.getSimpleName().toString(),
                 parameters,
                 method.getReturnType().getKind() == TypeKind.VOID,
-                generatedPrimitiveBinding(method));
+                generatedPrimitiveBinding(method),
+                httpMethod,
+                path,
+                processingEnv.getTypeUtils().erasure(requestType).toString(),
+                processingEnv.getTypeUtils().erasure(responseType).toString(),
+                maxRequest == null ? 0L : annotationLong(maxRequest, "value", 0L),
+                maxResponse == null ? 0L : annotationLong(maxResponse, "value", 0L));
+    }
+
+    private TypeMirror inferredRequestType(
+            ExecutableElement method,
+            AnnotationMirror routeAnnotation) {
+        TypeMirror declared = annotationType(routeAnnotation, "requestType");
+        if (!isVoidType(declared)) {
+            return declared;
+        }
+        for (VariableElement parameter : method.getParameters()) {
+            if (annotation(parameter, REQUEST_BODY) != null) {
+                return parameter.asType();
+            }
+        }
+        return processingEnv.getElementUtils().getTypeElement("java.lang.Void").asType();
+    }
+
+    private TypeMirror inferredResponseType(
+            ExecutableElement method,
+            AnnotationMirror routeAnnotation) {
+        TypeMirror declared = annotationType(routeAnnotation, "responseType");
+        if (!isVoidType(declared)) {
+            return declared;
+        }
+        TypeMirror inferred = unwrapResponseType(method.getReturnType());
+        return inferred != null
+                ? inferred
+                : processingEnv.getElementUtils().getTypeElement("java.lang.Void").asType();
+    }
+
+    private boolean isVoidType(TypeMirror type) {
+        if (type == null || type.getKind() == TypeKind.VOID) {
+            return true;
+        }
+        return processingEnv.getTypeUtils().erasure(type).toString().equals("java.lang.Void");
     }
 
     private PrimitiveBindingModel generatedPrimitiveBinding(ExecutableElement method) {
@@ -2509,14 +2591,11 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
     }
 
     private void writeRouteInvokerRegistration(Writer writer, ComponentModel component) throws IOException {
-        writer.write("    private static boolean routeInvokersRegistered;\n\n");
-        writer.write("    private static synchronized void registerRouteInvokers() {\n");
-        writer.write("        if (routeInvokersRegistered) return;\n");
+        writer.write("    private static void registerRouteInvokers() {\n");
         writeOwnerRouteInvokers(writer, component.type());
         for (BeanMethodModel method : handlerBeanMethods(component)) {
             writeOwnerRouteInvokers(writer, method.beanType());
         }
-        writer.write("        routeInvokersRegistered = true;\n");
         writer.write("    }\n");
     }
 
@@ -2561,7 +2640,13 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                 }
                 writer.write("            }\n");
             }
-            writer.write("        });\n");
+            writer.write("        }, new com.reactor.rust.bridge.GeneratedRouteMetadata("
+                    + javaString(method.httpMethod()) + ", "
+                    + javaString(method.path()) + ", "
+                    + method.requestType() + ".class, "
+                    + method.responseType() + ".class, "
+                    + method.maxRequestBodyBytes() + "L, "
+                    + method.maxResponseBodyBytes() + "L));\n");
             if (binding != null) {
                 writer.write("        com.reactor.rust.bridge.GeneratedPrimitiveBindings.register("
                         + ownerType + ".class, \"" + escape(method.name()) + "\", new Class<?>[]{");
@@ -2830,7 +2915,13 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
             String name,
             List<RouteParameterModel> parameters,
             boolean returnsVoid,
-            PrimitiveBindingModel primitiveBinding) {}
+            PrimitiveBindingModel primitiveBinding,
+            String httpMethod,
+            String path,
+            String requestType,
+            String responseType,
+            long maxRequestBodyBytes,
+            long maxResponseBodyBytes) {}
 
     private record RouteParameterModel(String declaredType, String lookupType, TypeKind kind) {}
 

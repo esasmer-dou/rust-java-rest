@@ -16,8 +16,11 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ExceptionHandlerRegistry {
 
-    private static final ExceptionHandlerRegistry COMPATIBILITY_INSTANCE = new ExceptionHandlerRegistry();
-    private static volatile ExceptionHandlerRegistry active = COMPATIBILITY_INSTANCE;
+    private static volatile ExceptionHandlerRegistry active;
+
+    private static final class CompatibilityHolder {
+        private static final ExceptionHandlerRegistry INSTANCE = new ExceptionHandlerRegistry();
+    }
 
     // Exception class -> Handler method info
     private final Map<Class<? extends Throwable>, HandlerMethod> handlers = new ConcurrentHashMap<>();
@@ -36,7 +39,8 @@ public final class ExceptionHandlerRegistry {
 
     /** Compatibility locator for framework callbacks. Applications own an instance via ApplicationContext. */
     public static ExceptionHandlerRegistry getInstance() {
-        return active;
+        ExceptionHandlerRegistry current = active;
+        return current != null ? current : CompatibilityHolder.INSTANCE;
     }
 
     public static void activate(ExceptionHandlerRegistry registry) {
@@ -45,7 +49,7 @@ public final class ExceptionHandlerRegistry {
 
     public static void deactivate(ExceptionHandlerRegistry registry) {
         if (active == registry) {
-            active = COMPATIBILITY_INSTANCE;
+            active = null;
         }
     }
 
@@ -127,6 +131,11 @@ public final class ExceptionHandlerRegistry {
         generatedOwners.clear();
         generatedHandlerCount = 0;
         reflectionFallbackCount = 0;
+    }
+
+    /** Releases owner metadata used only to suppress compatibility scanning during startup. */
+    public synchronized void freeze() {
+        generatedOwners.clear();
     }
 
     /**

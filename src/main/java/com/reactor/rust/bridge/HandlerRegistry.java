@@ -23,6 +23,8 @@ import com.reactor.rust.http.MediaType;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.http.ResponseEntity;
 import com.reactor.rust.json.DslJsonService;
+import com.reactor.rust.json.DirectJsonWriter;
+import com.reactor.rust.json.DirectJsonWriterRegistry;
 import com.reactor.rust.json.JsonBodyProducer;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.util.RequestValueMap;
@@ -54,9 +56,12 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public class HandlerRegistry {
 
-    private static final HandlerRegistry COMPATIBILITY_INSTANCE =
-            new HandlerRegistry(ExceptionHandlerRegistry.getInstance());
-    private static volatile HandlerRegistry active = COMPATIBILITY_INSTANCE;
+    private static volatile HandlerRegistry active;
+
+    private static final class CompatibilityHolder {
+        private static final HandlerRegistry INSTANCE =
+                new HandlerRegistry(ExceptionHandlerRegistry.getInstance());
+    }
 
     private static final int MAX_ASYNC_RESPONSE_FRAME_BYTES = 8 * 1024 * 1024 + 64 * 1024;
 
@@ -87,9 +92,13 @@ public class HandlerRegistry {
     private static final byte[] OPTIONAL_NOT_FOUND_BODY =
             "{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404}"
                     .getBytes(StandardCharsets.UTF_8);
+    private static final boolean DIRECT_JSON_WRITER_ENABLED = PropertiesLoader.getBoolean(
+            "reactor.rust.json.direct-writer-enabled",
+            true);
 
     public static HandlerRegistry getInstance() {
-        return active;
+        HandlerRegistry current = active;
+        return current != null ? current : CompatibilityHolder.INSTANCE;
     }
 
     public static HandlerRegistry create(ExceptionHandlerRegistry exceptionHandlers) {
@@ -102,12 +111,12 @@ public class HandlerRegistry {
 
     public static void deactivate(HandlerRegistry registry) {
         if (active == registry) {
-            active = COMPATIBILITY_INSTANCE;
+            active = null;
         }
     }
 
-    private final List<HandlerDescriptor> buildingHandlers = new ArrayList<>();
-    private final List<Object> buildingHandlerBeans = new ArrayList<>();
+    private final ArrayList<HandlerDescriptor> buildingHandlers = new ArrayList<>();
+    private final ArrayList<Object> buildingHandlerBeans = new ArrayList<>();
     private volatile HandlerDescriptor[] frozenHandlers;
     private volatile List<Object> frozenHandlerBeans;
     private final AtomicInteger idGenerator = new AtomicInteger(1);
@@ -136,6 +145,8 @@ public class HandlerRegistry {
         public final GeneratedPrimitiveBinding generatedPrimitiveBinding;
         public final int customResponseStatus;
         public final byte[] defaultContentTypeHeader;
+        public final DirectJsonWriter<Object> directResponseWriter;
+        private final boolean directResponseWriterApplicable;
         private RequestGuard guard;
         private final LongAdder invocationCount = new LongAdder();
 
@@ -208,6 +219,8 @@ public class HandlerRegistry {
             this.customResponseStatus = customResponseStatus;
             this.defaultContentTypeHeader =
                     defaultContentTypeHeader != null ? defaultContentTypeHeader : DEFAULT_JSON_CONTENT_TYPE_HEADER;
+            this.directResponseWriterApplicable = isDirectResponseWriterApplicable(method, responseType);
+            this.directResponseWriter = newDirectResponseWriter(responseType, directResponseWriterApplicable);
             this.metadata = metadata;
             this.compiledInvoker = CompiledRouteInvoker.compile(
                     handle,
@@ -224,6 +237,49 @@ public class HandlerRegistry {
 
         long invocationCount() {
             return invocationCount.sum();
+        }
+
+        private static boolean isDirectResponseWriterApplicable(Method method, Class<?> responseType) {
+            if (responseType == null || responseType == Void.class || responseType == Object.class) {
+                return false;
+            }
+            Class<?> declaredReturnType = method.getReturnType();
+            if (declaredReturnType.isPrimitive()
+                    || FileResponse.class.isAssignableFrom(declaredReturnType)
+                    || RawResponse.class.isAssignableFrom(declaredReturnType)
+                    || DirectJsonResponse.class.isAssignableFrom(declaredReturnType)
+                    || JsonProducerResponse.class.isAssignableFrom(declaredReturnType)
+                    || JsonBodyProducer.class.isAssignableFrom(declaredReturnType)) {
+                return false;
+            }
+            return true;
+        }
+
+        @SuppressWarnings("unchecked")
+        private static DirectJsonWriter<Object> newDirectResponseWriter(
+                Class<?> responseType,
+                boolean applicable) {
+            if (!applicable || !DIRECT_JSON_WRITER_ENABLED) {
+                return null;
+            }
+            return (DirectJsonWriter<Object>) DirectJsonWriterRegistry.findWriter(responseType);
+        }
+
+        private boolean hasBoundDirectResponseWriter() {
+            return directResponseWriter != null;
+        }
+
+        private String directResponseWriterState() {
+            if (!directResponseWriterApplicable) {
+                return "not_applicable";
+            }
+            if (!DIRECT_JSON_WRITER_ENABLED) {
+                return "disabled";
+            }
+            if (directResponseWriter == null) {
+                return "miss";
+            }
+            return "bound";
         }
     }
 
@@ -351,6 +407,10 @@ public class HandlerRegistry {
         if (frozenHandlers != null) return;
         frozenHandlers = buildingHandlers.toArray(HandlerDescriptor[]::new);
         frozenHandlerBeans = List.copyOf(buildingHandlerBeans);
+        buildingHandlers.clear();
+        buildingHandlers.trimToSize();
+        buildingHandlerBeans.clear();
+        buildingHandlerBeans.trimToSize();
     }
 
     private HandlerDescriptor descriptor(int handlerId) {
@@ -403,6 +463,21 @@ public class HandlerRegistry {
     public boolean usesGeneratedInvoker(int handlerId) {
         HandlerDescriptor desc = descriptor(handlerId);
         return desc != null && desc.compiledInvoker.usesGeneratedInvoker();
+    }
+
+    public boolean usesGeneratedResponseWriter(int handlerId) {
+        HandlerDescriptor desc = descriptor(handlerId);
+        return desc != null && desc.hasBoundDirectResponseWriter();
+    }
+
+    public String generatedResponseWriterState(int handlerId) {
+        HandlerDescriptor desc = descriptor(handlerId);
+        return desc == null ? "unknown" : desc.directResponseWriterState();
+    }
+
+    boolean usesGeneratedResponseWriter(int handlerId, Method method) {
+        HandlerDescriptor desc = descriptor(handlerId);
+        return desc != null && desc.method.equals(method) && desc.hasBoundDirectResponseWriter();
     }
 
     public synchronized void attachGuard(int handlerId, RequestGuard guard) {
@@ -715,30 +790,62 @@ public class HandlerRegistry {
         }
         desc.recordInvocation();
 
+        RequestGuard guard = desc.guard;
+        if (guard == null) {
+            try {
+                return invokeBufferedCore(desc, out, offset, inBytes, pathParams, queryString, headers);
+            } catch (Throwable failure) {
+                return writeError(out, offset, failure);
+            }
+        }
+        return invokeBufferedGuarded(
+                desc, guard, out, offset, inBytes, pathParams, queryString, headers);
+    }
+
+    private int invokeBufferedCore(
+            HandlerDescriptor desc,
+            ByteBuffer out,
+            int offset,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) throws Throwable {
+        if (desc.usesAnnotatedParams) {
+            return invokeAnnotatedFast(desc, out, offset, inBytes, pathParams, queryString, headers);
+        }
+        if (desc.usesDirectBodyBuffer) {
+            return invokeV5Direct(desc, out, offset, null, 0, pathParams, queryString, headers);
+        }
+        if (desc.usesDirectBodylessOutput) {
+            return invokeBodylessOutput(desc, out, offset);
+        }
+        return invokeV4(desc, out, offset, inBytes, pathParams, queryString, headers);
+    }
+
+    private int invokeBufferedGuarded(
+            HandlerDescriptor desc,
+            RequestGuard guard,
+            ByteBuffer out,
+            int offset,
+            byte[] inBytes,
+            String pathParams,
+            String queryString,
+            String headers
+    ) {
         try {
-            enterGuard(desc, pathParams, queryString, headers, inBytes);
+            guard.before(new RequestGuardContext(pathParams, queryString, headers, inBytes));
             Throwable guardFailure = null;
             try {
-                // Choose invocation strategy based on method signature
-                if (desc.usesAnnotatedParams) {
-                    return invokeAnnotatedFast(desc, out, offset, inBytes, pathParams, queryString, headers);
-                } else if (desc.usesDirectBodyBuffer) {
-                    return invokeV5Direct(desc, out, offset, null, 0,
-                            pathParams, queryString, headers);
-                } else if (desc.usesDirectBodylessOutput) {
-                    return invokeBodylessOutput(desc, out, offset);
-                } else {
-                    return invokeV4(desc, out, offset, inBytes, pathParams, queryString, headers);
-                }
+                return invokeBufferedCore(desc, out, offset, inBytes, pathParams, queryString, headers);
             } catch (Throwable failure) {
                 guardFailure = failure;
                 throw failure;
             } finally {
-                exitGuard(desc, guardFailure);
+                guard.after(guardFailure);
             }
-
-        } catch (Throwable e) {
-            return writeError(out, offset, e);
+        } catch (Throwable failure) {
+            return writeError(out, offset, failure);
         }
     }
 
@@ -763,29 +870,67 @@ public class HandlerRegistry {
         }
         desc.recordInvocation();
 
+        RequestGuard guard = desc.guard;
+        if (guard == null) {
+            try {
+                return invokeBufferedDirectCore(
+                        desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
+            } catch (Throwable failure) {
+                return writeError(out, offset, failure);
+            }
+        }
+        return invokeBufferedDirectGuarded(
+                desc, guard, out, offset, inBuffer, inLength, pathParams, queryString, headers);
+    }
+
+    private int invokeBufferedDirectCore(
+            HandlerDescriptor desc,
+            ByteBuffer out,
+            int offset,
+            ByteBuffer inBuffer,
+            int inLength,
+            String pathParams,
+            String queryString,
+            String headers
+    ) throws Throwable {
+        if (desc.usesAnnotatedParams) {
+            return invokeAnnotatedFastDirect(
+                    desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
+        }
+        if (desc.usesDirectBodyBuffer) {
+            return invokeV5Direct(desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
+        }
+        if (desc.usesDirectBodylessOutput) {
+            return invokeBodylessOutput(desc, out, offset);
+        }
+        return invokeV4(desc, out, offset, toByteArray(inBuffer, inLength), pathParams, queryString, headers);
+    }
+
+    private int invokeBufferedDirectGuarded(
+            HandlerDescriptor desc,
+            RequestGuard guard,
+            ByteBuffer out,
+            int offset,
+            ByteBuffer inBuffer,
+            int inLength,
+            String pathParams,
+            String queryString,
+            String headers
+    ) {
         try {
-            enterGuard(desc, pathParams, queryString, headers, null);
+            guard.before(new RequestGuardContext(pathParams, queryString, headers, null));
             Throwable guardFailure = null;
             try {
-                if (desc.usesAnnotatedParams) {
-                    return invokeAnnotatedFastDirect(desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
-                }
-                if (desc.usesDirectBodyBuffer) {
-                    return invokeV5Direct(desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
-                }
-                if (desc.usesDirectBodylessOutput) {
-                    return invokeBodylessOutput(desc, out, offset);
-                }
-
-                return invokeV4(desc, out, offset, toByteArray(inBuffer, inLength), pathParams, queryString, headers);
+                return invokeBufferedDirectCore(
+                        desc, out, offset, inBuffer, inLength, pathParams, queryString, headers);
             } catch (Throwable failure) {
                 guardFailure = failure;
                 throw failure;
             } finally {
-                exitGuard(desc, guardFailure);
+                guard.after(guardFailure);
             }
-        } catch (Throwable e) {
-            return writeError(out, offset, e);
+        } catch (Throwable failure) {
+            return writeError(out, offset, failure);
         }
     }
 
@@ -980,7 +1125,6 @@ public class HandlerRegistry {
             String queryString,
             String headers
     ) throws Throwable {
-
         Object result = desc.handle.invoke(
                 out,
                 offset,
@@ -1018,15 +1162,12 @@ public class HandlerRegistry {
         if (result instanceof Integer) {
             return (Integer) result;
         }
-
         if (result instanceof FileResponse fileResponse) {
             return writeFileResponse(fileResponse, 200, EMPTY_BYTES, out, offset);
         }
-
         if (result instanceof RawResponse rawResponse) {
             return writeRawResponse(rawResponse, 200, EMPTY_BYTES, out, offset);
         }
-
         if (result instanceof DirectJsonResponse<?> directJsonResponse) {
             return writeDirectJsonResponse(
                     directJsonResponse,
@@ -1036,7 +1177,6 @@ public class HandlerRegistry {
                     offset
             );
         }
-
         if (result instanceof JsonProducerResponse producerResponse) {
             return writeJsonProducerResponse(
                     producerResponse,
@@ -1046,17 +1186,17 @@ public class HandlerRegistry {
                     offset
             );
         }
-
         if (result instanceof JsonBodyProducer producer) {
             return writeJsonBodyProducer(producer, 200, EMPTY_BYTES, desc.defaultContentTypeHeader, out, offset);
         }
-
         if (result instanceof ResponseEntity<?> responseEntity) {
-            return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
+            return writeResponseEntity(
+                    responseEntity, desc.defaultContentTypeHeader, desc.directResponseWriter, desc.responseType, out, offset);
         }
-
         if (desc.customResponseStatus != 200 && result != null) {
-            return writeObjectFrame(desc.customResponseStatus, result, desc.defaultContentTypeHeader, out, offset);
+            return writeObjectFrame(
+                    desc.customResponseStatus, result, desc.defaultContentTypeHeader,
+                    desc.directResponseWriter, desc.responseType, out, offset);
         }
 
         if (result == null) {
@@ -1178,15 +1318,12 @@ public class HandlerRegistry {
         if (result instanceof Integer) {
             return (Integer) result;
         }
-
         if (result instanceof FileResponse fileResponse) {
             return writeFileResponse(fileResponse, 200, EMPTY_BYTES, out, offset);
         }
-
         if (result instanceof RawResponse rawResponse) {
             return writeRawResponse(rawResponse, 200, EMPTY_BYTES, out, offset);
         }
-
         if (result instanceof DirectJsonResponse<?> directJsonResponse) {
             return writeDirectJsonResponse(
                     directJsonResponse,
@@ -1196,7 +1333,6 @@ public class HandlerRegistry {
                     offset
             );
         }
-
         if (result instanceof JsonProducerResponse producerResponse) {
             return writeJsonProducerResponse(
                     producerResponse,
@@ -1206,20 +1342,23 @@ public class HandlerRegistry {
                     offset
             );
         }
-
         if (result instanceof JsonBodyProducer producer) {
             return writeJsonBodyProducer(producer, 200, EMPTY_BYTES, desc.defaultContentTypeHeader, out, offset);
         }
-
         if (result instanceof ResponseEntity<?> responseEntity) {
-            return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
+            return writeResponseEntity(
+                    responseEntity, desc.defaultContentTypeHeader, desc.directResponseWriter, desc.responseType, out, offset);
         }
 
         if (result != null && desc.responseType != Void.class) {
             if (desc.customResponseStatus != 200) {
-                return writeObjectFrame(desc.customResponseStatus, result, desc.defaultContentTypeHeader, out, offset);
+                return writeObjectFrame(
+                        desc.customResponseStatus, result, desc.defaultContentTypeHeader,
+                        desc.directResponseWriter, desc.responseType, out, offset);
             }
-            return writeObjectFrame(200, result, desc.defaultContentTypeHeader, out, offset);
+            return writeObjectFrame(
+                    200, result, desc.defaultContentTypeHeader,
+                    desc.directResponseWriter, desc.responseType, out, offset);
         }
 
         if (desc.customResponseStatus != 200) {
@@ -1629,6 +1768,17 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
+        return writeResponseEntity(responseEntity, defaultContentTypeHeader, null, null, out, offset);
+    }
+
+    private int writeResponseEntity(
+            ResponseEntity<?> responseEntity,
+            byte[] defaultContentTypeHeader,
+            DirectJsonWriter<Object> directWriter,
+            Class<?> expectedBodyType,
+            ByteBuffer out,
+            int offset
+    ) {
         int statusCode = responseEntity.getStatus() != null
                 ? responseEntity.getStatus().getCode()
                 : 200;
@@ -1663,7 +1813,7 @@ public class HandlerRegistry {
         }
 
         int bodyOffset = offset + frameAndHeadersSize;
-        int bodyLen = DslJsonService.writeToBuffer(body, out, bodyOffset);
+        int bodyLen = writeResponseBody(body, directWriter, expectedBodyType, out, bodyOffset);
         if (bodyLen < 0) {
             return -(frameAndHeadersSize + -bodyLen);
         }
@@ -1736,20 +1886,45 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
+        return writeObjectFrame(statusCode, body, headerBytes, null, null, out, offset);
+    }
+
+    private int writeObjectFrame(
+            int statusCode,
+            Object body,
+            byte[] headerBytes,
+            DirectJsonWriter<Object> directWriter,
+            Class<?> expectedBodyType,
+            ByteBuffer out,
+            int offset
+    ) {
         byte[] safeHeaderBytes = headerBytes != null ? headerBytes : DEFAULT_JSON_CONTENT_TYPE_HEADER;
         int bodyLen = 0;
         if (body != null) {
-            bodyLen = DslJsonService.writeToBuffer(
-                    body,
-                    out,
-                    offset + RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length
-            );
+            bodyLen = writeResponseBody(
+                    body, directWriter, expectedBodyType, out,
+                    offset + RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length);
             if (bodyLen < 0) {
                 return -(RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length + -bodyLen);
             }
         }
         writeFrameHeader(statusCode, safeHeaderBytes, bodyLen, out, offset);
         return RESPONSE_FRAME_HEADER_SIZE + safeHeaderBytes.length + bodyLen;
+    }
+
+    private static int writeResponseBody(
+            Object body,
+            DirectJsonWriter<Object> directWriter,
+            Class<?> expectedBodyType,
+            ByteBuffer out,
+            int offset) {
+        if (directWriter != null && expectedBodyType == body.getClass()) {
+            return directWriter.write(body, out, offset);
+        }
+        if (expectedBodyType != null && expectedBodyType != Object.class) {
+            return DslJsonService.writeToBufferWithoutDirectWriter(body, out, offset);
+        }
+        return DslJsonService.writeToBuffer(body, out, offset);
     }
 
     private int writeDirectJsonResponse(
@@ -2325,18 +2500,16 @@ public class HandlerRegistry {
             }
             result = optional.get();
         }
+
         if (result instanceof Integer) {
             return (Integer) result;
         }
-
         if (result instanceof FileResponse fileResponse) {
             return writeFileResponse(fileResponse, 200, EMPTY_BYTES, out, offset);
         }
-
         if (result instanceof RawResponse rawResponse) {
             return writeRawResponse(rawResponse, 200, EMPTY_BYTES, out, offset);
         }
-
         if (result instanceof DirectJsonResponse<?> directJsonResponse) {
             return writeDirectJsonResponse(
                     directJsonResponse,
@@ -2346,7 +2519,6 @@ public class HandlerRegistry {
                     offset
             );
         }
-
         if (result instanceof JsonProducerResponse producerResponse) {
             return writeJsonProducerResponse(
                     producerResponse,
@@ -2356,17 +2528,18 @@ public class HandlerRegistry {
                     offset
             );
         }
-
         if (result instanceof JsonBodyProducer producer) {
             return writeJsonBodyProducer(producer, 200, EMPTY_BYTES, desc.defaultContentTypeHeader, out, offset);
         }
-
         if (result instanceof ResponseEntity<?> responseEntity) {
-            return writeResponseEntity(responseEntity, desc.defaultContentTypeHeader, out, offset);
+            return writeResponseEntity(
+                    responseEntity, desc.defaultContentTypeHeader, desc.directResponseWriter, desc.responseType, out, offset);
         }
 
         if (result != null) {
-            return writeObjectFrame(200, result, desc.defaultContentTypeHeader, out, offset);
+            return writeObjectFrame(
+                    200, result, desc.defaultContentTypeHeader,
+                    desc.directResponseWriter, desc.responseType, out, offset);
         }
 
         return 0;

@@ -1,5 +1,7 @@
 package com.reactor.rust.bridge;
 
+import com.reactor.rust.json.DirectJsonWriterRegistry;
+import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.metrics.Metrics;
@@ -69,8 +71,28 @@ public final class RoutePlanRegistry {
         return plans;
     }
 
+    /** Releases startup-only route diagnostics when no runtime consumer can observe them. */
+    public synchronized void releaseRuntimeDetailsIfConfigured() {
+        String configured = PropertiesLoader.get("reactor.optimizer.retain-route-plans", "auto")
+                .trim()
+                .toLowerCase(Locale.ROOT);
+        boolean retain = switch (configured) {
+            case "auto" -> Metrics.getInstance().collectionEnabled() || runtimeMetricsEnabled;
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException(
+                    "reactor.optimizer.retain-route-plans must be auto, true, or false");
+        };
+        if (!retain) {
+            plans = List.of();
+        }
+    }
+
     public void publishStartupMetrics() {
         Metrics metrics = Metrics.getInstance();
+        if (!metrics.collectionEnabled()) {
+            return;
+        }
         metrics.setGauge("reactor.route.plan.total", plans.size());
 
         long optimized = 0;
@@ -81,6 +103,8 @@ public final class RoutePlanRegistry {
         long benchmarkLegacy = 0;
         long compiled = 0;
         long exact = 0;
+        long generatedRouteMetadata = 0;
+        long generatedResponseWriter = 0;
         long heavyJsonObjectGraph = 0;
         long benchmarkOnly = 0;
         long benchmarkHeavyJsonObjectGraph = 0;
@@ -108,6 +132,12 @@ public final class RoutePlanRegistry {
             if (plan.exactInvoker) {
                 exact++;
             }
+            if (plan.generatedRouteMetadata) {
+                generatedRouteMetadata++;
+            }
+            if (plan.generatedResponseWriter) {
+                generatedResponseWriter++;
+            }
             if (plan.benchmarkOnly) {
                 benchmarkOnly++;
             }
@@ -130,6 +160,8 @@ public final class RoutePlanRegistry {
         metrics.setGauge("reactor.route.plan.benchmark_legacy", benchmarkLegacy);
         metrics.setGauge("reactor.route.plan.compiled_invoker", compiled);
         metrics.setGauge("reactor.route.plan.exact_invoker", exact);
+        metrics.setGauge("reactor.route.plan.generated_route_metadata", generatedRouteMetadata);
+        metrics.setGauge("reactor.route.plan.generated_response_writer", generatedResponseWriter);
         metrics.setGauge("reactor.route.plan.heavy_json_object_graph", heavyJsonObjectGraph);
         metrics.setGauge("reactor.route.plan.benchmark_only", benchmarkOnly);
         metrics.setGauge("reactor.route.plan.benchmark_heavy_json_object_graph", benchmarkHeavyJsonObjectGraph);
@@ -149,7 +181,7 @@ public final class RoutePlanRegistry {
 
     public void logSummary() {
         boolean reportEnabled = PropertiesLoader.getBoolean("reactor.optimizer.report.enabled", true);
-        if (!reportEnabled) {
+        if (!reportEnabled || !FrameworkLogger.isInfoEnabled()) {
             return;
         }
 
@@ -169,6 +201,10 @@ public final class RoutePlanRegistry {
                 .count();
         long compiled = plans.stream().filter(plan -> plan.compiledInvoker).count();
         long exact = plans.stream().filter(plan -> plan.exactInvoker).count();
+        long generatedRouteMetadata = plans.stream().filter(plan -> plan.generatedRouteMetadata).count();
+        long generatedResponseWriter = plans.stream()
+                .filter(RouteExecutionPlan::isGeneratedResponseWriterBound)
+                .count();
         long benchmarkOnly = plans.stream().filter(plan -> plan.benchmarkOnly).count();
         long heavyJsonObjectGraph = plans.stream()
                 .filter(plan -> plan.productionRoute() && plan.heavyJsonObjectGraph())
@@ -185,6 +221,8 @@ public final class RoutePlanRegistry {
                 + " benchmarkLegacy=" + benchmarkLegacy
                 + " compiledInvoker=" + compiled
                 + " exactInvoker=" + exact
+                + " generatedRouteMetadata=" + generatedRouteMetadata
+                + " generatedResponseWriter=" + generatedResponseWriter
                 + " heavyJsonObjectGraph=" + heavyJsonObjectGraph
                 + " benchmarkOnly=" + benchmarkOnly
                 + " benchmarkHeavyJsonObjectGraph=" + benchmarkHeavyJsonObjectGraph
@@ -217,6 +255,10 @@ public final class RoutePlanRegistry {
                 "reactor.optimizer.fail-on-benchmark-only-routes",
                 false
         );
+        boolean failOnReflectionRouteMetadata = PropertiesLoader.getBoolean(
+                "reactor.optimizer.fail-on-reflection-route-metadata",
+                false
+        );
         Set<String> requiredRoutes = parseRequiredRoutes(
                 PropertiesLoader.get("reactor.optimizer.required-fast-routes", "")
         );
@@ -227,6 +269,7 @@ public final class RoutePlanRegistry {
                 && !failOnImplicitRaw
                 && !failOnHeavyJsonObjectGraph
                 && !failOnBenchmarkOnly
+                && !failOnReflectionRouteMetadata
                 && requiredRoutes.isEmpty()) {
             return;
         }
@@ -258,6 +301,10 @@ public final class RoutePlanRegistry {
                         + "strategy=" + plan.strategy + " reason=" + plan.reason
                         + ". Use direct buffer writer, JsonProducerResponse, RawResponse, or native static response.");
             }
+            if (productionGateRoute && failOnReflectionRouteMetadata && !plan.generatedRouteMetadata) {
+                violations.add(plan.routeKey()
+                        + " does not have build-time route metadata and requires reflection at startup");
+            }
         }
 
         if (!violations.isEmpty()) {
@@ -273,6 +320,10 @@ public final class RoutePlanRegistry {
         long optimized = plans.stream().filter(RouteExecutionPlan::optimized).count();
         long compiled = plans.stream().filter(plan -> plan.compiledInvoker).count();
         long exact = plans.stream().filter(plan -> plan.exactInvoker).count();
+        long generatedRouteMetadata = plans.stream().filter(plan -> plan.generatedRouteMetadata).count();
+        long generatedResponseWriter = plans.stream()
+                .filter(RouteExecutionPlan::isGeneratedResponseWriterBound)
+                .count();
         long benchmarkOnly = plans.stream().filter(plan -> plan.benchmarkOnly).count();
         long productionOptimized = plans.stream()
                 .filter(plan -> plan.productionRoute() && plan.optimized())
@@ -294,6 +345,8 @@ public final class RoutePlanRegistry {
                 .count();
         json.append('{');
         json.append("\"runtime_metrics_enabled\":").append(runtimeMetricsEnabled).append(',');
+        json.append("\"direct_json_writer_enabled\":").append(DslJsonService.directWriterEnabled()).append(',');
+        json.append("\"direct_json_writer_providers\":").append(DirectJsonWriterRegistry.providerCount()).append(',');
         json.append("\"total\":").append(plans.size()).append(',');
         json.append("\"production_routes\":").append(plans.size() - benchmarkOnly).append(',');
         json.append("\"benchmark_only\":").append(benchmarkOnly).append(',');
@@ -305,6 +358,8 @@ public final class RoutePlanRegistry {
         json.append("\"benchmark_legacy\":").append(benchmarkLegacy).append(',');
         json.append("\"compiled_invoker\":").append(compiled).append(',');
         json.append("\"exact_invoker\":").append(exact).append(',');
+        json.append("\"generated_route_metadata\":").append(generatedRouteMetadata).append(',');
+        json.append("\"generated_response_writer\":").append(generatedResponseWriter).append(',');
         json.append("\"heavy_json_object_graph\":").append(heavyJsonObjectGraph).append(',');
         json.append("\"benchmark_heavy_json_object_graph\":").append(benchmarkHeavyJsonObjectGraph).append(',');
         json.append("\"routes\":[");

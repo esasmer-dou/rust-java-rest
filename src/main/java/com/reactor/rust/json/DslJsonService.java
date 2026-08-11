@@ -115,6 +115,15 @@ public final class DslJsonService {
         return serviceLoaderSkippedConfigurations;
     }
 
+    /** Resolves an exact generated writer once for startup-compiled response plans. */
+    public static <T> DirectJsonWriter<T> findDirectWriter(Class<T> type) {
+        return DIRECT_WRITER_ENABLED ? DirectJsonWriterRegistry.findWriter(type) : null;
+    }
+
+    public static boolean directWriterEnabled() {
+        return DIRECT_WRITER_ENABLED;
+    }
+
     public static String serviceLoaderFailureMessage() {
         return SERVICE_LOADER_FAILURE_MESSAGE;
     }
@@ -139,22 +148,25 @@ public final class DslJsonService {
      */
     public static int writeToBuffer(Object obj, ByteBuffer out, int offset) {
         if (obj == null) {
-            int remaining = Math.max(0, out.capacity() - offset);
-            if (NULL_BYTES.length > remaining) {
-                return -NULL_BYTES.length;
-            }
-            out.position(offset);
-            out.put(NULL_BYTES);
-            return NULL_BYTES.length;
+            return writeNull(out, offset);
         }
 
         if (DIRECT_WRITER_ENABLED) {
             @SuppressWarnings("unchecked")
             DirectJsonWriter<Object> directWriter =
-                    (DirectJsonWriter<Object>) DirectJsonWriterRegistry.findWriter(obj.getClass());
+                    (DirectJsonWriter<Object>) findDirectWriter(obj.getClass());
             if (directWriter != null) {
                 return directWriter.write(obj, out, offset);
             }
+        }
+
+        return writeToBufferWithoutDirectWriter(obj, out, offset);
+    }
+
+    /** Serializes after a route-local exact-writer miss has already been cached. */
+    public static int writeToBufferWithoutDirectWriter(Object obj, ByteBuffer out, int offset) {
+        if (obj == null) {
+            return writeNull(out, offset);
         }
 
         try {
@@ -206,6 +218,16 @@ public final class DslJsonService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse JSON: " + e.getMessage(), e);
         }
+    }
+
+    private static int writeNull(ByteBuffer out, int offset) {
+        int remaining = Math.max(0, out.capacity() - offset);
+        if (NULL_BYTES.length > remaining) {
+            return -NULL_BYTES.length;
+        }
+        out.position(offset);
+        out.put(NULL_BYTES);
+        return NULL_BYTES.length;
     }
 
     /** Deserializes a JSON array without constructing a reflective parameterized type. */

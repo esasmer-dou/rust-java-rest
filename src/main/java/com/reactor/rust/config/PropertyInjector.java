@@ -55,7 +55,10 @@ public final class PropertyInjector {
                 try {
                     field.setAccessible(true);
                     field.set(bean, value);
-                    FrameworkLogger.debug("[PropertyInjector] Injected " + key + " = " + value + " into " + clazz.getSimpleName());
+                    if (FrameworkLogger.isDebugEnabled()) {
+                        FrameworkLogger.debug("[PropertyInjector] Injected " + key + " = " + value
+                                + " into " + clazz.getSimpleName());
+                    }
                 } catch (IllegalAccessException e) {
                     FrameworkLogger.warn("[PropertyInjector] Failed to inject " + key + ": " + e.getMessage());
                 }

@@ -5,6 +5,7 @@ import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.json.JsonBodyProducer;
 import com.reactor.rust.json.JsonBufferWriter;
+import com.reactor.rust.metrics.Metrics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -94,7 +95,32 @@ class RoutePlanRegistryTest {
         System.clearProperty("reactor.optimizer.fail-on-implicit-raw-request-data");
         System.clearProperty("reactor.optimizer.fail-on-heavy-json-object-graph");
         System.clearProperty("reactor.optimizer.fail-on-benchmark-only-routes");
+        System.clearProperty("reactor.optimizer.fail-on-reflection-route-metadata");
         System.clearProperty("reactor.optimizer.required-fast-routes");
+        System.clearProperty("reactor.optimizer.retain-route-plans");
+        Metrics.getInstance().configureCollection(true);
+        GeneratedRouteInvokers.releaseStartupMetadata();
+    }
+
+    @Test
+    void releasesStartupOnlyPlansWhenMetricsAreDisabled() throws Exception {
+        Method method = RouteHandlers.class.getDeclaredMethod("bodyless");
+        RouteDef route = new RouteDef(
+                "GET", "/release", 72, Void.class.getName(), String.class.getName(),
+                true, false, false, false, false, 0, 0);
+        RoutePlanRegistry registry = RoutePlanRegistry.getInstance();
+        registry.add(RouteExecutionPlan.from(
+                route, new RouteHandlers(), method,
+                false, false,
+                false, false, false, false, false,
+                false, false, false, false, false,
+                false, false, true));
+        registry.freeze();
+        Metrics.getInstance().configureCollection(false);
+
+        registry.releaseRuntimeDetailsIfConfigured();
+
+        assertTrue(registry.plans().isEmpty());
     }
 
     @Test
@@ -216,6 +242,25 @@ class RoutePlanRegistryTest {
                 false));
 
         assertThrows(IllegalStateException.class, registry::validateProductionGate);
+    }
+
+    @Test
+    void reflectionRouteMetadataGateRejectsCompatibilityDiscovery() throws Exception {
+        System.setProperty("reactor.optimizer.fail-on-reflection-route-metadata", "true");
+        Method method = RouteHandlers.class.getDeclaredMethod("bodyless");
+        RouteDef route = new RouteDef(
+                "GET", "/reflection", 71, Void.class.getName(), String.class.getName(),
+                true, false, false, false, false, 0, 0);
+        RoutePlanRegistry registry = RoutePlanRegistry.getInstance();
+        registry.add(RouteExecutionPlan.from(
+                route, new RouteHandlers(), method,
+                false, false,
+                false, false, false, false, false,
+                false, false, false, false, false,
+                false, false, true));
+
+        assertThrows(IllegalStateException.class, registry::validateProductionGate);
+        assertTrue(registry.toJson().contains("\"generated_route_metadata\":false"));
     }
 
     @Test

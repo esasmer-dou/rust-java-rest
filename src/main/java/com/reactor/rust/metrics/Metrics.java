@@ -14,14 +14,9 @@ public final class Metrics {
 
     private static final Metrics INSTANCE = new Metrics();
 
-    // Counters
-    private final Map<String, LongAdder> counters = new ConcurrentHashMap<>();
-
-    // Gauges
-    private final Map<String, AtomicLong> gauges = new ConcurrentHashMap<>();
-
-    // Histograms (simple bucket-based)
-    private final Map<String, Histogram> histograms = new ConcurrentHashMap<>();
+    // The registry is detached when built-in metrics are disabled. This keeps optional
+    // observability state out of memory-first services without adding request allocations.
+    private volatile Registry registry = new Registry();
 
     // Start time for uptime calculation
     private final long startTime = System.currentTimeMillis();
@@ -30,6 +25,21 @@ public final class Metrics {
 
     public static Metrics getInstance() {
         return INSTANCE;
+    }
+
+    /** Enables or disables Java-side metric collection. Intended for startup configuration. */
+    public synchronized void configureCollection(boolean enabled) {
+        if (enabled) {
+            if (registry == null) {
+                registry = new Registry();
+            }
+        } else {
+            registry = null;
+        }
+    }
+
+    public boolean collectionEnabled() {
+        return registry != null;
     }
 
     // ==================== COUNTERS ====================
@@ -45,14 +55,21 @@ public final class Metrics {
      * Increment a counter by value.
      */
     public void increment(String name, long value) {
-        counters.computeIfAbsent(name, k -> new LongAdder()).add(value);
+        Registry current = registry;
+        if (current != null) {
+            current.counters.computeIfAbsent(name, k -> new LongAdder()).add(value);
+        }
     }
 
     /**
      * Get counter value.
      */
     public long getCounter(String name) {
-        LongAdder adder = counters.get(name);
+        Registry current = registry;
+        if (current == null) {
+            return 0;
+        }
+        LongAdder adder = current.counters.get(name);
         return adder != null ? adder.sum() : 0;
     }
 
@@ -62,14 +79,21 @@ public final class Metrics {
      * Set a gauge value.
      */
     public void setGauge(String name, long value) {
-        gauges.computeIfAbsent(name, k -> new AtomicLong()).set(value);
+        Registry current = registry;
+        if (current != null) {
+            current.gauges.computeIfAbsent(name, k -> new AtomicLong()).set(value);
+        }
     }
 
     /**
      * Get gauge value.
      */
     public long getGauge(String name) {
-        AtomicLong gauge = gauges.get(name);
+        Registry current = registry;
+        if (current == null) {
+            return 0;
+        }
+        AtomicLong gauge = current.gauges.get(name);
         return gauge != null ? gauge.get() : 0;
     }
 
@@ -80,7 +104,10 @@ public final class Metrics {
      * Uses default buckets: 1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000
      */
     public void record(String name, double value) {
-        histograms.computeIfAbsent(name, k -> new Histogram(k, DEFAULT_BUCKETS)).record(value);
+        Registry current = registry;
+        if (current != null) {
+            current.histograms.computeIfAbsent(name, k -> new Histogram(k, DEFAULT_BUCKETS)).record(value);
+        }
     }
 
     /**
@@ -151,6 +178,7 @@ public final class Metrics {
      */
     public String toPrometheusFormat() {
         StringBuilder sb = new StringBuilder();
+        Registry current = registry;
 
         // JVM uptime
         long uptimeMs = System.currentTimeMillis() - startTime;
@@ -173,23 +201,27 @@ public final class Metrics {
         // Counters
         sb.append("# HELP http_requests_total Total HTTP requests\n");
         sb.append("# TYPE http_requests_total counter\n");
-        for (Map.Entry<String, LongAdder> entry : counters.entrySet()) {
-            sb.append(entry.getKey().replace(".", "_")).append(" ").append(entry.getValue().sum()).append("\n");
+        if (current != null) {
+            for (Map.Entry<String, LongAdder> entry : current.counters.entrySet()) {
+                sb.append(entry.getKey().replace(".", "_")).append(" ").append(entry.getValue().sum()).append("\n");
+            }
         }
         sb.append("\n");
 
         // Gauges
-        if (!gauges.isEmpty()) {
+        if (current != null && !current.gauges.isEmpty()) {
             sb.append("# TYPE gauge gauge\n");
-            for (Map.Entry<String, AtomicLong> entry : gauges.entrySet()) {
+            for (Map.Entry<String, AtomicLong> entry : current.gauges.entrySet()) {
                 sb.append(entry.getKey().replace(".", "_")).append(" ").append(entry.getValue().get()).append("\n");
             }
             sb.append("\n");
         }
 
         // Histograms
-        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            sb.append(entry.getValue().toPrometheusFormat());
+        if (current != null) {
+            for (Map.Entry<String, Histogram> entry : current.histograms.entrySet()) {
+                sb.append(entry.getValue().toPrometheusFormat());
+            }
         }
 
         return sb.toString();
@@ -199,9 +231,18 @@ public final class Metrics {
      * Reset all metrics.
      */
     public void reset() {
-        counters.clear();
-        gauges.clear();
-        histograms.clear();
+        Registry current = registry;
+        if (current != null) {
+            current.counters.clear();
+            current.gauges.clear();
+            current.histograms.clear();
+        }
+    }
+
+    private static final class Registry {
+        private final Map<String, LongAdder> counters = new ConcurrentHashMap<>();
+        private final Map<String, AtomicLong> gauges = new ConcurrentHashMap<>();
+        private final Map<String, Histogram> histograms = new ConcurrentHashMap<>();
     }
 
     // ==================== HISTOGRAM CLASS ====================

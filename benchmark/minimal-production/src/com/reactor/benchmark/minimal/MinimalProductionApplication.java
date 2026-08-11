@@ -19,6 +19,7 @@ import com.reactor.rust.json.JsonBufferWriter;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.memory.NativeIdleMemoryTrimmer;
 import com.reactor.rust.metrics.MetricsHandler;
+import com.reactor.rust.metrics.Metrics;
 import com.reactor.rust.startup.StartupTimeline;
 
 import java.nio.ByteBuffer;
@@ -47,7 +48,11 @@ public final class MinimalProductionApplication {
 
         HandlerRegistry registry = HandlerRegistry.getInstance();
         registry.registerBean(new MinimalHandler());
-        registry.registerBean(new MetricsHandler());
+        boolean metricsEnabled = PropertiesLoader.getBoolean("reactor.benchmark.metrics-enabled", true);
+        Metrics.getInstance().configureCollection(metricsEnabled);
+        if (metricsEnabled) {
+            registry.registerBean(new MetricsHandler());
+        }
         RouteScanner.scanAndRegister();
 
         NativeBridge.configureRuntimeFromProperties();

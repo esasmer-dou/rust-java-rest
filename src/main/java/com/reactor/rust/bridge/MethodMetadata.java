@@ -45,15 +45,17 @@ public final class MethodMetadata {
         public final String name;
         public final boolean required;
         public final String defaultValue;
+        public final boolean validate;
 
         public ParamInfo(int index, Class<?> type, ParamType paramType,
-                        String name, boolean required, String defaultValue) {
+                        String name, boolean required, String defaultValue, boolean validate) {
             this.index = index;
             this.type = type;
             this.paramType = paramType;
             this.name = name;
             this.required = required;
             this.defaultValue = defaultValue;
+            this.validate = validate;
         }
     }
 
@@ -139,7 +141,7 @@ public final class MethodMetadata {
             param.getAnnotation(com.reactor.rust.annotations.PathVariable.class);
         if (pathVariable != null) {
             return new ParamInfo(index, type, ParamType.PATH_VARIABLE,
-                pathVariable.value(), true, null);
+                pathVariable.value(), true, null, false);
         }
 
         // Check @RequestParam
@@ -148,7 +150,7 @@ public final class MethodMetadata {
         if (requestParam != null) {
             return new ParamInfo(index, type, ParamType.REQUEST_PARAM,
                 requestParam.value(), requestParam.required(),
-                requestParam.defaultValue().isEmpty() ? null : requestParam.defaultValue());
+                requestParam.defaultValue().isEmpty() ? null : requestParam.defaultValue(), false);
         }
 
         // Check @HeaderParam
@@ -157,7 +159,7 @@ public final class MethodMetadata {
         if (headerParam != null) {
             return new ParamInfo(index, type, ParamType.HEADER_PARAM,
                 headerParam.value().toLowerCase(Locale.ROOT), headerParam.required(),
-                headerParam.defaultValue().isEmpty() ? null : headerParam.defaultValue());
+                headerParam.defaultValue().isEmpty() ? null : headerParam.defaultValue(), false);
         }
 
         // Check @RequestBody
@@ -165,7 +167,8 @@ public final class MethodMetadata {
             param.getAnnotation(com.reactor.rust.annotations.RequestBody.class);
         if (requestBody != null) {
             return new ParamInfo(index, type, ParamType.REQUEST_BODY,
-                null, requestBody.required(), null);
+                null, requestBody.required(), null,
+                param.isAnnotationPresent(com.reactor.rust.annotations.Valid.class));
         }
 
         // Check @CookieValue
@@ -174,18 +177,18 @@ public final class MethodMetadata {
         if (cookieValue != null) {
             return new ParamInfo(index, type, ParamType.COOKIE_VALUE,
                 cookieValue.value(), cookieValue.required(),
-                cookieValue.defaultValue().isEmpty() ? null : cookieValue.defaultValue());
+                cookieValue.defaultValue().isEmpty() ? null : cookieValue.defaultValue(), false);
         }
 
         // Legacy types
         if (type == java.nio.ByteBuffer.class) {
-            return new ParamInfo(index, type, ParamType.LEGACY_BUFFER, null, false, null);
+            return new ParamInfo(index, type, ParamType.LEGACY_BUFFER, null, false, null, false);
         }
         if (type == int.class || type == Integer.class) {
-            return new ParamInfo(index, type, ParamType.LEGACY_INT, null, false, null);
+            return new ParamInfo(index, type, ParamType.LEGACY_INT, null, false, null, false);
         }
 
-        return new ParamInfo(index, type, ParamType.UNKNOWN, null, false, null);
+        return new ParamInfo(index, type, ParamType.UNKNOWN, null, false, null, false);
     }
 
     private static String[] collectNames(ParamInfo[] infos, ParamType type) {

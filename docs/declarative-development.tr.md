@@ -12,7 +12,7 @@ processor sınıfları yalnız derleyici yolunda kalır. Production runtime bağ
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.2.0</version>
+  <version>4.3.0</version>
 </parent>
 
 <dependencies>
@@ -53,7 +53,8 @@ metot çağrısı kullanır. Request sırasında classpath taraması veya yeni r
         name = "Customer API",
         version = "1.0.0",
         description = "Müşteri sorgu ve komut endpoint'leri",
-        scanBasePackages = "com.example.customer")
+        scanBasePackages = "com.example.customer",
+        metrics = true)
 public final class CustomerApplication {
     public static void main(String[] args) {
         RestApplication.run(CustomerApplication.class, args);
@@ -78,6 +79,8 @@ final class CustomerHandler {
 `scanBasePackages` yazılmazsa application sınıfının paketi tarama kökü olur. Açık bir değer
 verildiğinde bu varsayılanın yerini alır. Kardeş `app`, `handler` ve `service` paketlerinin ortak
 kökünü yazın.
+`metrics` varsayılan olarak `false` olur. Built-in metrics ve diagnostics endpoint'leri bu uygulamada
+gerekiyorsa `true` yapın.
 
 Constructor factory ve route invoker sınıfları derleme sırasında üretilir. Üçüncü taraf nesneler
 için `@Configuration` ve `@Bean` kullanın. Generated factory, `@Bean` metodunun parametrelerini
@@ -271,13 +274,28 @@ metadata'sını içermez. `codegen` classifier yalnız derleyici içindir. Norma
 ## Direct JSON Writer
 
 ```java
+@Response
 @GenerateDirectJsonWriter
-public record OrderSummary(long id, String status, Boolean priority) {}
+public record OrderSummary(
+        long id,
+        String status,
+        java.util.List<OrderLine> lines,
+        java.util.Optional<String> note) {}
+
+public record OrderLine(long productId, int quantity) {}
 ```
 
-Scalar record için kullanın. Primitive, boxed scalar, `String`, enum, UUID ve yaygın zaman tipleri
-desteklenir. Nested object graph ve collection için açık bir `JsonBodyProducer` veya business writer
-yazın. Processor uygun olmayan tipi sessizce yavaş yola düşürmez. Derlemeyi hata ile durdurur.
+`@Response`, tipi HTTP response DTO olarak işaretler. Tek başına direct writer üretmez. Bu DTO ölçülmüş
+bir serialization hot path üzerindeyse `@GenerateDirectJsonWriter` ekleyin. Processor; primitive ve
+boxed scalar tipler, `String`, enum, UUID, zaman tipleri, nested record, array, `Iterable`, `Optional`,
+`BigDecimal` ve `BigInteger` için tipe özel writer üretir.
+
+Generated writer startup sırasında kaydedilir ve request kabul edilmeden önce route'a bir kez
+bağlanır. Runtime sırasında lazy writer araması yapılmaz. Explicit annotation varken map, byte/char
+array, wildcard veya type-variable collection ve recursive graph build hatası verir. Yalnız
+`@Response` kullanan record, uyumlu DSL-JSON yolunda kalır. Manuel writer da route compilation'dan
+önce kaydedilmelidir. Büyük dinamik object graph için `List<Record>` kurmak yerine
+`JsonBodyProducer` kullanın.
 
 ## JDBC Record Mapper
 

@@ -10,7 +10,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * <p>This deliberately avoids assignable/reflection matching. A writer must be
  * explicitly registered for the DTO class so hot-path lookup is predictable and
- * cacheable.</p>
+ * cacheable. Manual writers and providers must be registered before route
+ * compilation; published route descriptors are immutable.</p>
  */
 public final class DirectJsonWriterRegistry {
 

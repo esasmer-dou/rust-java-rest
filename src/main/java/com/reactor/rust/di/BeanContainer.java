@@ -65,14 +65,18 @@ public final class BeanContainer {
     // Singleton Instance
     // ========================================
 
-    private static final BeanContainer COMPATIBILITY_INSTANCE = new BeanContainer();
-    private static volatile BeanContainer active = COMPATIBILITY_INSTANCE;
+    private static volatile BeanContainer active;
+
+    private static final class CompatibilityHolder {
+        private static final BeanContainer INSTANCE = new BeanContainer();
+    }
 
     /**
      * Get the global singleton container instance.
      */
     public static BeanContainer getInstance() {
-        return active;
+        BeanContainer current = active;
+        return current != null ? current : CompatibilityHolder.INSTANCE;
     }
 
     /**
@@ -89,7 +93,7 @@ public final class BeanContainer {
 
     public static void deactivate(BeanContainer container) {
         if (active == container) {
-            active = COMPATIBILITY_INSTANCE;
+            active = null;
         }
     }
 
@@ -109,6 +113,7 @@ public final class BeanContainer {
     // State tracking
     private volatile boolean initialized = false;
     private volatile boolean scanning = false;
+    private boolean compatibilitySurfaceRegistered = false;
 
     private BeanContainer() {}
 
@@ -147,6 +152,7 @@ public final class BeanContainer {
         Objects.requireNonNull(instance, "Bean instance cannot be null");
         Objects.requireNonNull(name, "Bean name cannot be null");
 
+        compatibilitySurfaceRegistered = true;
         beansByType.put(type, instance);
         beansByName.put(name, instance);
         beanNames.put(type, name);
@@ -169,7 +175,7 @@ public final class BeanContainer {
             T instance,
             String name,
             boolean primary) {
-        return registerBean(type, instance, name, primary);
+        return registerGeneratedBean(type, instance, name, primary, new Class<?>[0]);
     }
 
     /** Registers a generated bean without reflective hierarchy discovery. */
@@ -234,6 +240,7 @@ public final class BeanContainer {
         Objects.requireNonNull(instance, "Bean instance cannot be null");
         Objects.requireNonNull(name, "Bean name cannot be null");
 
+        compatibilitySurfaceRegistered = true;
         beansByType.put(type, instance);
         beansByName.put(name, instance);
         beanNames.put(type, name);
@@ -480,6 +487,11 @@ public final class BeanContainer {
             return;
         }
 
+        if (StartupMode.isAot() && !compatibilitySurfaceRegistered) {
+            startGeneratedGraph();
+            return;
+        }
+
         // Resolve all lazy suppliers first
         Set<LazyBean<?>> generatedDefinitions = Collections.newSetFromMap(new IdentityHashMap<>());
         generatedDefinitions.addAll(lazySuppliers.values());
@@ -511,6 +523,23 @@ public final class BeanContainer {
         initialized = true;
 
         FrameworkLogger.info("[BeanContainer] Started with " + beansByType.size() + " beans");
+    }
+
+    /** Resolves the build-time graph without loading compatibility reflection metadata. */
+    private void startGeneratedGraph() {
+        Set<LazyBean<?>> generatedDefinitions = Collections.newSetFromMap(new IdentityHashMap<>());
+        generatedDefinitions.addAll(lazySuppliers.values());
+        for (LazyBean<?> definition : generatedDefinitions) {
+            if (definition.eager) {
+                resolveLazy(definition);
+            }
+        }
+
+        // These sets only protect compatibility passes, which strict AOT never executes.
+        processedConfigurations.clear();
+        reflectionFreeGeneratedTypes.clear();
+        initialized = true;
+        FrameworkLogger.info("[BeanContainer] Started generated graph with " + beansByType.size() + " beans");
     }
 
     /**
@@ -545,6 +574,7 @@ public final class BeanContainer {
         ambiguousGeneratedAliases.clear();
         processedConfigurations.clear();
         reflectionFreeGeneratedTypes.clear();
+        compatibilitySurfaceRegistered = false;
         initialized = false;
 
         FrameworkLogger.info("[BeanContainer] Shutdown complete");
@@ -708,7 +738,10 @@ public final class BeanContainer {
 
                         registerBeanInternal(returnType, beanInstance, beanName, isPrimary);
 
-                        FrameworkLogger.debug("[BeanContainer] @Bean registered: " + beanName + " -> " + returnType.getSimpleName());
+                        if (FrameworkLogger.isDebugEnabled()) {
+                            FrameworkLogger.debug("[BeanContainer] @Bean registered: " + beanName
+                                    + " -> " + returnType.getSimpleName());
+                        }
                     }
 
                 } catch (Exception e) {
@@ -964,7 +997,10 @@ public final class BeanContainer {
             // Register bean
             registerBeanInternal(beanClass, instance, beanName, isPrimary);
 
-            FrameworkLogger.debug("[BeanContainer] @Component registered: " + beanName + " -> " + beanClass.getSimpleName());
+            if (FrameworkLogger.isDebugEnabled()) {
+                FrameworkLogger.debug("[BeanContainer] @Component registered: " + beanName
+                        + " -> " + beanClass.getSimpleName());
+            }
 
         } catch (Exception e) {
             throw new BeanCreationException("Failed to create bean: " + beanClass.getName(), e);

@@ -4,12 +4,14 @@ import com.reactor.rust.annotations.DirectQueryInt;
 import com.reactor.rust.annotations.GetMapping;
 import com.reactor.rust.annotations.NativeStaticRoute;
 import com.reactor.rust.annotations.RouteWorkload;
+import com.reactor.rust.annotations.RestController;
 import com.reactor.rust.http.JsonProducerResponse;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.json.JsonBufferWriter;
 
 import java.nio.charset.StandardCharsets;
 
+@RestController
 public final class BenchmarkHandler {
 
     private static final byte[] STATIC_BODY =

@@ -24,6 +24,7 @@ param(
     [switch] $FrameworkOnly,
     [switch] $SkipBuild,
     [switch] $SkipImageBuild,
+    [switch] $SkipRunnerImageBuild,
     [switch] $KeepContainers
 )
 
@@ -713,19 +714,42 @@ function Wait-Http {
         [string] $Container
     )
 
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     for ($i = 0; $i -lt 90; $i++) {
-        $status = Invoke-LocalHttpStatus -Url $Url -TimeoutSeconds 2
+        $status = Invoke-HttpStatusProbe -Method "GET" -Url $Url
         if ($status -match "^[0-9]{3}$") {
             $code = [int] $status
-            if ($code -ge 200 -and $code -lt 500) {
-                return
+            if ($code -ge 200 -and $code -lt 300) {
+                return [int64]$stopwatch.Elapsed.TotalMilliseconds
             }
         }
-        Start-Sleep -Seconds 1
+        Start-Sleep -Milliseconds 100
     }
 
     & docker logs $Container *> (Join-Path $ResultsDir "$Container.startup.log")
     throw "$Name did not become reachable at $Url"
+}
+
+function Save-StartupDiagnostics {
+    param([int64] $ReachableMs)
+
+    $jsonPath = Join-Path $ResultsDir "rust_java_startup.json"
+    try {
+        $raw = Invoke-RunnerCurl "http://rust-java-rest:8080/diagnostics/startup"
+        $raw | Set-Content -Path $jsonPath -Encoding UTF8
+        $startup = $raw | ConvertFrom-Json
+        return [PSCustomObject]@{
+            ReadyMs = [int64]$startup.ready_ms
+            ReachableMs = $ReachableMs
+        }
+    } catch {
+        "startup diagnostics scrape failed: $($_.Exception.Message)" |
+                Set-Content -Path $jsonPath -Encoding UTF8
+        return [PSCustomObject]@{
+            ReadyMs = -1
+            ReachableMs = $ReachableMs
+        }
+    }
 }
 
 function Parse-LoadProbeOutput {
@@ -1046,6 +1070,7 @@ function Write-Summary {
 
     foreach ($class in @(
         "small-json",
+        "annotated-generated-json",
         "dynamic-producer-json",
         "dynamic-dto-json",
         "direct-json-writer",
@@ -1116,7 +1141,11 @@ function Save-ResultCheckpoint {
 function Save-RouteDiagnostics {
     $jsonPath = Join-Path $ResultsDir "rust_java_routes.json"
     $summaryPath = Join-Path $ResultsDir "rust_java_routes_summary.md"
-    $raw = Invoke-LocalHttpGet -Url "http://127.0.0.1:8080/diagnostics/routes" -TimeoutSeconds 5
+    try {
+        $raw = Invoke-RunnerCurl "http://rust-java-rest:8080/diagnostics/routes"
+    } catch {
+        $raw = $null
+    }
     if ($null -eq $raw) {
         "route diagnostics scrape failed" | Set-Content -Path $jsonPath -Encoding UTF8
         "route diagnostics scrape failed" | Set-Content -Path $summaryPath -Encoding UTF8
@@ -1191,10 +1220,10 @@ $rows = New-Object System.Collections.Generic.List[object]
 
 try {
     if (-not $SkipBuild) {
-        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "install") -WorkingDirectory $FrameworkRoot
-        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory (Join-Path $FrameworkRoot "sample")
+        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "clean", "install", "-DskipTests") -WorkingDirectory $FrameworkRoot
+        Invoke-Checked -FilePath "mvn" -Arguments @("-q", "clean", "package", "-DskipTests") -WorkingDirectory (Join-Path $FrameworkRoot "sample")
         if (-not $FrameworkOnly) {
-            Invoke-Checked -FilePath "mvn" -Arguments @("-q", "-DskipTests", "package") -WorkingDirectory $SpringRoot
+            Invoke-Checked -FilePath "mvn" -Arguments @("-q", "clean", "package", "-DskipTests") -WorkingDirectory $SpringRoot
         }
     }
 
@@ -1211,7 +1240,11 @@ try {
             Invoke-Checked -FilePath "docker" -Arguments @("image", "inspect", $SpringImage) -WorkingDirectory $SpringRoot | Out-Null
         }
     }
-    Invoke-Docker -Arguments @("build", "-t", $RunnerImage, "-f", "Dockerfile.benchmark", ".") -WorkingDirectory $ScriptDir
+    if (-not $SkipRunnerImageBuild) {
+        Invoke-Docker -Arguments @("build", "-t", $RunnerImage, "-f", "Dockerfile.benchmark", ".") -WorkingDirectory $ScriptDir
+    } else {
+        Invoke-Checked -FilePath "docker" -Arguments @("image", "inspect", $RunnerImage) -WorkingDirectory $ScriptDir | Out-Null
+    }
 
     Ensure-Network
     Remove-ContainerIfExists $FrameworkContainer
@@ -1246,9 +1279,10 @@ try {
         )
     }
 
-    Wait-Http -Name "Rust-Java framework" -Url "http://127.0.0.1:8080/api/v1/candidates" -Container $FrameworkContainer
+    $frameworkReachableMs = Wait-Http -Name "Rust-Java framework" -Url "http://rust-java-rest:8080/api/v1/candidates" -Container $FrameworkContainer
+    $frameworkStartup = Save-StartupDiagnostics -ReachableMs $frameworkReachableMs
     if (-not $FrameworkOnly) {
-        Wait-Http -Name "Spring Boot" -Url "http://127.0.0.1:8081/api/v1/candidates" -Container $SpringContainer
+        [void](Wait-Http -Name "Spring Boot" -Url "http://spring-boot-rest:8080/api/v1/candidates" -Container $SpringContainer)
     }
 
     $endpoints = @(
@@ -1266,6 +1300,15 @@ try {
             Class = "small-json-direct"
             Method = "GET"
             RustPath = "/api/v1/candidates/direct"
+            SpringPath = ""
+            Targets = @("rust_java")
+            Lua = "/results/get_status.lua"
+        },
+        [PSCustomObject]@{
+            Name = "users_search_generated"
+            Class = "annotated-generated-json"
+            Method = "GET"
+            RustPath = "/users/search?name=load&page=1"
             SpringPath = ""
             Targets = @("rust_java")
             Lua = "/results/get_status.lua"
@@ -1471,12 +1514,24 @@ try {
                 -Concurrency $concurrency `
                 -RunId $run `
                 -LuaScript $endpoint.Lua
+            $startupReadyMs = ""
+            $startupReachableMs = ""
+            if ($target.Name -eq "rust_java") {
+                $startupReadyMs = $frameworkStartup.ReadyMs
+                $startupReachableMs = $frameworkStartup.ReachableMs
+            }
+            $row | Add-Member -NotePropertyName StartupReadyMs -NotePropertyValue $startupReadyMs
+            $row | Add-Member -NotePropertyName StartupReachableMs -NotePropertyValue $startupReachableMs
             $rows.Add($row)
             Save-ResultCheckpoint -Rows $rows.ToArray()
         }
     }
 
-    $finalMetrics = Invoke-LocalHttpGet -Url "http://127.0.0.1:8080/metrics" -TimeoutSeconds 5
+    try {
+        $finalMetrics = Invoke-RunnerCurl "http://rust-java-rest:8080/metrics"
+    } catch {
+        $finalMetrics = $null
+    }
     if ($null -ne $finalMetrics) {
         $finalMetrics | Set-Content -Path (Join-Path $ResultsDir "rust_java_metrics.prom") -Encoding UTF8
     } else {

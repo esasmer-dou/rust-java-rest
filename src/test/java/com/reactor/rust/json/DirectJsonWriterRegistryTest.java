@@ -7,7 +7,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DirectJsonWriterRegistryTest {
 
@@ -52,6 +51,16 @@ class DirectJsonWriterRegistryTest {
         DslJsonService.writeToBuffer(new City("Ankara", 6), first, 0);
         DslJsonService.writeToBuffer(new City("Ankara", 6), second, 0);
 
+        assertEquals(1, provider.calls);
+    }
+
+    @Test
+    void providerWriterIsInitializedOnlyByFirstLookup() {
+        CountingProvider provider = new CountingProvider();
+        DirectJsonWriterRegistry.registerProvider(provider);
+
+        assertEquals(0, provider.calls);
+        DirectJsonWriterRegistry.findWriter(City.class);
         assertEquals(1, provider.calls);
     }
 
