@@ -21,3 +21,5 @@ platform parent, `rust-java-starter-rest`, `@ReactorApplication` ve constructor 
 
 Hazır JSON biçimini yalnız gerçekten sabit veya daha önce hazırlanmış içerik için alın. Normal
 dinamik business response için record kullanın.
+
+Başka özellik veya starter eklemeden önce [örnekler dizinine](../README.tr.md) dönün.

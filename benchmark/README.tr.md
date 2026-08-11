@@ -1,12 +1,25 @@
 # Benchmark Paketi
 
-[English](README.md) | [Türkçe](README.tr.md) | [Framework Rehberi](../README.tr.md)
+[English](README.md) | [Türkçe](README.tr.md) | [Framework Rehberi](../README.tr.md) | [Örnekler](../examples/README.tr.md)
 
 Bu dizin tekrarlanabilir performance kanıtlarını ve geçmiş release gate sonuçlarını tutar. Hızlı
 başlangıç rehberi değildir. Her tarihsel bölüm, başlığında yazan source line için geçerlidir.
 
+## Doğru Testi Seçin
+
+| Soru | Kullanılacak araç |
+| --- | --- |
+| Framework değişikliği belleği düşürürken RPS/p99 değerini korudu mu? | `paired_image_gate.ps1` |
+| Linux RSS ve anonim bellek hangi alanlardan oluşuyor? | `linux_smaps_breakdown.ps1` |
+| Idle native trim belleği güvenli biçimde geri veriyor mu? | Trim A/B ile `anon_evidence_gate.ps1` |
+| Hangi route admission değerleri useful `200` RPS'i iyileştiriyor? | `route_admission_matrix.ps1` |
+| Response yolları aynı yükte nasıl ayrışıyor? | Açık endpoint class listesiyle `container_benchmark.ps1` |
+
+Geçmiş bir sonucu doğrudan ürün iddiası olarak kullanmayın. Aynı testi güncel source, native binary,
+JVM, container limitleri, endpoint karışımı ve provider/database topology ile yeniden çalıştırın.
+
 Güncel kaynak ağacı REST ABI `26`, Dubbo ABI `7` ve Redis ABI `6` kullanır. İki build'i
-karşılaştırmadan önce native artefact'i aynı source revision'dan üretin. Eski DLL/SO ile yapılan test,
+karşılaştırmadan önce native artifact'i aynı source revision'dan üretin. Eski DLL/SO ile yapılan test,
 uygulama başlasa bile geçerli değildir.
 
 ## Sonucu Nasıl Okumalısınız?

@@ -5,6 +5,19 @@
 Platform modülleri Rust-Java uygulamalarına tek bir Maven kullanım biçimi sağlar. Yeni projede
 platform parent kullanın. Ardından yalnız process'in gerçekten ihtiyaç duyduğu starter'ları ekleyin.
 
+Yeni servis için parent kullanın. Şirket parent POM'u değiştirilemiyorsa BOM kullanın. Doğrudan
+dependency yolunu yalnız embedding veya framework geliştirme için seçin.
+
+## İçindekiler
+
+- [Kopyala-çalıştır parent kurulumu](#buradan-başlayın)
+- [Process tipini seçin](#process-tipini-seçin)
+- [Parent, BOM veya doğrudan dependency](#parent-bom-veya-doğrudan-dependency)
+- [Build sırasında üretilen yüzey](#build-neleri-ekler)
+- [Sık kullanılan starter birleşimleri](#sık-kullanılan-kombinasyonlar)
+- [Production kuralları](#production-kuralları)
+- [Modül haritası](#modül-haritası)
+
 ## Buradan Başlayın
 
 ```xml
@@ -30,6 +43,9 @@ Maven gate'lerini hazırlar. Paketlemeden önce şu komutu çalıştırın:
 ```powershell
 mvn clean verify
 ```
+
+Beklenen sonuç: generated component/route metadata oluşur, dependency sınırları geçer ve processor
+artifact'i runtime dependency olarak paketlenmez.
 
 ## Process Tipini Seçin
 
@@ -113,9 +129,9 @@ HTTP server açmadan Redis'e yazan scheduler:
 
 ## Production Kuralları
 
-- Her artefact tek ve açık bir process sorumluluğu taşımalıdır.
+- Her artifact tek ve açık bir process sorumluluğu taşımalıdır.
 - Fiziksel olarak farklı uygulama yüzeyleri için runtime branch yerine Maven profile kullanın.
-- Aynı artefact küçük bir startup seçimi sunuyorsa `@RequiresProperty` veya `@Profile` kullanın.
+- Aynı artifact küçük bir startup seçimi sunuyorsa `@RequiresProperty` veya `@Profile` kullanın.
   Koşul her request'te değil, startup sırasında değerlendirilir.
 - Processor classifier'larını runtime classpath'e eklemeyin.
 - `mvn clean verify` komutunu release gate olarak kabul edin.

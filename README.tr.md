@@ -2,9 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.3.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
-[![Java](https://img.shields.io/badge/Java-21-green.svg)]()
-[![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)]()
+[![Sürüm](https://img.shields.io/badge/sürüm-4.3.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.3.0)
+[![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
+[![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.3.0)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -23,6 +24,23 @@ Temel ayrım nettir:
 Framework, Spring Boot kopyası değildir. Benzer REST annotation'ları sunar. Ancak daha küçük ve daha
 öngörülebilir bir runtime yüzeyi hedefler.
 
+Bu framework şu durumda doğru seçimdir: HTTP servisinizin handler, service ve iş kuralları Java'da
+kalacak; bağlantı, sınırlı I/O ve seçilmiş ağır response yolları Rust tarafından yönetilecektir.
+Uygulamanız Spring application context, runtime bean discovery veya Spring ekosistemine sıkı bağlı
+kütüphaneler gerektiriyorsa bu framework doğru başlangıç değildir.
+
+## Buradan Başlayın
+
+| İhtiyacınız | Açmanız gereken bölüm |
+| --- | --- |
+| Hemen yeni servis oluşturmak | [Beş Dakikada Başlangıç](#beş-dakikada-başlangıç) |
+| Çalışan GET, POST, PATCH, DELETE, upload veya WebSocket örneği görmek | [Derlenen örnekler](examples/README.tr.md) |
+| Yalnız REST, Dubbo, cache, scheduler veya WebSocket bağımlılığını seçmek | [Platform ve starter rehberi](platform/README.tr.md) |
+| Record, direct writer, hazır JSON veya file streaming arasında karar vermek | [Response Yolunu Seçin](#response-yolunu-seçin) |
+| Pod belleği, eşzamanlılık ve endpoint limitlerini ayarlamak | [Production runtime rehberi](docs/production-runtime.md) |
+| Bir property'nin anlamını bulmak | [Konfigürasyon referansı](docs/configuration.tr.md) |
+| Startup, fallback, native yükleme veya `503` sorununu çözmek | [Sorun giderme](docs/troubleshooting.tr.md) |
+
 ## 4.3.0 ile Neler Değişti?
 
 Bu sürüm Java business logic kullanımını değiştirmez. Generated route invoker ve açıkça seçilen
@@ -34,7 +52,7 @@ oluşturma işi yapılmaz.
 - Desteklenmeyen direct writer şekli sessizce fallback'e düşmez. Build açık hata verir.
 - `/diagnostics/routes` çıktısı route'un generated, direct, native static veya compatibility yolunu
   kullandığını gösterir.
-- Startup registry'leri, native artefact doğrulaması ve OpenJ9 image hazırlığı daha az geçici durum
+- Startup registry'leri, native artifact doğrulaması ve OpenJ9 image hazırlığı daha az geçici durum
   tutar.
 - REST ABI `26` olarak kalır. Yine de native dosyalar değiştiği için `4.3.0` JAR içindeki DLL/SO
   kullanılmalıdır.
@@ -48,6 +66,10 @@ oluşturma işi yapılmaz.
 - [Build Sırasında Neler Üretilir?](#build-sırasında-neler-üretilir)
 - [Response Yolunu Seçin](#response-yolunu-seçin)
 - [Runtime Profilini Seçin](#runtime-profilini-seçin)
+- [Endpoint Kapasitesi ve Kontrollü 503](#endpoint-kapasitesi-ve-kontrollü-503)
+- [Request, Response ve Timeout Sınırları](#request-response-ve-timeout-sınırları)
+- [Gözlemlenebilirlik](#gözlemlenebilirlik)
+- [Startup ve OpenJ9](#startup-ve-openj9)
 - [Konfigürasyon Önceliği](#konfigürasyon-önceliği)
 - [Production Kontrol Listesi](#production-kontrol-listesi)
 - [Örnek Projeler](#örnek-projeler)
@@ -360,6 +382,87 @@ testi yapmadan açmayın. Copy-paste Maven ayarı
 Üretilen çok aşamalı imajda `binutils` yalnız build katmanında kalır. Uygulama `10001` kullanıcısıyla
 çalışır. Runtime yazma alanı `/app/.reactor/native` ve `/app/work` dizinleriyle sınırlandırılır.
 
+## Endpoint Kapasitesi ve Kontrollü 503
+
+Pahalı bir endpoint'in bütün pod'u yavaşlatmasına izin vermeyin. `@RouteAdmission`, aynı anda çalışan
+çağrı sayısını ve kısa bekleme süresini endpoint üzerinde sınırlar:
+
+```java
+@GetMapping(value = "/reports/daily", responseType = JsonBodyProducer.class)
+@RouteWorkload(value = RouteWorkload.Type.HEAVY_JSON, budget = "daily-report")
+@RouteAdmission(maxConcurrent = 80, queueTimeoutMs = 150)
+JsonBodyProducer dailyReport() {
+    return reportService::writeDailyJson;
+}
+```
+
+Bu limit dolduğunda sınırsız queue büyütmek yerine kontrollü `503` dönebilir. `503`, framework'ün
+bozulduğu anlamına gelmez. Pod'un bellek ve gecikme sınırını koruduğunu gösterir. Değeri artırmadan
+önce provider, veritabanı pool'u, response boyutu, useful `200` RPS ve p99 birlikte ölçülmelidir.
+
+Property ile endpoint'e özel override yapılabilir:
+
+```properties
+reactor.rust.route-admission.get.reports.daily.max-concurrent=80
+reactor.rust.route-admission.get.reports.daily.queue-timeout-ms=150
+```
+
+Global worker veya queue değerini büyütmek ilk çözüm değildir. Tek ağır endpoint için endpoint'e özel
+bütçe kullanın.
+
+## Request, Response ve Timeout Sınırları
+
+```properties
+reactor.rust.http.max-request-body-bytes=1048576
+reactor.rust.http.max-response-body-bytes=8388608
+reactor.rust.http.max-inflight-body-bytes=33554432
+reactor.rust.http.max-inflight-response-bytes=67108864
+reactor.rust.http.header-read-timeout-ms=5000
+reactor.rust.http.request-body-timeout-ms=10000
+reactor.rust.http.idle-timeout-ms=30000
+```
+
+- Tek request limitini yükseltirken toplam in-flight byte limitini de kontrol edin.
+- Büyük dosya için `byte[]` yerine `FileResponse` kullanın.
+- Büyük dinamik JSON için `List<DTO>` kurmak yerine producer/direct writer yolunu değerlendirin.
+- Timeout'u yalnız hata kaybolsun diye büyütmeyin. Önce beklemenin DB, RPC, queue veya network
+  kaynaklı olduğunu belirleyin.
+
+## Gözlemlenebilirlik
+
+Uygulamada metrics özelliğini yalnız ihtiyaç varsa açın:
+
+```java
+@ReactorApplication(
+        scanBasePackages = "com.example.catalog",
+        metrics = true)
+public final class CatalogApplication { }
+```
+
+| Endpoint veya metrik | Ne gösterir? |
+| --- | --- |
+| `GET /metrics` | Prometheus metrikleri |
+| `GET /diagnostics/startup` | Startup aşamaları ve süreleri |
+| `GET /diagnostics/routes` | Generated, direct, native veya fallback route durumu |
+| JNI queue p95/p99 | Java handler kuyruğundaki bekleme |
+| Route admission rejection | Endpoint kapasite limitine takılan istek |
+| In-flight response bytes | Aynı anda taşınan response belleği |
+
+Production gate sırasında `production_legacy`, `heavy_json_object_graph` ve fallback sayaçlarını
+kontrol edin. Benchmark-only route değerlerini gerçek uygulama route'larıyla karıştırmayın.
+
+## Startup ve OpenJ9
+
+Build; component graph, route invoker, property metadata ve startup index dosyalarını üretir.
+Production başlangıcında classpath taraması yerine bu dosyalar kullanılır. Generated dosyaları elle
+değiştirmeyin.
+
+OpenJ9/Semeru Java 21 düşük bellek için önerilen runtime'dır. `micro-rest` ile başlayın. JIT code
+cache, compilation thread, native trim veya daha küçük stack ayarlarını ancak aynı endpoint setinde
+RPS, p99, `503` ve container RSS karşılaştırması geçerse kullanın. Ayrıntılar için
+[startup tuning](docs/startup-tuning.md) ve [production runtime](docs/production-runtime.md)
+rehberlerine bakın.
+
 ## Konfigürasyon Önceliği
 
 Değerler aşağıdaki sırayla uygulanır. Üstteki kaynak alttakini ezer:
@@ -427,7 +530,7 @@ Generator dolu bir klasörün üzerine yazmaz.
 ## Sürüm ve Native ABI
 
 Yayınlanmış dependency çizgisi `rust-java-rest:4.3.0`, `java-rust-dubbo:0.7.1` ve
-`java-rust-cache:0.7.1` şeklindedir. Bu çalışma ağacındaki native artefact'ler REST ABI `26`, Dubbo
+`java-rust-cache:0.7.1` şeklindedir. Bu çalışma ağacındaki native artifact'ler REST ABI `26`, Dubbo
 ABI `7` ve Redis ABI `6` taşır.
 
 Native DLL/SO dosyasını başka bir sürümden kopyalamayın. Startup; ABI, platform, source revision ve
@@ -446,6 +549,19 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Benchmark metodolojisi ve kanıt arşivi](benchmark/README.md)
 - [Sürüm notları](docs/release-notes/v4.3.0.tr.md)
+
+## Kısa Sözlük
+
+| Terim | Basit anlamı |
+| --- | --- |
+| RSS | Uygulamanın işletim sistemi tarafından görülen fiziksel bellek kullanımı |
+| p99 | İsteklerin yüzde 99'unun tamamlandığı gecikme sınırı |
+| Useful `200` RPS | Saniyede tamamlanan başarılı HTTP `200` response sayısı |
+| `503` | Kapasite sınırı nedeniyle geçici olarak işlenemeyen istek |
+| In-flight | Henüz tamamlanmamış ve kaynak tutan istek veya response |
+| Route admission | Bir endpoint'in aynı anda kullanabileceği kapasite sınırı |
+| Native response | Body'nin Java heap'e taşınmadan Rust belleğinden gönderilmesi |
+| Generated path | Handler çağrısı veya serializer bilgisinin build sırasında üretilmesi |
 
 Business logic Java'da kalır. Rust yalnız düşük seviyeli I/O ve seçilmiş serialization/transport
 işlerini üstlenir. Bu sınırı korumak framework'ün temel tasarım kararıdır.

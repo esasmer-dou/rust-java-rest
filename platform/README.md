@@ -5,6 +5,19 @@
 The platform modules provide one consistent Maven experience for Rust-Java applications. Use the
 platform parent to align versions, then add only the starters required by the process.
 
+Use the parent for a new service. Use the BOM only when an existing corporate parent cannot be
+replaced. Use direct dependencies only for embedding or framework development.
+
+## Contents
+
+- [Copy-paste parent setup](#start-here)
+- [Choose a process shape](#choose-a-process-shape)
+- [Parent, BOM, or direct dependency](#parent-bom-or-direct-dependency)
+- [Build-time generated surface](#what-the-build-adds)
+- [Common starter combinations](#common-combinations)
+- [Production rules](#production-rules)
+- [Module map](#module-map)
+
 ## Start Here
 
 ```xml
@@ -30,6 +43,9 @@ the framework Maven gates. Run this before packaging:
 ```powershell
 mvn clean verify
 ```
+
+Expected result: generated component/route metadata is present, dependency boundaries pass, and no
+processor artifact is packaged as a runtime dependency.
 
 ## Choose A Process Shape
 

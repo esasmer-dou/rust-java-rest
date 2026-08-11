@@ -5,6 +5,19 @@
 This directory is the reproducible performance-evidence archive. It is not the quick-start guide and
 its historical sections describe the exact source line named in each heading.
 
+## Choose The Right Gate
+
+| Question | Use |
+| --- | --- |
+| Did a framework change improve memory without hurting RPS/p99? | `paired_image_gate.ps1` |
+| What contributes to Linux RSS and anonymous memory? | `linux_smaps_breakdown.ps1` |
+| Does idle native trim reclaim memory safely? | `anon_evidence_gate.ps1` with trim A/B |
+| Which route admission values maximize useful `200` RPS? | `route_admission_matrix.ps1` |
+| How do response paths differ under the same load? | `container_benchmark.ps1` with explicit endpoint classes |
+
+Do not copy a historical result into a product claim. Re-run the matching gate on the current
+source, native binaries, JVM, container limits, endpoint mix, and provider/database topology.
+
 The current source tree uses REST ABI `26`, Dubbo ABI `7`, and Redis ABI `6`. Before comparing two
 builds, rebuild and package the native artifact from the same source revision. A benchmark that uses
 an older DLL/SO is invalid even if the application starts.

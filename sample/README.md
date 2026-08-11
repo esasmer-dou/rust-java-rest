@@ -29,6 +29,16 @@ mvn -f sample/pom.xml clean package
 java -jar sample/target/rust-java-rest-4.3.0-sample.jar
 ```
 
+Verify the process before running a benchmark:
+
+```powershell
+curl http://localhost:8080/app/health
+curl http://localhost:8080/diagnostics/routes
+```
+
+The first endpoint must be healthy. The route diagnostics must clearly separate production and
+benchmark-only routes. Stop the process before switching binaries or profiles.
+
 The application reads `server.port` and the remaining runtime limits from
 `sample/src/main/resources/rust-spring.properties` plus any external overlay.
 

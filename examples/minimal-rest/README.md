@@ -22,3 +22,5 @@ constructor injection.
 
 Copy the ready JSON pattern only for content that is truly static or already prepared. Use records
 for normal dynamic business responses.
+
+Return to the [examples index](../README.md) before adding another feature or starter.

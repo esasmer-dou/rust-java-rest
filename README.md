@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Version](https://img.shields.io/badge/version-4.3.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest)
+[![Version](https://img.shields.io/badge/version-4.3.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.3.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)]()
-[![Status](https://img.shields.io/badge/status-stable-blue.svg)]()
+[![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.3.0)
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -19,19 +19,36 @@ The model is intentionally simple:
 - The framework is not a Spring Boot clone. It gives you familiar REST annotations with a much
   smaller runtime surface.
 
-Start with the document that matches your task:
+Use Rust-Java REST when the application is an HTTP service whose handlers and business logic should
+stay in Java, while connection handling, bounded I/O, and selected response-heavy paths should run
+in Rust. Do not choose it when the application depends on Spring's complete ecosystem, runtime bean
+discovery, or libraries that require a Spring application context.
+
+## Start Here
+
+| I want to... | Read or use this |
+| --- | --- |
+| Create a service now | [Five-minute project setup](#five-minute-project-setup) |
+| See working GET, POST, PATCH, DELETE, upload, streaming, or WebSocket code | [Compile-verified examples](examples/README.md) |
+| Select only REST, Dubbo, cache, scheduler, or WebSocket dependencies | [Platform and starters](platform/README.md) |
+| Choose record, direct writer, raw JSON, native response, or file streaming | [Response-path guide](#which-response-path-should-i-use) |
+| Set pod memory, concurrency, and route limits | [Production runtime guide](docs/production-runtime.md) |
+| Find every supported property | [Configuration reference](docs/configuration.md) |
+| Diagnose startup, route fallback, native loading, or `503` | [Troubleshooting](docs/troubleshooting.md) |
+
+## Contents
 
 - [Five-minute project setup](#five-minute-project-setup)
 - [Choose the smallest starter set](#choose-the-smallest-starter-set)
-- [Platform parent and starter reference](platform/README.md)
-- [Quick project shapes and generated wiring](docs/declarative-development.md)
-- [First-class framework experience: starters, conditions, security, clients, and scheduling](docs/declarative-development.md#starter-based-build)
-- [Configuration reference](docs/configuration.md)
-- [Operations runbook](docs/operations.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Production runtime and memory profiles](docs/production-runtime.md)
-- [Startup and OpenJ9 tuning](docs/startup-tuning.md)
-- [Compile-verified standalone examples](examples/README.md)
+- [Response and error contracts](#responses-and-errors)
+- [Response-path guide](#which-response-path-should-i-use)
+- [Profiles and RSS](#profile-and-rss-decision-guide)
+- [Admission and overload](#route-admission-and-overload-behavior)
+- [Limits and timeouts](#body-response-timeout-and-file-limits)
+- [Observability](#observability)
+- [Startup](#startup-tuning)
+- [Production checklist](#production-checklist)
+- [Documentation map](#documentation-map)
 
 ## Current Stable Line
 
@@ -223,16 +240,16 @@ Existing REST annotations, handler signatures, response types, services, and bus
 source-compatible. REST ABI remains `26`, but the DLL/SO is version-bound and must come from the same
 `4.3.0` package because its static-response implementation changed.
 
-## v4.0.0 At A Glance
+## How Startup And Configuration Work
 
-`v4.0.0` keeps business code in Java: handlers, services, records, validation, database calls, and
-business rules use the same model. The main change is startup and build wiring. The `codegen`
-classifier creates indexes and direct generated helpers at compile time, so production startup does
-less scanning and applications carry less handwritten infrastructure.
+Handlers, services, records, validation, database calls, and business rules stay in Java. The
+`codegen` classifier creates indexes and direct generated helpers at compile time, so production
+startup performs less scanning and applications carry less handwritten infrastructure.
 
-This is a major version because obsolete public compatibility helpers were removed. Most applications
-only need a dependency version change. Applications that imported one of the removed helpers should
-use the explicit replacement below.
+### Migration From 3.x
+
+Applications that still import a removed compatibility helper should use the explicit replacement
+below. New applications should not copy any compatibility bootstrap code.
 
 | Removed API | Use instead | Reason |
 |-------------|-------------|--------|
@@ -574,85 +591,6 @@ mvn clean install
 mvn -f sample/pom.xml clean package
 java -jar sample/target/rust-java-rest-4.3.0-sample.jar
 ```
-
-## Quick Start
-
-Create `src/main/resources/rust-spring.properties`:
-
-```properties
-server.port=8080
-server.host=0.0.0.0
-
-reactor.runtime.profile=micro-rest
-reactor.rust.log.level=error
-reactor.rust.java.log.level=warn
-
-reactor.rust.http.max-request-body-bytes=1048576
-reactor.rust.http.max-response-body-bytes=8388608
-reactor.rust.http.max-inflight-response-bytes=8388608
-reactor.rust.http.max-connections=512
-
-reactor.rust.native-cache.max-entries=0
-reactor.rust.native-cache.max-bytes=0
-```
-
-Create a minimal application:
-
-```java
-package com.acme.orders;
-
-import com.reactor.rust.bridge.HandlerRegistry;
-import com.reactor.rust.bridge.NativeBridge;
-import com.reactor.rust.bridge.RouteScanner;
-import com.reactor.rust.config.PropertiesLoader;
-import com.reactor.rust.config.RuntimeProfiles;
-import com.reactor.rust.di.BeanContainer;
-import com.reactor.rust.memory.NativeIdleMemoryTrimmer;
-
-import java.util.concurrent.atomic.AtomicReference;
-
-public final class OrdersApplication {
-    public static void main(String[] args) throws InterruptedException {
-        PropertiesLoader.load();
-        RuntimeProfiles.apply();
-
-        BeanContainer container = BeanContainer.getInstance();
-        container.scan("com.acme.orders");
-        container.start();
-
-        HandlerRegistry registry = HandlerRegistry.getInstance();
-        for (Object bean : container.getBeansOfType(Object.class)) {
-            registry.registerBean(bean);
-        }
-
-        RouteScanner.scanAndRegister();
-        NativeBridge.configureRuntimeFromProperties();
-
-        AtomicReference<NativeIdleMemoryTrimmer> nativeIdleTrimmer = new AtomicReference<>();
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            NativeIdleMemoryTrimmer trimmer = nativeIdleTrimmer.get();
-            if (trimmer != null) {
-                trimmer.close();
-            }
-            NativeBridge.stopHttpServer();
-            container.shutdown();
-        }));
-
-        NativeBridge.startHttpServer(PropertiesLoader.getInt("server.port", 8080));
-        nativeIdleTrimmer.set(NativeIdleMemoryTrimmer.startFromProperties());
-        Thread.sleep(Long.MAX_VALUE);
-    }
-}
-```
-
-Run:
-
-```bash
-mvn package
-java @src/main/resources/startup/openj9-micro-rss.options -cp "target/classes;target/dependency/*;target/your-app.jar" com.acme.orders.OrdersApplication
-```
-
-On Linux/macOS use `:` instead of `;` in the classpath.
 
 ## Copy/Paste REST Cookbook
 
@@ -1744,6 +1682,21 @@ Before shipping a service:
   in production. Memory gain alone is not enough; p99 regressions on hot DTO routes reject the
   profile.
 - Keep hot-path logging off.
+
+## Documentation Map
+
+| Need | Document |
+| --- | --- |
+| Build-time DI, conditions, clients, scheduling, and generated wiring | [Declarative development](docs/declarative-development.md) |
+| Parent, BOM, and starter dependency boundaries | [Platform guide](platform/README.md) |
+| All runtime properties and override order | [Configuration reference](docs/configuration.md) |
+| Runtime profiles, RSS, native trim, route budgets, and Kubernetes sizing | [Production runtime](docs/production-runtime.md) |
+| Startup indexes, OpenJ9, shared class cache, and InstantOn experiments | [Startup tuning](docs/startup-tuning.md) |
+| Health, readiness, shutdown, and operational endpoints | [Operations](docs/operations.md) |
+| Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
+| Small projects that compile in the build | [Examples](examples/README.md) |
+| Repeatable benchmark rules and evidence archive | [Benchmark package](benchmark/README.md) |
+| Changes in this release | [4.3.0 release notes](docs/release-notes/v4.3.0.md) |
 
 ## License
 

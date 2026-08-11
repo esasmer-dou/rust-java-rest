@@ -24,6 +24,10 @@ curl "http://localhost:8083/api/v1/orders/live?count=100"
 curl.exe -OJ http://localhost:8083/api/v1/orders/export
 ```
 
+The first request returns a bounded JSON array. The second downloads the configured file without
+loading the complete file into Java heap. Verify the downloaded size and `Content-Disposition`
+header before adapting the example.
+
 ## Choose The Right Path
 
 - Use `FileResponse` for files and exports already present on disk.
@@ -36,3 +40,5 @@ curl.exe -OJ http://localhost:8083/api/v1/orders/export
 
 Do not read the entire file into Java heap. Do not create a large object graph only to serialize it
 once. Both patterns increase allocation and retained memory without improving the business model.
+
+Return to the [examples index](../README.md) for the normal record path and bounded upload path.

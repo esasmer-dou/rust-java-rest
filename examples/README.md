@@ -9,6 +9,15 @@ For a new production project, use the platform parent and a starter as described
 [main README](../README.md#five-minute-project-setup). The examples use a compact explicit module to
 keep each isolated demo in a few files.
 
+## Prerequisites
+
+- Java 21 and Maven 3.9+.
+- The aligned `rust-java-rest:4.3.0` package and its packaged DLL/SO.
+- One free local port for the selected module.
+
+Every module is compiled by the examples reactor. If a README snippet and source diverge, the source
+module and its tests are authoritative; fix the README in the same change.
+
 ## Pick One Example
 
 | Module | Port | Demonstrates | Copy when |

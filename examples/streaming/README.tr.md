@@ -24,6 +24,10 @@ curl "http://localhost:8083/api/v1/orders/live?count=100"
 curl.exe -OJ http://localhost:8083/api/v1/orders/export
 ```
 
+İlk request sınırlı bir JSON dizisi döner. İkinci request, dosyanın tamamını Java heap'e almadan
+ayarlanan dosyayı indirir. Örneği uyarlamadan önce indirilen boyutu ve `Content-Disposition`
+header'ını kontrol edin.
+
 ## Doğru Yolu Seçin
 
 - Diskte hazır duran dosya ve export için `FileResponse` kullanın.
@@ -36,3 +40,5 @@ curl.exe -OJ http://localhost:8083/api/v1/orders/export
 
 Dosyanın tamamını Java heap'e almayın. Yalnız bir kez serialize etmek için büyük object graph
 oluşturmayın. İki yaklaşım da business modele katkı sağlamadan allocation ve retained memory artırır.
+
+Normal record ve bounded upload yolu için [örnekler dizinine](../README.tr.md) dönün.

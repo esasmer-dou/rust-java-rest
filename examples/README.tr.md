@@ -9,6 +9,15 @@ Yeni production projesinde [ana README](../README.tr.md#beş-dakikada-başlangı
 parent ve starter yolunu kullanın. Bu örnekler, her demoyu birkaç dosyada tutmak için küçük explicit
 module kullanır.
 
+## Gereksinimler
+
+- Java 21 ve Maven 3.9+.
+- Uyumlu `rust-java-rest:4.3.0` paketi ve onunla gelen DLL/SO.
+- Seçtiğiniz modül için boş bir lokal port.
+
+Her modül examples reactor tarafından derlenir. README örneği ile source ayrışırsa source modülü ve
+testleri doğrudur; aynı değişiklik içinde README'yi de düzeltin.
+
 ## Örneği Seçin
 
 | Modül | Port | Gösterdiği özellik | Ne zaman kopyalanır? |

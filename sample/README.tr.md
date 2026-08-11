@@ -29,6 +29,16 @@ mvn -f sample/pom.xml clean package
 java -jar sample/target/rust-java-rest-4.3.0-sample.jar
 ```
 
+Benchmark çalıştırmadan önce process'i doğrulayın:
+
+```powershell
+curl http://localhost:8080/app/health
+curl http://localhost:8080/diagnostics/routes
+```
+
+İlk endpoint sağlıklı olmalıdır. Route diagnostics, production ve benchmark-only route'ları açıkça
+ayırmalıdır. Binary veya profile değiştirmeden önce process'i durdurun.
+
 Uygulama `server.port` ve diğer runtime limitlerini
 `sample/src/main/resources/rust-spring.properties` ile dış overlay dosyalarından okur.
 
