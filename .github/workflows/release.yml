@@ -10,6 +10,11 @@ on:
         description: "Release version, for example 4.3.0 or 4.3.0-rc1"
         required: true
         type: string
+      repair_partial_package:
+        description: "Delete and republish an incomplete GitHub Packages version"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -36,6 +41,13 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the requested release tag
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          git fetch --force --tags
+          git checkout --detach "v${{ steps.version.outputs.version }}"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -112,8 +124,33 @@ jobs:
           mvn -B -DskipTests install
           mvn -B -DskipTests -f sample/pom.xml package
 
+      - name: Remove incomplete Maven package version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.repair_partial_package }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          API_PATH="/users/${GITHUB_REPOSITORY_OWNER}/packages/maven/com.reactor.rust-java-rest/versions"
+          VERSION_ID="$(gh api --paginate "${API_PATH}?per_page=100" --jq ".[] | select(.name == \"${VERSION}\") | .id" | head -n 1)"
+          if [ -n "${VERSION_ID}" ]; then
+            gh api --method DELETE "${API_PATH}/${VERSION_ID}"
+          fi
+          for attempt in $(seq 1 12); do
+            REMAINING="$(gh api --paginate "${API_PATH}?per_page=100" --jq ".[] | select(.name == \"${VERSION}\") | .id" | head -n 1)"
+            if [ -z "${REMAINING}" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Package version ${VERSION} was not deleted in time" >&2
+          exit 1
+
       - name: Publish Maven package
-        run: mvn -B -DskipTests deploy
+        run: >-
+          mvn -B -ntp -DskipTests
+          -DretryFailedDeploymentCount=5
+          -Daether.connector.basic.threads=1
+          -Dmaven.wagon.http.retryHandler.count=5
+          deploy
 
       - name: Prepare release assets
         shell: bash
