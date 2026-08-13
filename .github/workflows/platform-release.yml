@@ -68,7 +68,11 @@ jobs:
 
       - name: Publish BOM, parent, starters, compatibility module, and plugin
         run: >-
-          mvn -B -ntp -f platform/pom.xml -DskipTests deploy
+          mvn -B -ntp -f platform/pom.xml -DskipTests
+          -DretryFailedDeploymentCount=5
+          -Daether.connector.basic.threads=1
+          -Dmaven.wagon.http.retryHandler.count=5
+          deploy
           -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/esasmer-dou/rust-java-rest
 
       - name: Attach platform artifact bundle to REST release
