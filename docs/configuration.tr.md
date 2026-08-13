@@ -42,9 +42,9 @@ Bu ayarlar yalnız kullanılmayan gözlem verisini bellekten çıkarır.
 her zaman açar. Metrics'i kapatmak Rust tarafındaki native HTTP sayaçlarını kaldırmaz. Yalnız hiçbir
 endpoint'in okumadığı Java registry verisinin bellekte tutulmasını engeller.
 
-## Glowroot Mikro Ajan (4.4.0)
+## Glowroot Mikro Ajan (4.4.1)
 
-Yayınlanmış `4.4.0` runtime REST ABI `28` ve Glowroot ABI `1` kullanır. Yalnız koordineli `4.4.0`
+Yayınlanmış `4.4.1` runtime REST ABI `28` ve Glowroot ABI `1` kullanır. Yalnız koordineli `4.4.1`
 artifact'iyle gelen DLL/SO dosyasını kullanın.
 
 Bu entegrasyon yalnız application tarafındadır. Mevcut Glowroot Central/collector değişmez. Strict

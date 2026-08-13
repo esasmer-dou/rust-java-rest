@@ -13,7 +13,7 @@ param(
     [string]$Group = 'com.example',
     [string]$Package,
     [int]$Port = 8080,
-    [string]$Version = '4.4.0'
+    [string]$Version = '4.4.1'
 )
 
 $ErrorActionPreference = 'Stop'

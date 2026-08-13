@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.1] - 2026-08-13
+
+### Fixed
+
+- Replaced both packaged native libraries with clean CI artifacts built from `rust-spring v4.4.2`.
+- Aligned the native runtime and Maven provenance manifest on the complete 40-character source
+  commit SHA.
+- Added a packaged-runtime regression test that validates the real native build information before
+  server startup.
+
+### Compatibility
+
+- REST ABI remains `28`, Dubbo ABI remains `7`, Redis ABI remains `6`, and Glowroot ABI remains `1`.
+- Java annotations, handlers, services, validation, route behavior, and business logic are
+  unchanged.
+- Deploy only the DLL/SO packaged with `rust-java-rest:4.4.1`.
+
+---
+
 ## [4.4.0] - 2026-08-13
 
 ### Added

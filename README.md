@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Version](https://img.shields.io/badge/version-4.4.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.0)
+[![Version](https://img.shields.io/badge/version-4.4.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.0)
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.1)
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -52,10 +52,10 @@ discovery, or libraries that require a Spring application context.
 
 ## Current Stable Line
 
-`4.4.0` is the published declarative runtime line used by `java-rust-cache:0.7.2` and
-`java-rust-dubbo:0.7.2`. Its packaged native artifacts report REST ABI `28`, Dubbo ABI `7`, Redis
-ABI `6`, and Glowroot ABI `1`. Always use the native file carried by the same coordinated Maven
-artifact.
+`4.4.1` is the stable declarative runtime line. It packages clean `rust-spring v4.4.2` native
+artifacts whose complete source commit matches the Maven provenance manifest. REST ABI remains
+`28`, Dubbo ABI remains `7`, Redis ABI remains `6`, and Glowroot ABI remains `1`. Always use the
+native file carried by the same coordinated Maven artifact.
 
 Generated application wiring and route invokers keep Java handlers and business services
 unchanged. If your application combines the published libraries, keep the versions aligned:
@@ -64,13 +64,13 @@ unchanged. If your application combines the published libraries, keep the versio
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.4.0</version>
+  <version>4.4.1</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.7.2</version>
+  <version>0.7.3</version>
 </dependency>
 
 <dependency>
@@ -80,7 +80,7 @@ unchanged. If your application combines the published libraries, keep the versio
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.7.2` or `java-rust-dubbo:0.7.2` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.7.3` or `java-rust-dubbo:0.7.2` native mode with a DLL/SO copied from
 an older release. Startup verifies all four ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
@@ -95,7 +95,7 @@ the build-time AOT gates without adding runtime reflection.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.4.0</version>
+  <version>4.4.1</version>
 </parent>
 
 <dependencies>
@@ -219,12 +219,12 @@ final class ApiErrors {
 Exception handlers are indexed and invoked through generated code. Do not catch every exception in
 every route or expose dependency exception text to clients.
 
-## v4.4.0 At A Glance
+## v4.4.1 At A Glance
 
-`v4.4.0` keeps the Java handler and service model unchanged and adds an opt-in, bounded telemetry
-plane for existing Glowroot Central installations. HTTP route aggregates, native Dubbo/Redis
-timings, process RSS, thread count, exporter health, and sampled slow/error traces are encoded and
-exported by Rust. No bytecode weaving, Netty, or protobuf Java runtime is added to the REST process.
+`v4.4.1` keeps the Java handler and service model unchanged and hardens native artifact identity.
+Windows and Linux libraries now report the complete source commit stored in the Maven provenance
+manifest. The existing optional telemetry plane remains available without adding bytecode weaving,
+Netty, or a protobuf Java runtime to the REST process.
 
 - Telemetry is disabled by default and allocates no route table, queue, or collector connection.
 - The `micro` profile caps routes, trace slots, export bytes, and reconnect state.
@@ -232,12 +232,12 @@ exported by Rust. No bytecode weaving, Netty, or protobuf Java runtime is added 
 - Startup validates REST ABI `28`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `1`, source revision,
   platform, and SHA-256 before serving traffic.
 - Native release artifacts must come from a clean CI build of the exact recorded Rust commit.
-- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.2.0` and standalone
+- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.2.1` and standalone
   `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
 Existing REST annotations, handler signatures, response types, services, validation, and business
-logic remain source-compatible. Because REST ABI advances to `28`, deploy the DLL/SO packaged with
-the coordinated `4.4.0` artifact.
+logic remain source-compatible. REST ABI stays at `28`; deploy the DLL/SO packaged with the
+coordinated `4.4.1` artifact.
 
 ## How Startup And Configuration Work
 
@@ -474,7 +474,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.4.0</version>
+  <version>4.4.1</version>
 </dependency>
 ```
 
@@ -556,17 +556,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.4.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.4.0-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.4.0-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-4.4.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.4.1-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.4.1-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.4.0-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-4.4.1-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.4.0`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.4.1`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -588,7 +588,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.4.0-sample.jar
+java -jar sample/target/rust-java-rest-4.4.1-sample.jar
 ```
 
 ## Copy/Paste REST Cookbook
@@ -1464,7 +1464,7 @@ Use:
 - `GET /diagnostics/routes` for route strategy/fallback visibility.
 - `NativeBridge.nativeMemoryDiagnosticsJson()` for native memory diagnostics.
 
-The `4.4.0` line can use `java-rust-glowroot-agent:0.2.0`. It sends bounded
+The `4.4.1` line can use `java-rust-glowroot-agent:0.2.1`. It sends bounded
 HTTP route, native Dubbo, native Redis, process RSS, thread, exporter health, and sampled slow/error
 trace data to Glowroot Central. The Java agent does not weave bytecode and adds no runtime
 dependencies. Protobuf and plaintext HTTP/2 export run inside the existing Rust runtime.
@@ -1634,7 +1634,7 @@ More benchmark details:
 
 - [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
-- [docs/release-notes/v4.4.0.md](docs/release-notes/v4.4.0.md)
+- [docs/release-notes/v4.4.1.md](docs/release-notes/v4.4.1.md)
 - [docs/release-notes/v4.3.0.md](docs/release-notes/v4.3.0.md)
 - [docs/release-notes/v3.2.5.md](docs/release-notes/v3.2.5.md)
 - [docs/release-notes/v3.2.3.md](docs/release-notes/v3.2.3.md)
@@ -1728,7 +1728,7 @@ Before shipping a service:
 | Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
 | Small projects that compile in the build | [Examples](examples/README.md) |
 | Repeatable benchmark rules and evidence archive | [Benchmark package](benchmark/README.md) |
-| Changes in this release | [4.4.0 release notes](docs/release-notes/v4.4.0.md) |
+| Changes in this release | [4.4.1 release notes](docs/release-notes/v4.4.1.md) |
 
 ## License
 

@@ -42,10 +42,10 @@ These settings remove observability state only when the service does not expose 
 metric collection. Disabling metrics does not remove native HTTP counters from Rust; it only avoids
 retaining optional Java registry state that no endpoint can read.
 
-## Glowroot Micro Agent (4.4.0)
+## Glowroot Micro Agent (4.4.1)
 
-The published `4.4.0` runtime uses REST ABI `28` and Glowroot ABI `1`. Use only the DLL/SO packaged
-with the coordinated `4.4.0` artifact.
+The published `4.4.1` runtime uses REST ABI `28` and Glowroot ABI `1`. Use only the DLL/SO packaged
+with the coordinated `4.4.1` artifact.
 
 This is an application-side integration. Keep the existing Glowroot Central/collector unchanged.
 The strict low-memory path needs no agent JAR: enable the coordinated native capability with system

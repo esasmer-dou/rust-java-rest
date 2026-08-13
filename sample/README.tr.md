@@ -26,7 +26,7 @@ Bu sample JAR'ını uygulama dependency'si olarak eklemeyin.
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.4.0-sample.jar
+java -jar sample/target/rust-java-rest-4.4.1-sample.jar
 ```
 
 Benchmark çalıştırmadan önce process'i doğrulayın:
@@ -46,10 +46,10 @@ Uygulama `server.port` ve diğer runtime limitlerini
 
 | İhtiyaç | Artefact |
 | --- | --- |
-| Production dependency | `com.reactor:rust-java-rest:4.4.0` |
-| Full compatibility uygulaması | `sample/target/rust-java-rest-4.4.0-sample.jar` |
-| Tek parça minimal benchmark classpath | `target/rust-java-rest-4.4.0-core-runtime.jar` |
-| Build-only processor'lar | `rust-java-rest-4.4.0-codegen.jar` |
+| Production dependency | `com.reactor:rust-java-rest:4.4.1` |
+| Full compatibility uygulaması | `sample/target/rust-java-rest-4.4.1-sample.jar` |
+| Tek parça minimal benchmark classpath | `target/rust-java-rest-4.4.1-core-runtime.jar` |
+| Build-only processor'lar | `rust-java-rest-4.4.1-codegen.jar` |
 
 Codegen JAR annotation-processor path üzerinde bulunur. Runtime dependency değildir.
 

@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.4.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.0)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.4.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.1)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.0)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.1)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -41,22 +41,16 @@ kütüphaneler gerektiriyorsa bu framework doğru başlangıç değildir.
 | Bir property'nin anlamını bulmak | [Konfigürasyon referansı](docs/configuration.tr.md) |
 | Startup, fallback, native yükleme veya `503` sorununu çözmek | [Sorun giderme](docs/troubleshooting.tr.md) |
 
-## 4.4.0 ile Neler Değişti?
+## 4.4.1 ile Neler Değişti?
 
-Bu sürüm Java business logic kullanımını değiştirmez. Mevcut Glowroot Central kurulumuna veri
-gönderen, isteğe bağlı ve sınırlandırılmış bir telemetry katmanı ekler. HTTP route özetleri, native
-Dubbo/Redis süreleri, process RSS, thread sayısı ve seçilmiş yavaş/hatalı trace verileri Rust
-tarafında hazırlanır.
+Bu sürüm production provenance düzeltmesidir. Java business logic kullanımı ve endpoint davranışı
+değişmez.
 
-- Özellik varsayılan olarak kapalıdır. Kapalıyken route tablosu, kuyruk veya collector bağlantısı
-  oluşturulmaz.
-- `micro` profili route, trace, export byte ve reconnect durumunu sabit üst sınırlarla korur.
-- `/diagnostics/glowroot` ve `reactor_glowroot_*` metrikleri çalışma durumunu gösterir.
-- Startup; REST ABI `28`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `1`, kaynak commit'i ve SHA-256
-  bilgisini doğrular.
-- Spring Boot uygulamaları ayrı `java-rust-glowroot-spring-boot-starter:0.2.0` artifact'ini kullanır.
-  Spring bağımlılıkları Rust-Java REST paketine girmez.
-- Native DLL/SO, `4.4.0` Maven artifact'i içinde gelen dosya olmalıdır.
+- Windows ve Linux native dosyaları temiz `rust-spring v4.4.2` CI build'inden alınır.
+- Native runtime, kaynak commit'inin 40 karakterli tam SHA değerini bildirir.
+- Startup bu değeri Maven artifact'i içindeki manifest ile birebir karşılaştırır.
+- REST ABI `28`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `1` olarak kalır.
+- Native DLL/SO, `4.4.1` Maven artifact'i içinde gelen dosya olmalıdır.
 
 ## İçindekiler
 
@@ -86,7 +80,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.4.0</version>
+  <version>4.4.1</version>
 </parent>
 
 <dependencies>
@@ -431,7 +425,7 @@ reactor.rust.http.idle-timeout-ms=30000
 
 ## Gözlemlenebilirlik
 
-`4.4.0` sürümü `java-rust-glowroot-agent:0.2.0` kullanabilir. Mikro ajan şu
+`4.4.1` sürümü `java-rust-glowroot-agent:0.2.1` kullanabilir. Mikro ajan şu
 verileri Glowroot Central'a gönderir:
 
 - HTTP route çağrı sayısı, süre dağılımı ve `5xx` sayısı;
@@ -569,8 +563,8 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Yayınlanmış dependency çizgisi `rust-java-rest:4.4.0`, `java-rust-dubbo:0.7.2` ve
-`java-rust-cache:0.7.2` şeklindedir. Native artifact'ler REST ABI `28`, Dubbo ABI `7`, Redis ABI `6`
+Yayınlanmış dependency çizgisi `rust-java-rest:4.4.1`, `java-rust-dubbo:0.7.2` ve
+`java-rust-cache:0.7.3` şeklindedir. Native artifact'ler REST ABI `28`, Dubbo ABI `7`, Redis ABI `6`
 ve Glowroot ABI `1` taşır.
 
 Native DLL/SO dosyasını başka bir sürümden kopyalamayın. Startup; ABI, platform, source revision ve
@@ -588,7 +582,7 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Benchmark metodolojisi ve kanıt arşivi](benchmark/README.md)
-- [Sürüm notları](docs/release-notes/v4.4.0.tr.md)
+- [Sürüm notları](docs/release-notes/v4.4.1.tr.md)
 
 ## Kısa Sözlük
 
