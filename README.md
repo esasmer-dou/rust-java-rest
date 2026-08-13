@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Version](https://img.shields.io/badge/version-4.3.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.3.0)
+[![Version](https://img.shields.io/badge/version-4.4.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.3.0)
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.0)
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -52,35 +52,36 @@ discovery, or libraries that require a Spring application context.
 
 ## Current Stable Line
 
-`4.3.0` is the declarative runtime line used by `java-rust-cache:0.7.1` and
-`java-rust-dubbo:0.7.1`. The current source tree and its packaged native artifacts report REST ABI
-`26`, Dubbo ABI `7`, and Redis ABI `6`. Always use the DLL/SO carried by the same Maven artifact;
-never copy a native binary from another release. Generated application wiring and route invokers
-keep Java handlers and business services unchanged. If your application combines these libraries,
-keep the versions aligned:
+`4.4.0` is the published declarative runtime line used by `java-rust-cache:0.7.2` and
+`java-rust-dubbo:0.7.2`. Its packaged native artifacts report REST ABI `28`, Dubbo ABI `7`, Redis
+ABI `6`, and Glowroot ABI `1`. Always use the native file carried by the same coordinated Maven
+artifact.
+
+Generated application wiring and route invokers keep Java handlers and business services
+unchanged. If your application combines the published libraries, keep the versions aligned:
 
 ```xml
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.3.0</version>
+  <version>4.4.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.7.1</version>
+  <version>0.7.2</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.7.1</version>
+  <version>0.7.2</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.7.1` or `java-rust-dubbo:0.7.1` native mode with a DLL/SO copied from
-an older release. Startup verifies all three ABI values, source revision, platform, and SHA-256
+Do not mix `java-rust-cache:0.7.2` or `java-rust-dubbo:0.7.2` native mode with a DLL/SO copied from
+an older release. Startup verifies all four ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
 
@@ -94,7 +95,7 @@ the build-time AOT gates without adding runtime reflection.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.3.0</version>
+  <version>4.4.0</version>
 </parent>
 
 <dependencies>
@@ -218,27 +219,25 @@ final class ApiErrors {
 Exception handlers are indexed and invoked through generated code. Do not catch every exception in
 every route or expose dependency exception text to clients.
 
-## v4.3.0 At A Glance
+## v4.4.0 At A Glance
 
-`v4.3.0` keeps the declarative API introduced in `4.2.0` and removes avoidable work from startup and
-the request path. Generated route invokers and direct JSON writers are now resolved before traffic.
-An explicitly requested writer that cannot be generated fails the build instead of silently using a
-slower runtime path.
+`v4.4.0` keeps the Java handler and service model unchanged and adds an opt-in, bounded telemetry
+plane for existing Glowroot Central installations. HTTP route aggregates, native Dubbo/Redis
+timings, process RSS, thread count, exporter health, and sampled slow/error traces are encoded and
+exported by Rust. No bytecode weaving, Netty, or protobuf Java runtime is added to the REST process.
 
-- Add `@GenerateDirectJsonWriter` only to response records that need the generated direct path.
-  `@Response` remains the normal DTO marker and does not imply a native writer.
-- Generated route metadata binds the exact invocation plan once. Route diagnostics show whether a
-  route is generated, direct, native static, or using a compatibility fallback.
-- Empty and bodyless routes avoid unnecessary request-frame work, while echo parsing and primitive
-  binding retain their Java business semantics.
-- Application descriptors, registries, native artifact checks, and OpenJ9 shared-cache preparation
-  allocate less during startup.
-- Resident-image, startup, generated-invocation, echo, and small-direct gates are included under
-  `benchmark/` so release decisions use repeatable evidence rather than one-off numbers.
+- Telemetry is disabled by default and allocates no route table, queue, or collector connection.
+- The `micro` profile caps routes, trace slots, export bytes, and reconnect state.
+- `/diagnostics/glowroot` and `reactor_glowroot_*` metrics expose configuration and exporter health.
+- Startup validates REST ABI `28`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `1`, source revision,
+  platform, and SHA-256 before serving traffic.
+- Native release artifacts must come from a clean CI build of the exact recorded Rust commit.
+- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.2.0` and standalone
+  `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
-Existing REST annotations, handler signatures, response types, services, and business logic remain
-source-compatible. REST ABI remains `26`, but the DLL/SO is version-bound and must come from the same
-`4.3.0` package because its static-response implementation changed.
+Existing REST annotations, handler signatures, response types, services, validation, and business
+logic remain source-compatible. Because REST ABI advances to `28`, deploy the DLL/SO packaged with
+the coordinated `4.4.0` artifact.
 
 ## How Startup And Configuration Work
 
@@ -475,7 +474,7 @@ based on workload shape and configuration, not on copying benchmark numbers blin
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.3.0</version>
+  <version>4.4.0</version>
 </dependency>
 ```
 
@@ -557,17 +556,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.3.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.3.0-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.3.0-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-4.4.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.4.0-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.4.0-core-runtime.jar`: single lean runtime jar for benchmark/container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.3.0-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-4.4.0-sample.jar`: runnable demo and benchmark application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.3.0`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.4.0`, it does not receive the
   framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -589,7 +588,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.3.0-sample.jar
+java -jar sample/target/rust-java-rest-4.4.0-sample.jar
 ```
 
 ## Copy/Paste REST Cookbook
@@ -1465,6 +1464,38 @@ Use:
 - `GET /diagnostics/routes` for route strategy/fallback visibility.
 - `NativeBridge.nativeMemoryDiagnosticsJson()` for native memory diagnostics.
 
+The `4.4.0` line can use `java-rust-glowroot-agent:0.2.0`. It sends bounded
+HTTP route, native Dubbo, native Redis, process RSS, thread, exporter health, and sampled slow/error
+trace data to Glowroot Central. The Java agent does not weave bytecode and adds no runtime
+dependencies. Protobuf and plaintext HTTP/2 export run inside the existing Rust runtime.
+
+The existing Glowroot Central/collector deployment stays unchanged. Do not deploy a second
+collector or a framework-specific collector plugin. The strict low-memory production path needs no
+agent JAR. Use the coordinated Rust-Java REST artifact whose native binary contains the `glowroot`
+capability, then enable it with `-Dreactor.glowroot.*`, environment variables, or
+`rust-spring.properties`. The optional `-javaagent:/app/agent/java-rust-glowroot-agent.jar` is only a
+configuration convenience and is measured separately. Java controllers, handlers, services,
+validation, and business logic remain unchanged.
+
+Use the full Glowroot Java agent instead when you need arbitrary method tracing, JDBC SQL capture,
+JMX discovery, profiling, log capture, or live weaving. Those features are intentionally absent
+from the micro agent; pretending they can fit inside the same bounded budget would be incorrect.
+
+When `@ReactorApplication(metrics = true)` is enabled, inspect the micro agent locally with:
+
+```bash
+curl -s http://localhost:8080/diagnostics/glowroot
+curl -s http://localhost:8080/metrics | grep reactor_glowroot
+```
+
+The collector is never on the HTTP request critical path. Collector failure uses bounded reconnect
+backoff and drops an expired rollup instead of retaining data indefinitely. The application remains
+available. The source-enforced agent-owned ceiling is `1 MiB`. The independent-process resident
+gate is `3 MiB` for process `VmRSS`, smaps RSS, and cgroup current, with no additional thread. The
+current exact-source run observed maxima of `+1.742 MiB`, `+1.817 MiB`, and `+1.754 MiB`
+respectively. Re-run the disabled/enabled gate on your final Linux image and compare RPS, p99, and
+`503` for every important endpoint/concurrency cell.
+
 `GET /diagnostics/routes` is also the migration checklist for hot routes. For every route, check:
 
 - `strategy`: whether the route is direct, exact annotated, async, raw/static, or legacy.
@@ -1603,6 +1634,7 @@ More benchmark details:
 
 - [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
+- [docs/release-notes/v4.4.0.md](docs/release-notes/v4.4.0.md)
 - [docs/release-notes/v4.3.0.md](docs/release-notes/v4.3.0.md)
 - [docs/release-notes/v3.2.5.md](docs/release-notes/v3.2.5.md)
 - [docs/release-notes/v3.2.3.md](docs/release-notes/v3.2.3.md)
@@ -1662,7 +1694,7 @@ The release asset names are:
 - `librust_hyper-linux-x64.so`
 
 Java checks the native ABI and provenance schema at startup. The packaged manifest records REST ABI
-`26`, Dubbo ABI `7`, Redis ABI `6`, source revision, crate version, and a SHA-256 hash for each
+`28`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `1`, source revision, crate version, and a SHA-256 hash for each
 platform. If the DLL/SO does not match the Java artifact, startup fails early instead of running with
 a broken JNI contract.
 
@@ -1696,7 +1728,7 @@ Before shipping a service:
 | Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
 | Small projects that compile in the build | [Examples](examples/README.md) |
 | Repeatable benchmark rules and evidence archive | [Benchmark package](benchmark/README.md) |
-| Changes in this release | [4.3.0 release notes](docs/release-notes/v4.3.0.md) |
+| Changes in this release | [4.4.0 release notes](docs/release-notes/v4.4.0.md) |
 
 ## License
 

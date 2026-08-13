@@ -73,6 +73,10 @@ class RuntimeProfilesTest {
         assertEquals(0, PropertiesLoader.getInt("reactor.rust.response-pool.huge-capacity", -1));
         assertEquals(0, PropertiesLoader.getInt("reactor.rust.native-cache.max-bytes", -1));
         assertEquals(8192, PropertiesLoader.getInt("reactor.rust.async.frame-initial-bytes", -1));
+        assertEquals(256, PropertiesLoader.getInt("reactor.glowroot.http.sample-rate", 0));
+        assertEquals(0, PropertiesLoader.getInt("reactor.glowroot.trace.capacity", -1));
+        assertEquals(64, PropertiesLoader.getInt("reactor.glowroot.max-routes", 0));
+        assertEquals(65_536, PropertiesLoader.getInt("reactor.glowroot.max-export-bytes", 0));
     }
 
     @Test

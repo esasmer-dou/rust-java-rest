@@ -12,7 +12,8 @@ public final class NativeCapabilityPlan {
         HTTP,
         WEBSOCKET,
         DUBBO,
-        REDIS
+        REDIS,
+        GLOWROOT
     }
 
     private final Set<Capability> enabled;
@@ -29,6 +30,13 @@ public final class NativeCapabilityPlan {
                 String normalized = token.trim();
                 if (!normalized.isEmpty()) capabilities.add(parse(normalized));
             }
+            if (PropertiesLoader.getBoolean("reactor.glowroot.enabled", false)
+                    && !capabilities.contains(Capability.GLOWROOT)) {
+                throw new IllegalStateException(
+                        "reactor.glowroot.enabled=true requires 'glowroot' in "
+                                + "reactor.native.capabilities"
+                );
+            }
         } else {
             ClassLoader loader = Thread.currentThread().getContextClassLoader();
             if (loader == null) loader = NativeCapabilityPlan.class.getClassLoader();
@@ -40,6 +48,9 @@ public final class NativeCapabilityPlan {
             }
             if (PropertiesLoader.getBoolean("reactor.dubbo.enabled", false)) {
                 capabilities.add(Capability.DUBBO);
+            }
+            if (PropertiesLoader.getBoolean("reactor.glowroot.enabled", false)) {
+                capabilities.add(Capability.GLOWROOT);
             }
         }
         return new NativeCapabilityPlan(capabilities);
@@ -59,6 +70,7 @@ public final class NativeCapabilityPlan {
             case "websocket", "ws" -> Capability.WEBSOCKET;
             case "dubbo" -> Capability.DUBBO;
             case "redis", "cache" -> Capability.REDIS;
+            case "glowroot", "telemetry" -> Capability.GLOWROOT;
             default -> throw new IllegalArgumentException(
                     "Unsupported reactor.native.capabilities value: " + value);
         };

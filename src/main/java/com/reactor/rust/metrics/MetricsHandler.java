@@ -9,6 +9,7 @@ import com.reactor.rust.bridge.GeneratedRouteInvokers;
 import com.reactor.rust.bridge.HandlerRegistry;
 import com.reactor.rust.bridge.RoutePlanRegistry;
 import com.reactor.rust.config.RuntimeFootprintGate;
+import com.reactor.rust.config.PropertiesLoader;
 import com.reactor.rust.http.RawResponse;
 import com.reactor.rust.startup.StartupTimeline;
 
@@ -35,6 +36,7 @@ public class MetricsHandler implements GeneratedRouteContributor {
     private static final int ROUTE_DIAGNOSTICS = 4;
     private static final int STARTUP_DIAGNOSTICS = 5;
     private static final int METRICS_RESET = 6;
+    private static final int GLOWROOT_DIAGNOSTICS = 7;
 
     public MetricsHandler() {
         Metrics.getInstance().configureCollection(true);
@@ -49,6 +51,7 @@ public class MetricsHandler implements GeneratedRouteContributor {
         register("getRoutePlans", ROUTE_DIAGNOSTICS);
         register("getStartupDiagnostics", STARTUP_DIAGNOSTICS);
         register("resetMetrics", METRICS_RESET);
+        register("getGlowrootDiagnostics", GLOWROOT_DIAGNOSTICS);
     }
 
     /**
@@ -202,6 +205,18 @@ public class MetricsHandler implements GeneratedRouteContributor {
         return RawResponse.text(StartupTimeline.toJson(), "application/json; charset=utf-8");
     }
 
+    @GetMapping(value = "/diagnostics/glowroot", requestType = Void.class, responseType = RawResponse.class)
+    public RawResponse getGlowrootDiagnostics() {
+        if (!PropertiesLoader.getBoolean("reactor.glowroot.enabled", false)) {
+            return RawResponse.text("{\"enabled\":false}", "application/json; charset=utf-8");
+        }
+        String diagnostics = NativeBridge.glowrootDiagnosticsJson();
+        if (diagnostics == null || diagnostics.isBlank()) {
+            diagnostics = "{\"enabled\":true,\"configured\":false}";
+        }
+        return RawResponse.text(diagnostics, "application/json; charset=utf-8");
+    }
+
     /**
      * Reset all metrics (use with caution!).
      */
@@ -302,6 +317,7 @@ public class MetricsHandler implements GeneratedRouteContributor {
                 case ROUTE_DIAGNOSTICS -> handler.getRoutePlans();
                 case STARTUP_DIAGNOSTICS -> handler.getStartupDiagnostics();
                 case METRICS_RESET -> handler.resetMetrics();
+                case GLOWROOT_DIAGNOSTICS -> handler.getGlowrootDiagnostics();
                 default -> throw new IllegalStateException("Unknown built-in metrics route: " + route);
             };
         }

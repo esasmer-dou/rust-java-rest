@@ -29,6 +29,11 @@ final class NativeProvenance {
                 "redis.abi",
                 Integer.toString(NativeBridge.EXPECTED_REDIS_NATIVE_ABI_VERSION)
         );
+        requireEquals(
+                properties,
+                "glowroot.abi",
+                Integer.toString(NativeBridge.EXPECTED_GLOWROOT_NATIVE_ABI_VERSION)
+        );
 
         String expectedHash = required(properties, platform + ".sha256");
         String actualHash = NativeArtifactDigest.sha256Hex(binary);
@@ -44,6 +49,7 @@ final class NativeProvenance {
                 required(properties, "crate.version"),
                 parsePositiveInt(properties, "dubbo.abi"),
                 parsePositiveInt(properties, "redis.abi"),
+                parsePositiveInt(properties, "glowroot.abi"),
                 actualHash
         );
     }
@@ -68,7 +74,8 @@ final class NativeProvenance {
                 required(properties, "features"),
                 parsePositiveInt(properties, "restAbi"),
                 parsePositiveInt(properties, "dubboAbi"),
-                parsePositiveInt(properties, "redisAbi")
+                parsePositiveInt(properties, "redisAbi"),
+                parsePositiveInt(properties, "glowrootAbi")
         );
     }
 
@@ -122,6 +129,7 @@ final class NativeProvenance {
             String crateVersion,
             int dubboAbi,
             int redisAbi,
+            int glowrootAbi,
             String sha256) {}
 
     record BuildInfo(
@@ -133,5 +141,6 @@ final class NativeProvenance {
             String features,
             int restAbi,
             int dubboAbi,
-            int redisAbi) {}
+            int redisAbi,
+            int glowrootAbi) {}
 }

@@ -24,7 +24,7 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 
-    @Parameter(property = "reactor.native.restAbi", defaultValue = "26")
+    @Parameter(property = "reactor.native.restAbi", defaultValue = "28")
     private int expectedRestAbi;
 
     @Parameter(property = "reactor.native.dubboAbi", defaultValue = "7")
@@ -32,6 +32,9 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
 
     @Parameter(property = "reactor.native.redisAbi", defaultValue = "6")
     private int expectedRedisAbi;
+
+    @Parameter(property = "reactor.native.glowrootAbi", defaultValue = "1")
+    private int expectedGlowrootAbi;
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -47,7 +50,8 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
             verify(runtime);
         }
         getLog().info("Native ABI verified for " + runtimes.size() + " runtime artifact(s): REST="
-                + expectedRestAbi + ", Dubbo=" + expectedDubboAbi + ", Redis=" + expectedRedisAbi);
+                + expectedRestAbi + ", Dubbo=" + expectedDubboAbi + ", Redis=" + expectedRedisAbi
+                + ", Glowroot=" + expectedGlowrootAbi);
     }
 
     private void verify(Artifact runtime) throws MojoExecutionException {
@@ -71,6 +75,7 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
         assertAbi(provenance, "rest.abi", expectedRestAbi);
         assertAbi(provenance, "dubbo.abi", expectedDubboAbi);
         assertAbi(provenance, "redis.abi", expectedRedisAbi);
+        assertAbi(provenance, "glowroot.abi", expectedGlowrootAbi);
     }
 
     private static void assertAbi(Properties values, String key, int expected) throws MojoExecutionException {

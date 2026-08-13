@@ -3,6 +3,7 @@ use reqwest::{Client, Method};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,6 +13,7 @@ struct Config {
     method: Method,
     concurrency: usize,
     duration: Duration,
+    request_limit: Option<u64>,
     timeout: Duration,
     body: Option<Bytes>,
     content_type: String,
@@ -67,6 +69,7 @@ async fn main() {
     };
 
     let deadline = Instant::now() + config.duration;
+    let request_counter = config.request_limit.map(|_| Arc::new(AtomicU64::new(0)));
     let started = Instant::now();
     let config = Arc::new(config);
     let client = Arc::new(client);
@@ -75,8 +78,9 @@ async fn main() {
     for _ in 0..config.concurrency {
         let client = Arc::clone(&client);
         let config = Arc::clone(&config);
+        let request_counter = request_counter.as_ref().map(Arc::clone);
         tasks.push(tokio::spawn(async move {
-            run_worker(client, config, deadline).await
+            run_worker(client, config, deadline, request_counter).await
         }));
     }
 
@@ -93,13 +97,38 @@ async fn main() {
         }
     }
 
-    print_report(stats, started.elapsed());
+    let attempts = request_counter.as_ref().map_or(
+        stats.latencies_us.len() as u64 + stats.error_count(),
+        |counter| {
+            counter
+                .load(Ordering::Acquire)
+                .min(config.request_limit.unwrap_or(u64::MAX))
+        },
+    );
+    print_report(&stats, attempts, started.elapsed());
+    if config.request_limit.is_some_and(|limit| attempts != limit) {
+        eprintln!(
+            "request_limit_not_reached: completed {attempts} of {} attempts before the duration limit",
+            config.request_limit.unwrap_or_default()
+        );
+        std::process::exit(3);
+    }
 }
 
-async fn run_worker(client: Arc<Client>, config: Arc<Config>, deadline: Instant) -> WorkerStats {
+async fn run_worker(
+    client: Arc<Client>,
+    config: Arc<Config>,
+    deadline: Instant,
+    request_counter: Option<Arc<AtomicU64>>,
+) -> WorkerStats {
     let mut stats = WorkerStats::default();
 
     while Instant::now() < deadline {
+        if let (Some(counter), Some(limit)) = (&request_counter, config.request_limit) {
+            if counter.fetch_add(1, Ordering::AcqRel) >= limit {
+                break;
+            }
+        }
         let start = Instant::now();
         let mut request = client.request(config.method.clone(), &config.url);
         if let Some(body) = &config.body {
@@ -143,6 +172,7 @@ fn parse_args() -> Result<Config, String> {
     let mut method = Method::GET;
     let mut concurrency = 1usize;
     let mut duration = Duration::from_secs(10);
+    let mut request_limit = None;
     let mut timeout = Duration::from_secs(10);
     let mut body_file = None;
     let mut content_type = "application/json".to_string();
@@ -157,10 +187,18 @@ fn parse_args() -> Result<Config, String> {
                     .map_err(|_| format!("invalid --method: {value}"))?;
             }
             "--concurrency" => {
-                concurrency = parse_usize(&next_value(&mut args, "--concurrency")?, "--concurrency")?;
+                concurrency =
+                    parse_usize(&next_value(&mut args, "--concurrency")?, "--concurrency")?;
             }
             "--duration" => {
                 duration = parse_duration(&next_value(&mut args, "--duration")?)?;
+            }
+            "--requests" => {
+                let value = parse_u64(&next_value(&mut args, "--requests")?, "--requests")?;
+                if value == 0 {
+                    return Err("--requests must be greater than zero".to_string());
+                }
+                request_limit = Some(value);
             }
             "--timeout-ms" => {
                 let millis = parse_u64(&next_value(&mut args, "--timeout-ms")?, "--timeout-ms")?;
@@ -177,9 +215,11 @@ fn parse_args() -> Result<Config, String> {
     }
 
     let body = match body_file {
-        Some(path) => Some(Bytes::from(
-            fs::read(&path).map_err(|error| format!("cannot read --body-file {path}: {error}"))?,
-        )),
+        Some(path) => {
+            Some(Bytes::from(fs::read(&path).map_err(|error| {
+                format!("cannot read --body-file {path}: {error}")
+            })?))
+        }
         None => None,
     };
 
@@ -188,6 +228,7 @@ fn parse_args() -> Result<Config, String> {
         method,
         concurrency: concurrency.max(1),
         duration,
+        request_limit,
         timeout,
         body,
         content_type,
@@ -224,14 +265,16 @@ fn parse_duration(value: &str) -> Result<Duration, String> {
     Ok(Duration::from_secs(parse_u64(value, "--duration")?))
 }
 
-fn print_report(mut stats: WorkerStats, elapsed: Duration) {
-    stats.latencies_us.sort_unstable();
-    let total = stats.latencies_us.len() as u64;
+fn print_report(stats: &WorkerStats, attempts: u64, elapsed: Duration) {
+    let mut latencies = stats.latencies_us.clone();
+    latencies.sort_unstable();
+    let total = latencies.len() as u64;
     let elapsed_secs = elapsed.as_secs_f64().max(0.001);
     let rps = total as f64 / elapsed_secs;
     let transfer = stats.bytes_read as f64 / elapsed_secs;
 
     println!("Running custom load-probe");
+    println!("  attempted requests: {attempts}");
     println!("  completed requests: {total}");
     println!("  elapsed: {:.3}s", elapsed_secs);
     println!("  bytes read: {}", stats.bytes_read);
@@ -239,24 +282,24 @@ fn print_report(mut stats: WorkerStats, elapsed: Duration) {
     println!("  Thread Stats   Avg      Stdev     Max");
     println!(
         "    Latency   {}   {}   {}",
-        fmt_us(avg_us(&stats.latencies_us)),
-        fmt_us(stddev_us(&stats.latencies_us)),
-        fmt_us(stats.latencies_us.last().copied().unwrap_or(0)),
+        fmt_us(avg_us(&latencies)),
+        fmt_us(stddev_us(&latencies)),
+        fmt_us(latencies.last().copied().unwrap_or(0)),
     );
     println!("  Latency Distribution");
-    println!("     50%  {}", fmt_us(percentile_us(&stats.latencies_us, 0.50)));
-    println!("     75%  {}", fmt_us(percentile_us(&stats.latencies_us, 0.75)));
-    println!("     90%  {}", fmt_us(percentile_us(&stats.latencies_us, 0.90)));
-    println!("     95%  {}", fmt_us(percentile_us(&stats.latencies_us, 0.95)));
-    println!("     99%  {}", fmt_us(percentile_us(&stats.latencies_us, 0.99)));
-    println!("   99.9%  {}", fmt_us(percentile_us(&stats.latencies_us, 0.999)));
+    println!("     50%  {}", fmt_us(percentile_us(&latencies, 0.50)));
+    println!("     75%  {}", fmt_us(percentile_us(&latencies, 0.75)));
+    println!("     90%  {}", fmt_us(percentile_us(&latencies, 0.90)));
+    println!("     95%  {}", fmt_us(percentile_us(&latencies, 0.95)));
+    println!("     99%  {}", fmt_us(percentile_us(&latencies, 0.99)));
+    println!("   99.9%  {}", fmt_us(percentile_us(&latencies, 0.999)));
     println!("Requests/sec:   {:.2}", rps);
     println!("Transfer/sec:   {}/s", fmt_bytes(transfer));
 
-    for (status, count) in stats.statuses {
+    for (status, count) in &stats.statuses {
         println!("Status {status}: {count}");
     }
-    for (error, count) in stats.errors {
+    for (error, count) in &stats.errors {
         println!("Error {error}: {count}");
     }
 }
@@ -333,5 +376,5 @@ fn error_kind(error: &reqwest::Error) -> &'static str {
 }
 
 fn help_text() -> String {
-    "usage: load-probe --url URL [--method GET|POST] [--body-file PATH] --concurrency N --duration 10s [--timeout-ms 10000]".to_string()
+    "usage: load-probe --url URL [--method GET|POST] [--body-file PATH] --concurrency N [--duration 10s] [--requests N] [--timeout-ms 10000]".to_string()
 }

@@ -53,9 +53,9 @@ public final class MinimalProductionApplication {
         if (metricsEnabled) {
             registry.registerBean(new MetricsHandler());
         }
-        RouteScanner.scanAndRegister();
-
+        // Native telemetry must be configured before route slots are assigned.
         NativeBridge.configureRuntimeFromProperties();
+        RouteScanner.scanAndRegister();
         AtomicReference<NativeIdleMemoryTrimmer> nativeIdleTrimmer = new AtomicReference<>();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             NativeIdleMemoryTrimmer trimmer = nativeIdleTrimmer.get();
@@ -94,6 +94,17 @@ public final class MinimalProductionApplication {
         @RustRoute(method = "GET", path = "/health", requestType = Void.class, responseType = RawResponse.class)
         public RawResponse health() {
             return HEALTH;
+        }
+
+        @RustRoute(
+                method = "GET",
+                path = "/api/v1/candidates",
+                requestType = Void.class,
+                responseType = RawResponse.class
+        )
+        @NativeStaticRoute
+        public RawResponse candidates() {
+            return RawResponse.registeredJson(SMALL_ORDER_BYTES);
         }
 
         @RustRoute(

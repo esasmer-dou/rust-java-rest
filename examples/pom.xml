@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.reactor.examples</groupId>
     <artifactId>rust-java-rest-examples</artifactId>
-    <version>4.3.0</version>
+    <version>4.4.0</version>
     <packaging>pom</packaging>
 
     <modules>
@@ -20,7 +20,7 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>4.3.0</rust-java-rest.version>
+        <rust-java-rest.version>4.4.0</rust-java-rest.version>
     </properties>
 
     <repositories>

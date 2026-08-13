@@ -19,7 +19,11 @@ param(
     [string] $CandidateCpuSet = "",
     [string] $RunnerCpuSet = "",
     [double] $RunnerCpuLimit = 2.0,
-    [string] $RunnerImage = "reactor-benchmark-runner:local"
+    [string] $RunnerImage = "reactor-benchmark-runner:local",
+    [string] $BaselineJavaOptsAppend = "",
+    [string] $CandidateJavaOptsAppend = "",
+    [string] $AdditionalNetwork = "",
+    [double] $MaxMemoryRegressionMiB = 1.0
 )
 
 $ErrorActionPreference = "Stop"
@@ -85,6 +89,30 @@ $endpoints = @(
         Class = "small-json-direct"
         Method = "GET"
         Path = "/api/v1/candidates/direct"
+    },
+    [PSCustomObject]@{
+        Name = "heavy100_dynamic_producer"
+        Class = "dynamic-producer-json"
+        Method = "GET"
+        Path = "/api/v1/heavy/dto?items=100"
+    },
+    [PSCustomObject]@{
+        Name = "heavy100_direct_writer"
+        Class = "direct-json-writer"
+        Method = "GET"
+        Path = "/api/v1/heavy?items=100"
+    },
+    [PSCustomObject]@{
+        Name = "heavy100_producer_json"
+        Class = "producer-json"
+        Method = "GET"
+        Path = "/api/v1/heavy/producer?items=100"
+    },
+    [PSCustomObject]@{
+        Name = "heavy100_raw"
+        Class = "raw-json"
+        Method = "GET"
+        Path = "/api/v1/heavy/raw"
     }
 )
 
@@ -111,20 +139,31 @@ function Invoke-DockerChecked {
 }
 
 function Start-FrameworkContainer {
-    param([string] $Name, [string] $Image, [string] $CpuSet)
+    param(
+        [string] $Name,
+        [string] $Image,
+        [string] $CpuSet,
+        [string] $JavaOptsAppend
+    )
+    $effectiveJavaOpts = @($javaOpts, $JavaOptsAppend) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     $args = @(
         "run", "-d", "--name", $Name,
         "--network", $network,
         "--cpus", "$CpuLimit",
         "--memory", $MemoryLimit,
         "-e", "JAVA_TOOL_OPTIONS=",
-        "-e", "JAVA_OPTS=$javaOpts"
+        "-e", "JAVA_AGENT_OPTS=",
+        "-e", "JAVA_OPTS=$($effectiveJavaOpts -join ' ')"
     )
     if (-not [string]::IsNullOrWhiteSpace($CpuSet)) {
         $args += @("--cpuset-cpus", $CpuSet)
     }
     $args += $Image
     Invoke-DockerChecked -Arguments $args | Out-Null
+    if (-not [string]::IsNullOrWhiteSpace($AdditionalNetwork)) {
+        Invoke-DockerChecked -Arguments @("network", "connect", $AdditionalNetwork, $Name) | Out-Null
+    }
 }
 
 function Start-RunnerContainer {
@@ -248,8 +287,10 @@ try {
     Invoke-DockerChecked -Arguments @("image", "inspect", $RunnerImage) | Out-Null
     Invoke-DockerChecked -Arguments @("network", "create", $network) | Out-Null
     Start-RunnerContainer
-    Start-FrameworkContainer -Name $baselineContainer -Image $BaselineImage -CpuSet $BaselineCpuSet
-    Start-FrameworkContainer -Name $candidateContainer -Image $CandidateImage -CpuSet $CandidateCpuSet
+    Start-FrameworkContainer -Name $baselineContainer -Image $BaselineImage `
+            -CpuSet $BaselineCpuSet -JavaOptsAppend $BaselineJavaOptsAppend
+    Start-FrameworkContainer -Name $candidateContainer -Image $CandidateImage `
+            -CpuSet $CandidateCpuSet -JavaOptsAppend $CandidateJavaOptsAppend
     Wait-FrameworkReady -Name $baselineContainer
     Wait-FrameworkReady -Name $candidateContainer
 
@@ -340,6 +381,10 @@ try {
         runner_cpu_limit = $RunnerCpuLimit
         memory_limit = $MemoryLimit
         java_opts = $javaOpts
+        baseline_java_opts_append = $BaselineJavaOptsAppend
+        candidate_java_opts_append = $CandidateJavaOptsAppend
+        additional_network = $AdditionalNetwork
+        max_memory_regression_mib = $MaxMemoryRegressionMiB
     }
     $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ResultsDir "metadata.json") -Encoding utf8
 
@@ -348,11 +393,18 @@ try {
             -CandidateResultsDir $candidateDir `
             -OutputDir $comparisonDir `
             -StrictConcurrencyLevels @($Concurrency) `
-            -MinStrictRuns 3
+            -MinStrictRuns 3 `
+            -MaxMemoryRegressionMiB $MaxMemoryRegressionMiB
     if ($LASTEXITCODE -ne 0) {
         throw "Framework comparison failed."
     }
 } finally {
+    if (& docker ps -a --format "{{.Names}}" | Where-Object { $_ -eq $baselineContainer }) {
+        & docker logs $baselineContainer *> (Join-Path $ResultsDir "baseline-app.log")
+    }
+    if (& docker ps -a --format "{{.Names}}" | Where-Object { $_ -eq $candidateContainer }) {
+        & docker logs $candidateContainer *> (Join-Path $ResultsDir "candidate-app.log")
+    }
     & docker rm -f $baselineContainer $candidateContainer $runnerContainer *> $null
     & docker network rm $network *> $null
 }

@@ -24,6 +24,15 @@ param(
     [string] $PlanPreWarmDuration = "3s",
     [ValidateRange(0, 1)]
     [int] $CalibrationCycles = 1,
+    [double] $MinUsefulRpsDeltaPercent = -2.0,
+    [double] $MaxP99RegressionPercent = 10.0,
+    [double] $Max503DeltaPercentagePoints = 2.0,
+    [double] $MaxMemoryRegressionMiB = 1.0,
+    [int] $MinStrictRuns = 3,
+    [double] $MaxUsefulRpsCoefficientVariationPercent = 10.0,
+    [double] $MaxP99CoefficientVariationPercent = 15.0,
+    [double] $MaxStartupRegressionPercent = 10.0,
+    [double] $MaxStartupCoefficientVariationPercent = 15.0,
     [switch] $FailOnGate
 )
 
@@ -41,12 +50,29 @@ if (($PairRepeats % 2) -ne 0) {
     }
     Write-Warning $message
 }
+if ($FailOnGate -and $PairRepeats -lt 4) {
+    throw "Release evidence requires PairRepeats >= 4 for balanced position exposure."
+}
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Runner = Join-Path $ScriptDir "container_benchmark.ps1"
 $Comparer = Join-Path $ScriptDir "compare_framework_results.ps1"
 $BenchmarkTag = "rust-java-rest:benchmark"
 $RunnerImage = "reactor-benchmark-runner:local"
+
+$strictConcurrencyLevels = @(
+    if ($ConcurrencyLevels -is [string]) {
+        $ConcurrencyLevels.Split(',') |
+                ForEach-Object { $_.Trim() } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                ForEach-Object { [int]$_ }
+    } else {
+        @($ConcurrencyLevels) | ForEach-Object { [int]$_ }
+    }
+)
+if ($strictConcurrencyLevels.Count -eq 0) {
+    throw "At least one concurrency level is required."
+}
 
 if ([string]::IsNullOrWhiteSpace($ResultsDir)) {
     $ResultsDir = Join-Path $ScriptDir ("results\paired_image_gate_{0}" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
@@ -258,6 +284,16 @@ $metadata = [ordered]@{
     candidate_java_opts_append = $CandidateJavaOptsAppend
     cpu_limit = $CpuLimit
     memory_limit = $FrameworkMemory
+    strict_concurrency_levels = $strictConcurrencyLevels
+    min_useful_rps_delta_percent = $MinUsefulRpsDeltaPercent
+    max_p99_regression_percent = $MaxP99RegressionPercent
+    max_503_delta_percentage_points = $Max503DeltaPercentagePoints
+    max_memory_regression_mib = $MaxMemoryRegressionMiB
+    min_strict_runs = $MinStrictRuns
+    max_useful_rps_cv_percent = $MaxUsefulRpsCoefficientVariationPercent
+    max_p99_cv_percent = $MaxP99CoefficientVariationPercent
+    max_startup_regression_percent = $MaxStartupRegressionPercent
+    max_startup_cv_percent = $MaxStartupCoefficientVariationPercent
 }
 $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ResultsDir "metadata.json") -Encoding utf8
 
@@ -265,6 +301,16 @@ $compareArgs = @{
     BaselineResultsDir = $BaselineAggregateDir
     CandidateResultsDir = $CandidateAggregateDir
     OutputDir = $ComparisonDir
+    StrictConcurrencyLevels = $strictConcurrencyLevels
+    MinUsefulRpsDeltaPercent = $MinUsefulRpsDeltaPercent
+    MaxP99RegressionPercent = $MaxP99RegressionPercent
+    Max503DeltaPercentagePoints = $Max503DeltaPercentagePoints
+    MaxMemoryRegressionMiB = $MaxMemoryRegressionMiB
+    MinStrictRuns = $MinStrictRuns
+    MaxUsefulRpsCoefficientVariationPercent = $MaxUsefulRpsCoefficientVariationPercent
+    MaxP99CoefficientVariationPercent = $MaxP99CoefficientVariationPercent
+    MaxStartupRegressionPercent = $MaxStartupRegressionPercent
+    MaxStartupCoefficientVariationPercent = $MaxStartupCoefficientVariationPercent
 }
 if ($FailOnGate) {
     $compareArgs.FailOnGate = $true

@@ -373,10 +373,12 @@ public final class RestApplication {
                 resources.add(initialized.context());
                 registerApplicationFeatures(initialized.context(), resources);
                 registerFrameworkHandlers(initialized.context());
-                phase("routes.register", RouteScanner::scanAndRegister);
-                registerStandardRuntimeFeatures(initialized.context());
+                // Native limits and optional telemetry must exist before route registration.
+                // Glowroot route slots are assigned once while NativeBridge.registerRoutes() runs.
                 phase("native.configure", () -> NativeBridge.configureRuntimeFromProperties(
                         initialized.context().capabilities()));
+                phase("routes.register", RouteScanner::scanAndRegister);
+                registerStandardRuntimeFeatures(initialized.context());
                 if (standardRuntimeFeatures) {
                     StartupPrewarmer.prewarmIfEnabled();
                     InstantOnCheckpoint.checkpointIfEnabled();

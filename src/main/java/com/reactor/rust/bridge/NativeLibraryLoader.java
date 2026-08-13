@@ -364,6 +364,13 @@ public final class NativeLibraryLoader {
                             + " but binary reported " + buildInfo.dubboAbi()
             );
         }
+        if (buildInfo.glowrootAbi() != NativeBridge.EXPECTED_GLOWROOT_NATIVE_ABI_VERSION) {
+            throw new IllegalStateException(
+                    "Native Glowroot build provenance ABI mismatch: expected "
+                            + NativeBridge.EXPECTED_GLOWROOT_NATIVE_ABI_VERSION
+                            + " but binary reported " + buildInfo.glowrootAbi()
+            );
+        }
 
         NativeProvenance.Manifest manifest = loadedArtifact.manifest();
         if (manifest != null) {
@@ -389,6 +396,12 @@ public final class NativeLibraryLoader {
                 throw new IllegalStateException(
                         "Packaged native Dubbo ABI mismatch: manifest="
                                 + manifest.dubboAbi() + " binary=" + buildInfo.dubboAbi()
+                );
+            }
+            if (manifest.glowrootAbi() != buildInfo.glowrootAbi()) {
+                throw new IllegalStateException(
+                        "Packaged native Glowroot ABI mismatch: manifest="
+                                + manifest.glowrootAbi() + " binary=" + buildInfo.glowrootAbi()
                 );
             }
         }

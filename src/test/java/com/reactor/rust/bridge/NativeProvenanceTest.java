@@ -19,9 +19,10 @@ class NativeProvenanceTest {
         String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary));
         ClassLoader loader = manifestLoader("""
                 schema=2
-                rest.abi=26
+                rest.abi=28
                 dubbo.abi=7
                 redis.abi=6
+                glowroot.abi=1
                 crate.version=0.1.0
                 source.revision=abc123
                 windows-x64.sha256=%s
@@ -37,6 +38,7 @@ class NativeProvenanceTest {
 
         assertEquals(7, manifest.dubboAbi());
         assertEquals(6, manifest.redisAbi());
+        assertEquals(1, manifest.glowrootAbi());
         assertEquals(hash, manifest.sha256());
     }
 
@@ -53,11 +55,13 @@ class NativeProvenanceTest {
                 restAbi=24
                 dubboAbi=7
                 redisAbi=6
+                glowrootAbi=1
                 """);
 
         assertEquals(24, info.restAbi());
         assertEquals(7, info.dubboAbi());
         assertEquals(6, info.redisAbi());
+        assertEquals(1, info.glowrootAbi());
         assertEquals("abc123-dirty", info.sourceRevision());
     }
 
@@ -66,6 +70,31 @@ class NativeProvenanceTest {
         assertThrows(
                 IllegalStateException.class,
                 () -> NativeProvenance.parseBuildInfo("schema=2\ncrate=rust-spring\n")
+        );
+    }
+
+    @Test
+    void rejectsMismatchedGlowrootAbiBeforeStartingTheServer() {
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                () -> NativeLibraryLoader.validateRuntimeProvenance("""
+                        schema=2
+                        crate=rust-spring
+                        crateVersion=0.1.0
+                        sourceRevision=abc123
+                        target=x86_64-unknown-linux-gnu
+                        profile=release
+                        features=default
+                        restAbi=28
+                        dubboAbi=7
+                        redisAbi=6
+                        glowrootAbi=2
+                        """, NativeBridge.EXPECTED_NATIVE_ABI_VERSION)
+        );
+
+        assertEquals(
+                "Native Glowroot build provenance ABI mismatch: expected 1 but binary reported 2",
+                error.getMessage()
         );
     }
 

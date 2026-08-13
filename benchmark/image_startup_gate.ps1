@@ -10,6 +10,9 @@ param(
     [double] $CpuLimit = 1.0,
     [string] $CpuSet = "2",
     [string] $MemoryLimit = "128m",
+    [string] $BaselineJavaOptsAppend = "",
+    [string] $CandidateJavaOptsAppend = "",
+    [string] $Network = "",
     [int] $CooldownSeconds = 3,
     [int] $TimeoutSeconds = 30,
     [double] $MaxRegressionPercent = 10.0,
@@ -110,14 +113,25 @@ function Measure-Startup {
 
     $container = "reactor-startup-$suffix-$Variant-$Run-$Position"
     $port = Get-FreePort
+    $variantOptions = if ($Variant -eq "baseline") {
+        $BaselineJavaOptsAppend
+    } else {
+        $CandidateJavaOptsAppend
+    }
+    $effectiveJavaOpts = @($javaOpts, $variantOptions) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     $args = @(
         "run", "-d", "--name", $container,
         "--cpus", "$CpuLimit",
         "--memory", $MemoryLimit,
         "-p", "127.0.0.1:${port}:8080",
         "-e", "JAVA_TOOL_OPTIONS=",
-        "-e", "JAVA_OPTS=$javaOpts"
+        "-e", "JAVA_AGENT_OPTS=",
+        "-e", "JAVA_OPTS=$($effectiveJavaOpts -join ' ')"
     )
+    if (-not [string]::IsNullOrWhiteSpace($Network)) {
+        $args += @("--network", $Network)
+    }
     if (-not [string]::IsNullOrWhiteSpace($CpuSet)) {
         $args += @("--cpuset-cpus", $CpuSet)
     }
@@ -170,9 +184,13 @@ function Measure-Startup {
 }
 
 try {
-    foreach ($image in $BaselineImage, $CandidateImage) {
-        $variant = if ($image -eq $BaselineImage) { "baseline" } else { "candidate" }
-        Measure-Startup -Variant $variant -Image $image -Run 0 -Position 0 -Warmup | Out-Null
+    $warmupVariants = @(
+        [PSCustomObject]@{ Variant = "baseline"; Image = $BaselineImage },
+        [PSCustomObject]@{ Variant = "candidate"; Image = $CandidateImage }
+    )
+    foreach ($item in $warmupVariants) {
+        Measure-Startup -Variant $item.Variant -Image $item.Image `
+                -Run 0 -Position 0 -Warmup | Out-Null
     }
 
     for ($run = 1; $run -le $RepeatCount; $run++) {
@@ -250,7 +268,9 @@ $summary = [PSCustomObject]@{
     reachable_regressed_pair_rate_pct = [math]::Round($reachableRegressedPairRate, 2)
 }
 
-$stable = $summary.candidate_ready_cv_pct -le $MaxCoefficientVariationPercent -and
+$stable = $summary.baseline_ready_cv_pct -le $MaxCoefficientVariationPercent -and
+        $summary.baseline_reachable_cv_pct -le $MaxCoefficientVariationPercent -and
+        $summary.candidate_ready_cv_pct -le $MaxCoefficientVariationPercent -and
         $summary.candidate_reachable_cv_pct -le $MaxCoefficientVariationPercent
 $withinRegressionBudget = $summary.median_paired_ready_delta_pct -le $MaxRegressionPercent -and
         $summary.median_paired_reachable_delta_pct -le $MaxRegressionPercent -and
@@ -271,11 +291,13 @@ $report = @(
     "",
     "- Baseline: $BaselineImage",
     "- Candidate: $CandidateImage",
+    "- Baseline JVM append: $BaselineJavaOptsAppend",
+    "- Candidate JVM append: $CandidateJavaOptsAppend",
     "- Runs per image: $RepeatCount",
     "- Gate: $gate",
     "- Regression threshold: <= $MaxRegressionPercent%",
     "- Maximum regressed startup pairs: <= $MaxRegressedPairRatePercent%",
-    "- Candidate stability threshold: CV <= $MaxCoefficientVariationPercent%",
+    "- Baseline and candidate stability threshold: CV <= $MaxCoefficientVariationPercent%",
     "",
     "| Metric | Baseline median ms | Candidate median ms | Delta | CV B/C | Gate |",
     "|---|---:|---:|---:|---:|---|",

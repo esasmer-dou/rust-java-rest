@@ -19,7 +19,18 @@ param(
     [string] $SlotBCpuSet = "3",
     [string] $RunnerCpuSet = "4-7",
     [double] $RunnerCpuLimit = 2.0,
-    [string] $RunnerImage = "reactor-benchmark-runner:local"
+    [string] $RunnerImage = "reactor-benchmark-runner:local",
+    [string] $BaselineJavaOptsAppend = "",
+    [string] $CandidateJavaOptsAppend = "",
+    [string] $AdditionalNetwork = "",
+    [double] $MinUsefulRpsDeltaPercent = -2.0,
+    [double] $MaxP99RegressionPercent = 10.0,
+    [double] $Max503DeltaPercentagePoints = 2.0,
+    [double] $MaxProcessRssRegressionMiB = 1.0,
+    [double] $MaxContainerMemoryRegressionMiB = 1.0,
+    [double] $MaxRpsPairDeltaStandardDeviation = 10.0,
+    [double] $MaxP99PairDeltaStandardDeviation = 15.0,
+    [switch] $FailOnGate
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,7 +53,13 @@ $absoluteComparisonDir = Join-Path $comparisonDir "absolute"
 New-Item -ItemType Directory -Force $baselineDir, $candidateDir, $comparisonDir | Out-Null
 
 function Invoke-Phase {
-    param([string] $Baseline, [string] $Candidate, [string] $Output)
+    param(
+        [string] $Baseline,
+        [string] $Candidate,
+        [string] $BaselineOptions,
+        [string] $CandidateOptions,
+        [string] $Output
+    )
 
     & (Join-Path $ScriptDir "resident_image_gate.ps1") `
             -BaselineImage $Baseline `
@@ -60,7 +77,11 @@ function Invoke-Phase {
             -CandidateCpuSet $SlotBCpuSet `
             -RunnerCpuSet $RunnerCpuSet `
             -RunnerCpuLimit $RunnerCpuLimit `
-            -RunnerImage $RunnerImage
+            -RunnerImage $RunnerImage `
+            -BaselineJavaOptsAppend $BaselineOptions `
+            -CandidateJavaOptsAppend $CandidateOptions `
+            -AdditionalNetwork $AdditionalNetwork `
+            -MaxMemoryRegressionMiB $MaxContainerMemoryRegressionMiB
     if ($LASTEXITCODE -ne 0) {
         throw "Resident slot phase failed: $Output"
     }
@@ -81,11 +102,15 @@ function Export-CombinedRows {
     $Rows | Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding utf8
 }
 
-Invoke-Phase -Baseline $BaselineImage -Candidate $CandidateImage -Output $phaseAb
+Invoke-Phase -Baseline $BaselineImage -Candidate $CandidateImage `
+        -BaselineOptions $BaselineJavaOptsAppend -CandidateOptions $CandidateJavaOptsAppend `
+        -Output $phaseAb
 if ($PhaseCooldownSeconds -gt 0) {
     Start-Sleep -Seconds $PhaseCooldownSeconds
 }
-Invoke-Phase -Baseline $CandidateImage -Candidate $BaselineImage -Output $phaseBa
+Invoke-Phase -Baseline $CandidateImage -Candidate $BaselineImage `
+        -BaselineOptions $CandidateJavaOptsAppend -CandidateOptions $BaselineJavaOptsAppend `
+        -Output $phaseBa
 
 $baselineRows = @(
     Import-Csv -LiteralPath (Join-Path $phaseAb "baseline\results.csv")
@@ -119,6 +144,14 @@ $metadata = [ordered]@{
     runner_cpu_limit = $RunnerCpuLimit
     cpu_limit = $CpuLimit
     memory_limit = $MemoryLimit
+    baseline_java_opts_append = $BaselineJavaOptsAppend
+    candidate_java_opts_append = $CandidateJavaOptsAppend
+    additional_network = $AdditionalNetwork
+    min_useful_rps_delta_percent = $MinUsefulRpsDeltaPercent
+    max_p99_regression_percent = $MaxP99RegressionPercent
+    max_503_delta_percentage_points = $Max503DeltaPercentagePoints
+    max_process_rss_regression_mib = $MaxProcessRssRegressionMiB
+    max_container_memory_regression_mib = $MaxContainerMemoryRegressionMiB
 }
 $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ResultsDir "metadata.json") -Encoding utf8
 
@@ -127,7 +160,8 @@ $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ResultsDir "me
         -CandidateResultsDir $candidateDir `
         -OutputDir $absoluteComparisonDir `
         -StrictConcurrencyLevels @($Concurrency) `
-        -MinStrictRuns (2 * $RepeatCountPerSlot)
+        -MinStrictRuns (2 * $RepeatCountPerSlot) `
+        -MaxMemoryRegressionMiB $MaxContainerMemoryRegressionMiB
 if ($LASTEXITCODE -ne 0) {
     throw "Absolute crossover diagnostic comparison failed."
 }
@@ -136,7 +170,15 @@ if ($LASTEXITCODE -ne 0) {
         -PhaseAbDir $phaseAb `
         -PhaseBaDir $phaseBa `
         -OutputDir $comparisonDir `
-        -MinRuns (2 * $RepeatCountPerSlot)
+        -MinRuns (2 * $RepeatCountPerSlot) `
+        -MinUsefulRpsDeltaPercent $MinUsefulRpsDeltaPercent `
+        -MaxP99RegressionPercent $MaxP99RegressionPercent `
+        -Max503DeltaPercentagePoints $Max503DeltaPercentagePoints `
+        -MaxProcessRssRegressionMiB $MaxProcessRssRegressionMiB `
+        -MaxMemoryRegressionMiB $MaxContainerMemoryRegressionMiB `
+        -MaxRpsPairDeltaStandardDeviation $MaxRpsPairDeltaStandardDeviation `
+        -MaxP99PairDeltaStandardDeviation $MaxP99PairDeltaStandardDeviation `
+        -FailOnGate:$FailOnGate
 if ($LASTEXITCODE -ne 0) {
     throw "Paired crossover comparison failed."
 }

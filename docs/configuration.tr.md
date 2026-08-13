@@ -41,3 +41,47 @@ Bu ayarlar yalnız kullanılmayan gözlem verisini bellekten çıkarır.
 `@ReactorApplication(metrics = true)` ve `RestApplication.Builder.metrics()` Java metrics toplamayı
 her zaman açar. Metrics'i kapatmak Rust tarafındaki native HTTP sayaçlarını kaldırmaz. Yalnız hiçbir
 endpoint'in okumadığı Java registry verisinin bellekte tutulmasını engeller.
+
+## Glowroot Mikro Ajan (4.4.0)
+
+Yayınlanmış `4.4.0` runtime REST ABI `28` ve Glowroot ABI `1` kullanır. Yalnız koordineli `4.4.0`
+artifact'iyle gelen DLL/SO dosyasını kullanın.
+
+Bu entegrasyon yalnız application tarafındadır. Mevcut Glowroot Central/collector değişmez. Strict
+düşük-bellek yolunda agent JAR gerekmez. Uyumlu native capability'yi JVM property, ortam değişkeni
+veya `rust-spring.properties` ile açın. İsteğe bağlı `java-rust-glowroot-agent.jar` yalnız
+`-javaagent` argümanlarını çevirir ve ayrı ölçülür. Benchmark mock collector'ı veya özel bir
+collector plugin'ini production ortamına kurmayın.
+
+| Property | Varsayılan | Kabul edilen değer | Ne işe yarar? |
+| --- | ---: | --- | --- |
+| `reactor.glowroot.enabled` | `false` | boolean | Sınırlı telemetri state'ini ve exporter'ı açar |
+| `reactor.glowroot.profile` | `micro` | `micro` | Sınırsız bir profilin yanlışlıkla açılmasını engeller |
+| `reactor.glowroot.collector.address` | `http://127.0.0.1:8181` | plaintext `host:port` veya `http://host:port` | Glowroot Central h2 adresi |
+| `reactor.glowroot.agent.id` | boş | 1-256 byte | Zorunlu pod veya rollup kimliği |
+| `reactor.glowroot.application.name` | uygulama adı | 1-128 byte | Glowroot ekranında görünen ad |
+| `reactor.glowroot.hostname` | `HOSTNAME` | en fazla 255 byte | Pod veya host kimliği |
+| `reactor.glowroot.export.interval-ms` | `60000` | 60000-3600000 ve 60000'in katı | Aggregate ve gauge gönderim aralığı |
+| `reactor.glowroot.connect-timeout-ms` | `1000` | 100-30000 | TCP/h2 bağlantı zaman sınırı |
+| `reactor.glowroot.request-timeout-ms` | `2000` | 100-30000 | Tüm unary gRPC çağrısının zaman sınırı |
+| `reactor.glowroot.trace.slow-threshold-ms` | `500` | 1-3600000 | Yavaş trace eşiği |
+| `reactor.glowroot.http.sample-rate` | `256` | 1-1024 arasında ikinin kuvveti | Başarılı HTTP aggregate örneklemesi; `5xx` tam sayılır |
+| `reactor.glowroot.trace.capacity` | `0` | 0-32 | Sınırlı yavaş/hatalı trace kuyruğu; `0` iken trace state'i ayrılmaz |
+| `reactor.glowroot.max-routes` | `64` | 1-64 | 1 MiB profilindeki en fazla HTTP route slotu |
+| `reactor.glowroot.max-export-bytes` | `65536` | 16384-65536 | 1 MiB profilindeki kesin encode request sınırı |
+
+`reactor.native.capabilities` değerini açıkça veriyorsanız ajan açıkken `glowroot` ekleyin:
+
+```properties
+reactor.native.capabilities=http,dubbo,redis,glowroot
+reactor.glowroot.enabled=true
+```
+
+Varsayılan profil aggregate önceliklidir: sample rate `256`, trace capacity `0`. Staging ortamında
+başarılı isteklerin gecikme dağılımını daha sık örneklemek gerekiyorsa `64` veya `128` değerini test
+edin. Sınırlı trace kapasitesini, örneğin `16`, yalnız açık bir teşhis ihtiyacı için kullanın. Ajan
+kapalı/açık p99, başarılı RPS, `503`, process RSS ve cgroup memory karşılaştırması yapmadan bu
+değerleri production'a taşımayın.
+
+Her key normal uppercase environment karşılığına sahiptir. Örneğin
+`reactor.glowroot.http.sample-rate`, `REACTOR_GLOWROOT_HTTP_SAMPLE_RATE` olur.

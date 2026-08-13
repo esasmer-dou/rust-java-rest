@@ -5,16 +5,16 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-platform-parent</artifactId>
-    <version>4.3.0</version>
+    <version>4.4.0</version>
     <packaging>pom</packaging>
     <name>Rust-Java Platform Parent</name>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <rust-java-rest.version>4.3.0</rust-java-rest.version>
-        <java-rust-dubbo.version>0.7.1</java-rust-dubbo.version>
-        <java-rust-cache.version>0.7.1</java-rust-cache.version>
+        <rust-java-rest.version>4.4.0</rust-java-rest.version>
+        <java-rust-dubbo.version>0.7.2</java-rust-dubbo.version>
+        <java-rust-cache.version>0.7.2</java-rust-cache.version>
         <dsl-json.version>2.0.2</dsl-json.version>
     </properties>
 

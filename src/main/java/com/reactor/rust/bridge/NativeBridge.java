@@ -22,9 +22,10 @@ import java.util.concurrent.TimeUnit;
  */
 public class NativeBridge {
 
-    static final int EXPECTED_NATIVE_ABI_VERSION = 26;
+    static final int EXPECTED_NATIVE_ABI_VERSION = 28;
     static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 7;
     static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 6;
+    static final int EXPECTED_GLOWROOT_NATIVE_ABI_VERSION = 1;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;
     private static final long DEFAULT_MAX_IN_FLIGHT_BODY_BYTES = 64L * 1024L * 1024L;
@@ -95,6 +96,27 @@ public class NativeBridge {
     public static native String nativeMetricsPrometheus();
 
     public static native String nativeMemoryDiagnosticsJson();
+
+    public static native void configureGlowroot(
+            String collectorAddress,
+            String agentId,
+            String applicationName,
+            String hostname,
+            String javaVersion,
+            String javaVm,
+            String agentVersion,
+            long processId,
+            long processStartTimeMs,
+            int exportIntervalMs,
+            int connectTimeoutMs,
+            int requestTimeoutMs,
+            int slowThresholdMs,
+            int httpSampleRate,
+            int traceCapacity,
+            int maxRoutes,
+            int maxExportBytes);
+
+    public static native String glowrootDiagnosticsJson();
 
     public static native void nativeResetMetrics();
 
@@ -449,6 +471,7 @@ public class NativeBridge {
                     nativeLogLevel,
                     asyncResponseTimeoutMs
             );
+            configureGlowrootFromProperties(capabilityPlan);
             configureFileStreaming(fileStreamChunkBytes);
             configureStaticFileStreaming(staticFileMaxConcurrentStreams);
             configureNativeResponseCache(nativeCacheMaxEntries, nativeCacheMaxBytes, nativeCacheTtlMs);
@@ -526,6 +549,93 @@ public class NativeBridge {
         requireNativeFeature(plan, NativeCapabilityPlan.Capability.WEBSOCKET, "websocket", features);
         requireNativeFeature(plan, NativeCapabilityPlan.Capability.DUBBO, "dubbo", features);
         requireNativeFeature(plan, NativeCapabilityPlan.Capability.REDIS, "redis", features);
+        requireNativeFeature(plan, NativeCapabilityPlan.Capability.GLOWROOT, "glowroot", features);
+    }
+
+    private static void configureGlowrootFromProperties(NativeCapabilityPlan capabilityPlan) {
+        if (!capabilityPlan.enabled(NativeCapabilityPlan.Capability.GLOWROOT)
+                || !PropertiesLoader.getBoolean("reactor.glowroot.enabled", false)) {
+            return;
+        }
+        String profile = PropertiesLoader.get("reactor.glowroot.profile", "micro").trim();
+        if (!profile.equalsIgnoreCase("micro")) {
+            throw new IllegalArgumentException(
+                    "Unsupported reactor.glowroot.profile '" + profile
+                            + "'. Version 0.1 supports only the bounded micro profile."
+            );
+        }
+        String collectorAddress = PropertiesLoader.require("reactor.glowroot.collector.address");
+        String agentId = PropertiesLoader.require("reactor.glowroot.agent.id");
+        String applicationName = nonBlankOr(
+                PropertiesLoader.get("reactor.glowroot.application.name", ""),
+                PropertiesLoader.get("reactor.application.name", "reactor-application")
+        );
+        String hostname = nonBlankOr(
+                PropertiesLoader.get("reactor.glowroot.hostname", ""),
+                System.getenv().getOrDefault("HOSTNAME", "unknown-host")
+        );
+        int exportIntervalMs = boundedInt("reactor.glowroot.export.interval-ms", 60_000, 60_000, 3_600_000);
+        int connectTimeoutMs = boundedInt("reactor.glowroot.connect-timeout-ms", 1_000, 100, 30_000);
+        int requestTimeoutMs = boundedInt("reactor.glowroot.request-timeout-ms", 2_000, 100, 30_000);
+        int slowThresholdMs = boundedInt("reactor.glowroot.trace.slow-threshold-ms", 500, 1, 3_600_000);
+        int httpSampleRate = powerOfTwoInt("reactor.glowroot.http.sample-rate", 256, 1, 1024);
+        int traceCapacity = boundedInt("reactor.glowroot.trace.capacity", 0, 0, 32);
+        int maxRoutes = boundedInt("reactor.glowroot.max-routes", 64, 1, 64);
+        int maxExportBytes = boundedInt(
+                "reactor.glowroot.max-export-bytes",
+                65_536,
+                16 * 1024,
+                64 * 1024
+        );
+        String agentVersion = PropertiesLoader.get(
+                "reactor.glowroot.agent.version",
+                "java-rust-glowroot-agent/dev"
+        ).trim();
+        long processStartTimeMs = PropertiesLoader.getLong(
+                "reactor.glowroot.process-start-time-ms",
+                System.currentTimeMillis()
+        );
+        configureGlowroot(
+                collectorAddress,
+                agentId,
+                applicationName,
+                hostname,
+                System.getProperty("java.version", "unknown"),
+                System.getProperty("java.vm.name", "unknown"),
+                agentVersion,
+                ProcessHandle.current().pid(),
+                processStartTimeMs,
+                exportIntervalMs,
+                connectTimeoutMs,
+                requestTimeoutMs,
+                slowThresholdMs,
+                httpSampleRate,
+                traceCapacity,
+                maxRoutes,
+                maxExportBytes
+        );
+    }
+
+    private static int boundedInt(String key, int defaultValue, int min, int max) {
+        int value = PropertiesLoader.getInt(key, defaultValue);
+        if (value < min || value > max) {
+            throw new IllegalArgumentException(
+                    key + " must be between " + min + " and " + max + ", but was " + value
+            );
+        }
+        return value;
+    }
+
+    private static int powerOfTwoInt(String key, int defaultValue, int min, int max) {
+        int value = boundedInt(key, defaultValue, min, max);
+        if ((value & (value - 1)) != 0) {
+            throw new IllegalArgumentException(key + " must be a power of two, but was " + value);
+        }
+        return value;
+    }
+
+    private static String nonBlankOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback.trim() : value.trim();
     }
 
     private static void requireNativeFeature(

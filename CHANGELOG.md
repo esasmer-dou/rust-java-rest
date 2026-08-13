@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.0] - 2026-08-13
+
+### Added
+
+- Added the opt-in Rust-first Glowroot micro telemetry plane for bounded HTTP, native Dubbo/Redis,
+  process, exporter-health, and sampled slow/error trace data.
+- Added `/diagnostics/glowroot`, Prometheus exporter metrics, strict capability selection, and
+  bilingual configuration/release guidance.
+- Added clean-CI native metadata and checksum ingestion with full source-revision provenance.
+
+### Changed
+
+- Advanced REST native ABI to `28` and added Glowroot ABI `1`; Dubbo ABI remains `7` and Redis ABI
+  remains `6`.
+- Moved native telemetry configuration before route registration so route slots are allocated once.
+- Updated benchmark gates to isolate runner/application CPU roles and compare paired RSS, cgroup,
+  RPS, p99, error, thread, and startup deltas.
+
+### Compatibility
+
+- Java REST annotations, handlers, services, records, validation, and business logic are unchanged.
+- Spring Boot support is delivered by the separate `java-rust-glowroot-spring-boot-starter:0.2.0`;
+  no Spring dependency is added to the REST runtime.
+- Deploy only the DLL/SO packaged with the coordinated `4.4.0` artifact.
+
+---
+
 ## [4.3.0] - 2026-08-11
 
 ### Added
