@@ -60,7 +60,8 @@ jobs:
       - name: Install aligned libraries locally
         shell: bash
         run: |
-          mvn -B -ntp -f aligned/java-rust-dubbo/pom.xml -DskipTests install
+          mvn -B -ntp -f aligned/java-rust-dubbo/pom.xml -DskipTests \
+            -Drust-java-rest.version=${{ inputs.version }} install
           mvn -B -ntp -f aligned/java-rust-cache/pom.xml -DskipTests install
 
       - name: Verify platform reactor
