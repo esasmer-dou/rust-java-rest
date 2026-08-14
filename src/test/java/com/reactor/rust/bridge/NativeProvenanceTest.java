@@ -19,10 +19,10 @@ class NativeProvenanceTest {
         String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary));
         ClassLoader loader = manifestLoader("""
                 schema=2
-                rest.abi=28
+                rest.abi=29
                 dubbo.abi=7
                 redis.abi=6
-                glowroot.abi=1
+                glowroot.abi=3
                 crate.version=0.1.0
                 source.revision=abc123
                 windows-x64.sha256=%s
@@ -38,7 +38,7 @@ class NativeProvenanceTest {
 
         assertEquals(7, manifest.dubboAbi());
         assertEquals(6, manifest.redisAbi());
-        assertEquals(1, manifest.glowrootAbi());
+        assertEquals(3, manifest.glowrootAbi());
         assertEquals(hash, manifest.sha256());
     }
 
@@ -85,15 +85,15 @@ class NativeProvenanceTest {
                         target=x86_64-unknown-linux-gnu
                         profile=release
                         features=default
-                        restAbi=28
+                        restAbi=29
                         dubboAbi=7
                         redisAbi=6
-                        glowrootAbi=2
+                        glowrootAbi=1
                         """, NativeBridge.EXPECTED_NATIVE_ABI_VERSION)
         );
 
         assertEquals(
-                "Native Glowroot build provenance ABI mismatch: expected 1 but binary reported 2",
+                "Native Glowroot build provenance ABI mismatch: expected 3 but binary reported 1",
                 error.getMessage()
         );
     }

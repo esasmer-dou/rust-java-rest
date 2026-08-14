@@ -26,7 +26,7 @@ Bu sample JAR'ını uygulama dependency'si olarak eklemeyin.
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.4.1-sample.jar
+java -jar sample/target/rust-java-rest-4.5.0-sample.jar
 ```
 
 Benchmark çalıştırmadan önce process'i doğrulayın:
@@ -46,10 +46,10 @@ Uygulama `server.port` ve diğer runtime limitlerini
 
 | İhtiyaç | Artefact |
 | --- | --- |
-| Production dependency | `com.reactor:rust-java-rest:4.4.1` |
-| Full compatibility uygulaması | `sample/target/rust-java-rest-4.4.1-sample.jar` |
-| Tek parça minimal benchmark classpath | `target/rust-java-rest-4.4.1-core-runtime.jar` |
-| Build-only processor'lar | `rust-java-rest-4.4.1-codegen.jar` |
+| Production dependency | `com.reactor:rust-java-rest:4.5.0` |
+| Full compatibility uygulaması | `sample/target/rust-java-rest-4.5.0-sample.jar` |
+| Tek parça minimal benchmark classpath | `target/rust-java-rest-4.5.0-core-runtime.jar` |
+| Build-only processor'lar | `rust-java-rest-4.5.0-codegen.jar` |
 
 Codegen JAR annotation-processor path üzerinde bulunur. Runtime dependency değildir.
 
@@ -60,7 +60,7 @@ Codegen JAR annotation-processor path üzerinde bulunur. Runtime dependency değ
 - İki build'i karşılaştırmadan önce aynı route setini warm edin.
 - Bu full sample'ın RSS değerini framework baseline olarak kullanmayın. Class ve route yüzeyi normal
   bir servisten bilinçli olarak daha büyüktür.
-- Aynı build içinde paketlenen native binary'leri kullanın. Güncel kaynak ağacı REST ABI `26` bekler.
+- Aynı build içinde paketlenen native binary'leri kullanın. Güncel kaynak ağacı REST ABI `29` bekler.
 
 Normal uygulama geliştirmek için
 [beş dakikada başlangıç](../README.tr.md#beş-dakikada-başlangıç) bölümüne dönün.

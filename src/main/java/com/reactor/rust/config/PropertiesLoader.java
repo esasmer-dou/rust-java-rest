@@ -94,6 +94,7 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.metrics.collection-enabled", "false");
         properties.setProperty("reactor.glowroot.enabled", "false");
         properties.setProperty("reactor.glowroot.profile", "micro");
+        properties.setProperty("reactor.glowroot.profile.release-timeout-ms", "5000");
         properties.setProperty("reactor.glowroot.collector.address", "http://127.0.0.1:8181");
         properties.setProperty("reactor.glowroot.agent.id", "");
         properties.setProperty("reactor.glowroot.application.name", "");
@@ -106,6 +107,10 @@ public final class PropertiesLoader {
         properties.setProperty("reactor.glowroot.trace.capacity", "0");
         properties.setProperty("reactor.glowroot.max-routes", "64");
         properties.setProperty("reactor.glowroot.max-export-bytes", "65536");
+        properties.setProperty("reactor.glowroot.sql.capacity", "16");
+        properties.setProperty("reactor.glowroot.error.trace.capacity", "8");
+        properties.setProperty("reactor.glowroot.error.max-frames", "24");
+        properties.setProperty("reactor.glowroot.error.max-bytes", "4096");
         properties.setProperty("reactor.openapi.enabled", "false");
         properties.setProperty("reactor.openapi.ui.enabled", "false");
         properties.setProperty("reactor.openapi.swagger-ui.enabled", "false");

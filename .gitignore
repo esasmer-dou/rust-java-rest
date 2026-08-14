@@ -44,6 +44,8 @@ benchmark/**
 !benchmark/.dockerignore
 !benchmark/README.md
 !benchmark/README.tr.md
+!benchmark/profile-switch/
+!benchmark/profile-switch/RestProfileSwitchProbe.java
 !benchmark/anon_evidence_gate.ps1
 !benchmark/container_benchmark.ps1
 !benchmark/compare_framework_results.ps1

@@ -12,15 +12,29 @@ başlangıç rehberi değildir. Her tarihsel bölüm, başlığında yazan sourc
 | Framework değişikliği belleği düşürürken RPS/p99 değerini korudu mu? | `paired_image_gate.ps1` |
 | Linux RSS ve anonim bellek hangi alanlardan oluşuyor? | `linux_smaps_breakdown.ps1` |
 | Idle native trim belleği güvenli biçimde geri veriyor mu? | Trim A/B ile `anon_evidence_gate.ps1` |
+| Geçici Glowroot profili kendisine ait bütün kaynakları bırakıyor mu? | `profile-switch/RestProfileSwitchProbe.java` |
 | Hangi route admission değerleri useful `200` RPS'i iyileştiriyor? | `route_admission_matrix.ps1` |
 | Response yolları aynı yükte nasıl ayrışıyor? | Açık endpoint class listesiyle `container_benchmark.ps1` |
 
 Geçmiş bir sonucu doğrudan ürün iddiası olarak kullanmayın. Aynı testi güncel source, native binary,
 JVM, container limitleri, endpoint karışımı ve provider/database topology ile yeniden çalıştırın.
 
-Güncel kaynak ağacı REST ABI `26`, Dubbo ABI `7` ve Redis ABI `6` kullanır. İki build'i
-karşılaştırmadan önce native artifact'i aynı source revision'dan üretin. Eski DLL/SO ile yapılan test,
-uygulama başlasa bile geçerli değildir.
+Stable `4.5.0` kaynak ağacı REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `3` kullanır.
+İki build'i karşılaştırmadan önce native artifact'i aynı source revision'dan üretin.
+Eski DLL/SO ile yapılan test, uygulama başlasa bile geçerli değildir.
+
+## Runtime Telemetri Profili Kaynak Bırakma Gate'i
+
+`profile-switch/RestProfileSwitchProbe.java` gerçek Hyper server'ı başlatır. `100` geçici `full`
+profil aralığı çalıştırır ve `restoreConfiguredProfile()` ile başlangıç profiline döner. Aktif veya
+eski profile ait byte kalırsa, transition beklerse, Rust'ın sahip olduğu JVM probe bırakılmazsa ya da
+JNI global referans sayısı sıfıra dönmezse test
+başarısız olur. Server durduktan sonra benchmark process'i bilinçli olarak kapatılır. Process ömürlü
+JNI worker'lar, uygulama profiline ait kaynaklar değildir.
+
+Testi aynı checkout'tan üretilmiş REST ABI `29` ve Glowroot ABI `3` Linux binary ile çalıştırın.
+Linux `malloc_trim(0)` agent dışındaki boş allocator sayfalarını da iade edebilir. Bu nedenle RSS
+etkisini telemetri kapalı/açık taze process A/B testiyle ölçün.
 
 ## Sonucu Nasıl Okumalısınız?
 

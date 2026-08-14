@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-starter-test</artifactId>
-    <version>4.4.1</version>
+    <version>4.5.0</version>
     <name>Rust-Java Test Starter</name>
     <properties>
         <maven.compiler.release>21</maven.compiler.release>

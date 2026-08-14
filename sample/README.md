@@ -26,7 +26,7 @@ Run from the `rust-java-rest` directory:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.4.1-sample.jar
+java -jar sample/target/rust-java-rest-4.5.0-sample.jar
 ```
 
 Verify the process before running a benchmark:
@@ -46,10 +46,10 @@ The application reads `server.port` and the remaining runtime limits from
 
 | Need | Artifact |
 | --- | --- |
-| Production dependency | `com.reactor:rust-java-rest:4.4.1` |
-| Full compatibility application | `sample/target/rust-java-rest-4.4.1-sample.jar` |
-| Self-contained minimal benchmark classpath | `target/rust-java-rest-4.4.1-core-runtime.jar` |
-| Build-only processors | `rust-java-rest-4.4.1-codegen.jar` |
+| Production dependency | `com.reactor:rust-java-rest:4.5.0` |
+| Full compatibility application | `sample/target/rust-java-rest-4.5.0-sample.jar` |
+| Self-contained minimal benchmark classpath | `target/rust-java-rest-4.5.0-core-runtime.jar` |
+| Build-only processors | `rust-java-rest-4.5.0-codegen.jar` |
 
 The codegen JAR belongs on the annotation-processor path. It is not a runtime dependency.
 
@@ -60,7 +60,7 @@ The codegen JAR belongs on the annotation-processor path. It is not a runtime de
 - Warm the same route set before comparing two builds.
 - Do not use this full sample's RSS as the framework baseline. Its class and route surface is
   intentionally much larger than a normal service.
-- Use native binaries from the same build. The current source tree expects REST ABI `26`.
+- Use native binaries from the same build. The current source tree expects REST ABI `29`.
 
 For normal application development, return to the
 [five-minute project setup](../README.md#five-minute-project-setup).

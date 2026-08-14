@@ -24,7 +24,7 @@ dependency yolunu yalnız embedding veya framework geliştirme için seçin.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.4.1</version>
+  <version>4.5.0</version>
 </parent>
 
 <artifactId>customer-api</artifactId>

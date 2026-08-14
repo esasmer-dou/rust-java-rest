@@ -1830,6 +1830,7 @@ public class HandlerRegistry {
     }
 
     private int writeError(ByteBuffer out, int offset, Throwable error) {
+        NativeBridge.captureGlowrootError(error);
         Object handled = exceptionHandlers.handleException(error);
         if (handled != null) {
             return writeExceptionHandlerResult(handled, out, offset);

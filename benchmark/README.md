@@ -12,15 +12,29 @@ its historical sections describe the exact source line named in each heading.
 | Did a framework change improve memory without hurting RPS/p99? | `paired_image_gate.ps1` |
 | What contributes to Linux RSS and anonymous memory? | `linux_smaps_breakdown.ps1` |
 | Does idle native trim reclaim memory safely? | `anon_evidence_gate.ps1` with trim A/B |
+| Does a temporary Glowroot profile release every owned resource? | `profile-switch/RestProfileSwitchProbe.java` |
 | Which route admission values maximize useful `200` RPS? | `route_admission_matrix.ps1` |
 | How do response paths differ under the same load? | `container_benchmark.ps1` with explicit endpoint classes |
 
 Do not copy a historical result into a product claim. Re-run the matching gate on the current
 source, native binaries, JVM, container limits, endpoint mix, and provider/database topology.
 
-The current source tree uses REST ABI `26`, Dubbo ABI `7`, and Redis ABI `6`. Before comparing two
-builds, rebuild and package the native artifact from the same source revision. A benchmark that uses
-an older DLL/SO is invalid even if the application starts.
+The stable `4.5.0` source tree uses REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI
+`3`. Before comparing two builds, rebuild the native artifact from the same source revision. A
+benchmark that uses an older DLL/SO is invalid even if the application starts.
+
+## Runtime Telemetry Profile Release Gate
+
+`profile-switch/RestProfileSwitchProbe.java` starts the real Hyper server, runs `100` temporary
+`full` profile windows, and returns through `restoreConfiguredProfile()`. It rejects retained active
+or retired profile bytes, a pending transition, a remaining Rust-owned JVM probe, or a non-zero JNI
+global-reference count. The probe
+halts its dedicated benchmark process after the server stop because process-lifetime JNI workers are
+not application profile resources.
+
+Run it with an exact-source ABI `29`/`3` Linux binary. The lifecycle result is valid only when the
+binary and Java classes come from the same checkout. Use fresh telemetry-off/on processes for RSS
+attribution because Linux `malloc_trim(0)` can return unrelated free allocator pages.
 
 ## How To Read A Result
 

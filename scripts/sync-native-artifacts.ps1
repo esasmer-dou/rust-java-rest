@@ -22,13 +22,13 @@ param(
 
     [string]$CacheResourcesDirectory = (Join-Path $PSScriptRoot "..\..\java-rust-cache\src\main\resources\native"),
 
-    [int]$RestAbi = 28,
+    [int]$RestAbi = 29,
 
     [int]$DubboAbi = 7,
 
     [int]$RedisAbi = 6,
 
-    [int]$GlowrootAbi = 1
+    [int]$GlowrootAbi = 3
 )
 
 $ErrorActionPreference = "Stop"

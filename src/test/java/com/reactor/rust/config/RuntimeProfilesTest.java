@@ -77,6 +77,10 @@ class RuntimeProfilesTest {
         assertEquals(0, PropertiesLoader.getInt("reactor.glowroot.trace.capacity", -1));
         assertEquals(64, PropertiesLoader.getInt("reactor.glowroot.max-routes", 0));
         assertEquals(65_536, PropertiesLoader.getInt("reactor.glowroot.max-export-bytes", 0));
+        assertEquals(16, PropertiesLoader.getInt("reactor.glowroot.sql.capacity", 0));
+        assertEquals(8, PropertiesLoader.getInt("reactor.glowroot.error.trace.capacity", 0));
+        assertEquals(24, PropertiesLoader.getInt("reactor.glowroot.error.max-frames", 0));
+        assertEquals(4_096, PropertiesLoader.getInt("reactor.glowroot.error.max-bytes", 0));
     }
 
     @Test

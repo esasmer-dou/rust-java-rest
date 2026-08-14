@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
-    <groupId>com.reactor</groupId><artifactId>rust-java-starter-cache-writer</artifactId><version>4.4.1</version>
+    <groupId>com.reactor</groupId><artifactId>rust-java-starter-cache-writer</artifactId><version>4.5.0</version>
     <properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
     <dependencies>
         <dependency>
             <groupId>com.reactor</groupId>
             <artifactId>java-rust-cache</artifactId>
-            <version>0.7.3</version>
+            <version>0.7.4</version>
         </dependency>
     </dependencies>
 </project>

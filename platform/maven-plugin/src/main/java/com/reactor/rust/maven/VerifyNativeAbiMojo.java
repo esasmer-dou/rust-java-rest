@@ -24,7 +24,7 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 
-    @Parameter(property = "reactor.native.restAbi", defaultValue = "28")
+    @Parameter(property = "reactor.native.restAbi", defaultValue = "29")
     private int expectedRestAbi;
 
     @Parameter(property = "reactor.native.dubboAbi", defaultValue = "7")
@@ -33,7 +33,7 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
     @Parameter(property = "reactor.native.redisAbi", defaultValue = "6")
     private int expectedRedisAbi;
 
-    @Parameter(property = "reactor.native.glowrootAbi", defaultValue = "1")
+    @Parameter(property = "reactor.native.glowrootAbi", defaultValue = "3")
     private int expectedGlowrootAbi;
 
     @Override

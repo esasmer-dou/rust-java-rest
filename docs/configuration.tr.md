@@ -42,46 +42,80 @@ Bu ayarlar yalnız kullanılmayan gözlem verisini bellekten çıkarır.
 her zaman açar. Metrics'i kapatmak Rust tarafındaki native HTTP sayaçlarını kaldırmaz. Yalnız hiçbir
 endpoint'in okumadığı Java registry verisinin bellekte tutulmasını engeller.
 
-## Glowroot Mikro Ajan (4.4.1)
+## Glowroot Telemetrisi
 
-Yayınlanmış `4.4.1` runtime REST ABI `28` ve Glowroot ABI `1` kullanır. Yalnız koordineli `4.4.1`
-artifact'iyle gelen DLL/SO dosyasını kullanın.
+Stable `4.5.0` runtime REST ABI `29` ve Glowroot ABI `3` kullanır. Sınırlı profiller çalışma sırasında
+değiştirilebilir. Bu Java sınıflarını REST `4.4.x` ABI `28` DLL/SO dosyasıyla karıştırmayın.
 
-Bu entegrasyon yalnız application tarafındadır. Mevcut Glowroot Central/collector değişmez. Strict
-düşük-bellek yolunda agent JAR gerekmez. Uyumlu native capability'yi JVM property, ortam değişkeni
-veya `rust-spring.properties` ile açın. İsteğe bağlı `java-rust-glowroot-agent.jar` yalnız
-`-javaagent` argümanlarını çevirir ve ayrı ölçülür. Benchmark mock collector'ı veya özel bir
-collector plugin'ini production ortamına kurmayın.
+Glowroot Central ve Cassandra değişmez. Rust-Java REST için agent JAR gerekmez. Protobuf encode,
+collector bağlantısı, profil state'i ve izole `256 KiB` exporter thread'i native runtime'a aittir.
+Hyper worker'ları kullanılmaz. İsteğe bağlı `java-rust-glowroot-agent.jar` yalnız erken
+`-javaagent` argümanlarını property'lere çevirir.
 
 | Property | Varsayılan | Kabul edilen değer | Ne işe yarar? |
 | --- | ---: | --- | --- |
 | `reactor.glowroot.enabled` | `false` | boolean | Sınırlı telemetri state'ini ve exporter'ı açar |
-| `reactor.glowroot.profile` | `micro` | `micro` | Sınırsız bir profilin yanlışlıkla açılmasını engeller |
-| `reactor.glowroot.collector.address` | `http://127.0.0.1:8181` | plaintext `host:port` veya `http://host:port` | Glowroot Central h2 adresi |
+| `reactor.glowroot.profile` | `micro` | `micro`, `jvm`, `sql`, `full`, `diagnostic` | Başlangıç profilini seçer; API daha sonra değiştirebilir |
+| `reactor.glowroot.profile.release-timeout-ms` | `5000` | 100-60000 | Eski profile ait state'in bırakılması için en uzun senkron bekleme |
+| `reactor.glowroot.collector.address` | `http://127.0.0.1:8181` | plaintext `host:port` veya `http://host:port` | Glowroot Central gRPC over HTTP/2 adresi |
 | `reactor.glowroot.agent.id` | boş | 1-256 byte | Zorunlu pod veya rollup kimliği |
 | `reactor.glowroot.application.name` | uygulama adı | 1-128 byte | Glowroot ekranında görünen ad |
 | `reactor.glowroot.hostname` | `HOSTNAME` | en fazla 255 byte | Pod veya host kimliği |
 | `reactor.glowroot.export.interval-ms` | `60000` | 60000-3600000 ve 60000'in katı | Aggregate ve gauge gönderim aralığı |
-| `reactor.glowroot.connect-timeout-ms` | `1000` | 100-30000 | TCP/h2 bağlantı zaman sınırı |
+| `reactor.glowroot.connect-timeout-ms` | `1000` | 100-30000 | TCP/HTTP2 bağlantı zaman sınırı |
 | `reactor.glowroot.request-timeout-ms` | `2000` | 100-30000 | Tüm unary gRPC çağrısının zaman sınırı |
-| `reactor.glowroot.trace.slow-threshold-ms` | `500` | 1-3600000 | Yavaş trace eşiği |
+| `reactor.glowroot.trace.slow-threshold-ms` | `500` | 1-3600000 | Startup kuyruğu varsa HTTP yavaş trace eşiği |
 | `reactor.glowroot.http.sample-rate` | `256` | 1-1024 arasında ikinin kuvveti | Başarılı HTTP aggregate örneklemesi; `5xx` tam sayılır |
-| `reactor.glowroot.trace.capacity` | `0` | 0-32 | Sınırlı yavaş/hatalı trace kuyruğu; `0` iken trace state'i ayrılmaz |
-| `reactor.glowroot.max-routes` | `64` | 1-64 | 1 MiB profilindeki en fazla HTTP route slotu |
-| `reactor.glowroot.max-export-bytes` | `65536` | 16384-65536 | 1 MiB profilindeki kesin encode request sınırı |
+| `reactor.glowroot.trace.capacity` | `0` | 0-32 | Startup'ta ayrılan HTTP trace kuyruğu; `0` iken ayrılmaz |
+| `reactor.glowroot.sql.capacity` | `16` | 0-32 | Yalnız `sql`, `full` veya `diagnostic` açıkken ayrılan SQL slotu |
+| `reactor.glowroot.error.trace.capacity` | `8` | 0-16 | Yalnız hata profilleri açıkken tutulan hata ayrıntısı |
+| `reactor.glowroot.error.max-frames` | `24` | 0-32 | Bir hata için kopyalanacak en fazla stack frame sayısı |
+| `reactor.glowroot.error.max-bytes` | `4096` | 256-8192 | Bir hata ayrıntısının en fazla UTF-8 byte boyutu |
+| `reactor.glowroot.max-routes` | `64` | 1-64 | En fazla HTTP route slotu |
+| `reactor.glowroot.max-export-bytes` | `65536` | 16384-65536 | Encode edilen request için kesin üst sınır |
 
-`reactor.native.capabilities` değerini açıkça veriyorsanız ajan açıkken `glowroot` ekleyin:
+`reactor.native.capabilities` değerini açıkça veriyorsanız `glowroot` ekleyin:
 
 ```properties
 reactor.native.capabilities=http,dubbo,redis,glowroot
 reactor.glowroot.enabled=true
+reactor.glowroot.profile=micro
 ```
 
-Varsayılan profil aggregate önceliklidir: sample rate `256`, trace capacity `0`. Staging ortamında
-başarılı isteklerin gecikme dağılımını daha sık örneklemek gerekiyorsa `64` veya `128` değerini test
-edin. Sınırlı trace kapasitesini, örneğin `16`, yalnız açık bir teşhis ihtiyacı için kullanın. Ajan
-kapalı/açık p99, başarılı RPS, `503`, process RSS ve cgroup memory karşılaştırması yapmadan bu
-değerleri production'a taşımayın.
+Kontrol API'sini kimlik doğrulaması olan iç operasyon akışından çağırın. Public endpoint veya request
+hot path üzerinden çağırmayın:
 
-Her key normal uppercase environment karşılığına sahiptir. Örneğin
-`reactor.glowroot.http.sample-rate`, `REACTOR_GLOWROOT_HTTP_SAMPLE_RATE` olur.
+```java
+GlowrootTelemetry.switchTo(TelemetryProfile.FULL, Duration.ofSeconds(5));
+// Olay inceleme aralığını sınırlı tutun.
+GlowrootTelemetry.restoreConfiguredProfile();
+```
+
+Her request'te profil değişimini otomatikleştirmeyin. SQL slotları, 25-bit nesil içeren ayrı ve
+pozitif bir 32-bit kimlik kullanır. Eski slotlar normal process ömründe yeni SQL tanımıyla eşleşmez.
+Runtime yalnız `33 milyon` üzerindeki state-shape geçişinde sessiz wrap yerine hata verir.
+
+Çağrı sıraya alınır ve senkrondur. `restoreConfiguredProfile()`, `reactor.glowroot.profile` ile seçilen
+başlangıç değerine döner; `micro` değerini kod içinde sabitlemez. Temel profil `micro` ise dönüş
+tamamlandığında SQL slotları, hata ve tanılama kuyrukları, profile ait export verisi ve Rust'ın sahip
+olduğu JNI MXBean global referansları bırakılmıştır. Linux, son referans bırakıldıktan sonra izole agent
+thread'inden `malloc_trim(0)` ister. Windows sahipliği bırakır, ancak bütün process için zorunlu
+working-set boşaltma yapmaz.
+
+İzole thread, Hyper worker'larını veya server Tokio runtime'ını kullanmaz. Buna rağmen glibc trim
+çağrısı process genelindedir. Profil değişimini request akışında değil, seyrek bir kontrol düzlemi
+işlemi olarak kullanın. RSS etkisini tek bir geçiş sonrası değerle değil, telemetri kapalı/açık taze
+process A/B testiyle ölçün.
+
+Her normalize SQL için tek ve tekrar kullanılan descriptor oluşturun. Bind value eklemeyin. Her
+request için descriptor üretmeyin:
+
+```java
+private static final GlowrootTelemetry.SqlStatement FIND_CUSTOMER =
+        GlowrootTelemetry.sql("customer.find", "select id, name from customer where id = ?");
+```
+
+`http.sample-rate` ve `trace.capacity` startup ayarıdır. Profil geçişi bu kapasiteleri değiştirmez.
+En sıkı `micro` kaynak bırakma davranışı için `trace.capacity=0` kullanın. Her key normal uppercase
+environment karşılığına sahiptir. Örneğin `reactor.glowroot.profile.release-timeout-ms`,
+`REACTOR_GLOWROOT_PROFILE_RELEASE_TIMEOUT_MS` olur.

@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.4.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.1)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.5.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.0)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.4.1)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.0)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -41,16 +41,17 @@ kütüphaneler gerektiriyorsa bu framework doğru başlangıç değildir.
 | Bir property'nin anlamını bulmak | [Konfigürasyon referansı](docs/configuration.tr.md) |
 | Startup, fallback, native yükleme veya `503` sorununu çözmek | [Sorun giderme](docs/troubleshooting.tr.md) |
 
-## 4.4.1 ile Neler Değişti?
+## 4.5.0 ile Neler Değişti?
 
-Bu sürüm production provenance düzeltmesidir. Java business logic kullanımı ve endpoint davranışı
-değişmez.
+Bu sürüm, çalışma sırasında değiştirilebilen sınırlı telemetri profillerini ekler. Java business
+logic kullanımı ve endpoint davranışı değişmez.
 
-- Windows ve Linux native dosyaları temiz `rust-spring v4.4.2` CI build'inden alınır.
-- Native runtime, kaynak commit'inin 40 karakterli tam SHA değerini bildirir.
-- Startup bu değeri Maven artifact'i içindeki manifest ile birebir karşılaştırır.
-- REST ABI `28`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `1` olarak kalır.
-- Native DLL/SO, `4.4.1` Maven artifact'i içinde gelen dosya olmalıdır.
+- Windows ve Linux native dosyaları temiz `rust-spring v4.5.0` CI build'inden alınır.
+- `micro`, `jvm`, `sql`, `full` ve `diagnostic` profilleri çalışma sırasında değiştirilebilir.
+- Düşük profile dönüldüğünde profile ait kuyruklar, SQL slot'ları, diagnostic state ve JNI
+  referansları kontrol çağrısı tamamlanmadan bırakılır.
+- REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `3` kullanılır.
+- Native DLL/SO, `4.5.0` Maven artifact'i içinde gelen dosya olmalıdır.
 
 ## İçindekiler
 
@@ -80,7 +81,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.4.1</version>
+  <version>4.5.0</version>
 </parent>
 
 <dependencies>
@@ -425,7 +426,7 @@ reactor.rust.http.idle-timeout-ms=30000
 
 ## Gözlemlenebilirlik
 
-`4.4.1` sürümü `java-rust-glowroot-agent:0.2.1` kullanabilir. Mikro ajan şu
+`4.5.0` sürümü, uyumlu `java-rust-glowroot-agent:0.3.0` paketiyle kullanılabilir. Mikro ajan şu
 verileri Glowroot Central'a gönderir:
 
 - HTTP route çağrı sayısı, süre dağılımı ve `5xx` sayısı;
@@ -438,6 +439,10 @@ Java agent bytecode weaving yapmaz. Runtime dependency eklemez. Protobuf encode 
 HTTP/2 gönderimi mevcut Rust runtime içinde çalışır. Handler, service, validation ve business logic
 Java'da aynı şekilde kalır.
 
+Henüz yayınlanmamış güncel kaynak kod; sınırlı `micro`, `jvm`, `sql`, `full` ve `diagnostic`
+profillerini ekler. REST ABI `29` ve Glowroot ABI `3` gerekir. Bu Java sınıflarını yayınlanmış ABI
+`28` DLL/SO ile kullanmayın.
+
 Mevcut Glowroot Central/collector deployment'ı değişmez. İkinci bir collector veya framework'e özel
 collector plugin'i kurmayın. Strict düşük-bellek production yolunda agent JAR gerekmez. Native
 binary'sinde `glowroot` capability bulunan uyumlu Rust-Java REST artifact'ini kullanın. Özelliği
@@ -445,9 +450,33 @@ binary'sinde `glowroot` capability bulunan uyumlu Rust-Java REST artifact'ini ku
 `-javaagent:/app/agent/java-rust-glowroot-agent.jar` yalnız konfigürasyon kolaylığı sağlar ve ayrı
 ölçülür. Java controller, handler, service, validation ve iş mantığı değişmez.
 
-Herhangi bir Java metodunu izlemek, JDBC SQL metnini yakalamak, JMX discovery, profiler, log capture
-veya canlı weaving kullanmak istiyorsanız tam Glowroot Java agent'ı seçin. Bu özellikler mikro
-ajanda bilinçli olarak yoktur. Bunları aynı sınırlı bütçeye sığdırmak gerçekçi değildir.
+Rastgele Java metodunu izlemek, otomatik JDBC weaving, geniş JMX discovery, sürekli profiler, log
+capture veya canlı weaving istiyorsanız tam Glowroot Java agent'ı seçin. Sınırlı runtime artık açıkça
+tanımlanan SQL sürelerini, sabit JVM/GC ölçümlerini, sınırlı hata stack bilgisini ve yetkili tanılama
+komutlarını sağlayabilir. Yine de tam upstream agent değildir.
+
+Agent'ın ağır işleri Rust tarafında kalır. İsteğe bağlı MXBean discovery ve polling, JNI global
+referans sahipliği, aggregate işlemleri, kuyruklar, protobuf/h2 gönderimi, tanılama yönetimi, dosya
+işlemleri ve profil kaynak iadesi Rust tarafından yürütülür. Java tarafında telemetri polling worker'ı
+ve JVM bean cache'i yoktur. Java business kodu yalnız açık SQL süre/hata olayını ve JVM'de oluşan
+`Throwable` referansını iletir.
+
+Profili yalnız kimlik doğrulaması olan iç kontrol akışından değiştirin:
+
+```java
+GlowrootTelemetry.switchTo(TelemetryProfile.FULL, Duration.ofSeconds(5));
+// Olay inceleme aralığını sınırlı tutun.
+GlowrootTelemetry.restoreConfiguredProfile();
+```
+
+`restoreConfiguredProfile()`, `reactor.glowroot.profile` ile seçilen başlangıç değerine döner. Bu
+değer `micro` ise profile ait SQL slotları, hata ve tanılama kuyrukları, devam eden export verisi ve
+Rust'ın sahip olduğu JNI MXBean global referansları bırakılana kadar bekler. Eski SQL tanımları nesil
+kontrollüdür. Profil yeniden açıldığında yeni slot kaydı yapar. Profili her request için değiştirmeyin.
+
+Kaynak bırakma worker'ı Hyper'dan ayrıdır. Linux tarafındaki son `malloc_trim(0)` çağrısı yine de
+process genelinde çalışan bir glibc işlemidir. Profil değişimini seyrek bir operasyon adımı olarak
+kullanın. RSS etkisini telemetri kapalı/açık taze process A/B testiyle ölçün.
 
 `@ReactorApplication(metrics = true)` açıksa lokal durumu şu endpoint'lerden okuyabilirsiniz:
 
@@ -456,13 +485,17 @@ curl -s http://localhost:8080/diagnostics/glowroot
 curl -s http://localhost:8080/metrics | grep reactor_glowroot
 ```
 
+JVM ölçümü veya tanılama içermeyen profile döndükten sonra `jvm_probe_registered=false` ve
+`jvm_probe_owned_global_refs=0` değerlerini doğrulayın. Bu iki alan, Rust'ın sahip olduğu JNI bean
+referanslarının bırakıldığını kanıtlar. Yalnız RSS değerinin düşmesi yeterli kanıt değildir.
+
 Collector, HTTP request kritik yolunda beklenmez. Bağlantı kesilirse sınırlı reconnect backoff
 çalışır. Süresi geçen rollup bellekte biriktirilmez; drop edilir ve sayaçta görünür. Uygulama servis
-vermeye devam eder. Kaynak kodla uygulanan agent-owned üst sınır `1 MiB` değeridir. Bağımsız proses
-resident gate'i; process `VmRSS`, smaps RSS ve cgroup current için `3 MiB`, ek thread için `0`
-değeridir. Güncel exact-source testinde maksimum farklar sırasıyla `+1,742 MiB`, `+1,817 MiB` ve
-`+1,754 MiB` oldu. Kendi Linux image'ınızda ajan kapalı/açık testi tekrarlayın. Her önemli endpoint ve
-concurrency seviyesi için RPS, p99 ve `503` oranını da karşılaştırın.
+vermeye devam eder. Kaynak kodla uygulanan agent-owned üst sınır `1 MiB` değeridir. Önceki
+`4.4.1` kanıtı shared-runtime yolunu ölçtü. Resident maksimum farkları `+1,742 MiB`, `+1,817 MiB`
+ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.5.0`, export ve profil kaynak bırakma işini
+tek `256 KiB` Rust thread üzerinde izole eder. Hyper worker kullanmaz. Koordineli release gate'i,
+companion agent yayınlanmadan önce `+3 MiB`, RPS, p99 ve `503` sözleşmesini ölçer.
 
 Uygulamada metrics özelliğini yalnız ihtiyaç varsa açın:
 
@@ -563,9 +596,9 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Yayınlanmış dependency çizgisi `rust-java-rest:4.4.1`, `java-rust-dubbo:0.7.2` ve
-`java-rust-cache:0.7.3` şeklindedir. Native artifact'ler REST ABI `28`, Dubbo ABI `7`, Redis ABI `6`
-ve Glowroot ABI `1` taşır.
+Uyumlu dependency çizgisi `rust-java-rest:4.5.0`, `java-rust-dubbo:0.7.2` ve
+`java-rust-cache:0.7.4` şeklindedir. Native artifact'ler REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`
+ve Glowroot ABI `3` taşır.
 
 Native DLL/SO dosyasını başka bir sürümden kopyalamayın. Startup; ABI, platform, source revision ve
 SHA-256 provenance bilgisini doğrular. Uyumsuz binary trafik başlamadan reddedilir.
@@ -582,7 +615,8 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Benchmark metodolojisi ve kanıt arşivi](benchmark/README.md)
-- [Sürüm notları](docs/release-notes/v4.4.1.tr.md)
+- [4.5.0 sürüm notları](docs/release-notes/v4.5.0.tr.md)
+- [4.4.1 sürüm notları](docs/release-notes/v4.4.1.tr.md)
 
 ## Kısa Sözlük
 

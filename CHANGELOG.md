@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-08-14
+
+### Added
+
+- Added runtime-switchable bounded Glowroot profiles through `GlowrootTelemetry`: `micro`, `jvm`,
+  `sql`, `full`, and `diagnostic`.
+- Added generation-aware reusable SQL descriptors, automatic annotated-handler error capture, JVM
+  memory/GC gauges, and authorized thread-dump, heap-histogram, and heap-dump requests.
+- Added profile release diagnostics for active/retired native bytes, JNI probe ownership, transition
+  ids, release latency, allocator trim, and timeout state.
+- Added `configuredProfile()` and `restoreConfiguredProfile()` for returning from a temporary
+  incident profile to the startup baseline.
+
+### Changed
+
+- Isolated Glowroot export and profile reclamation on one dedicated `256 KiB` Rust thread instead of
+  sharing Hyper/Tokio server workers.
+- Moved JVM bean discovery, heap/non-heap/pool/GC sampling, diagnostic orchestration, and diagnostic
+  file I/O from Java helper code into the isolated Rust telemetry runtime.
+- Made profile downgrade synchronous and transactional. Returning to `micro` drops optional native
+  queues/slots, Rust-owned JNI JVM-probe references, and in-flight profile-derived export data
+  before the API returns.
+- Widened SQL profile tokens to a positive 32-bit generation namespace and included error-frame
+  structures plus String allocator metadata in the startup memory ceiling.
+
+### Fixed
+
+- Made telemetry route/SQL registration and Throwable inspection fail open so agent failures cannot
+  alter handler responses or replace the original business exception.
+- Replaced exception-class route labels with one fixed native `Java Error` identity; profile
+  downgrade no longer leaves error metadata in the permanent HTTP route table.
+- Made pending profile reclamation restart-safe when an exporter stops after consuming the original
+  release notification.
+
+### Compatibility
+
+- REST native ABI is `29` and Glowroot native ABI is `3`; Dubbo ABI remains `7` and Redis ABI
+  remains `6`.
+- Windows x64 and Linux glibc x64 binaries come from the same clean `rust-spring v4.5.0` source
+  revision and are validated by the packaged SHA-256 provenance manifest.
+
 ---
 
 ## [4.4.1] - 2026-08-13
@@ -809,6 +850,8 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[4.5.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.1...v4.5.0
+[4.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.0...v4.4.1
 [4.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.1...v4.0.0
 [3.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.0...v3.4.1
 [3.2.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.2.4...v3.2.5

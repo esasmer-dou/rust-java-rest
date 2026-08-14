@@ -9,6 +9,7 @@ import com.reactor.rust.websocket.WebSocketRegistry;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -22,10 +23,14 @@ import java.util.concurrent.TimeUnit;
  */
 public class NativeBridge {
 
-    static final int EXPECTED_NATIVE_ABI_VERSION = 28;
+    static final int EXPECTED_NATIVE_ABI_VERSION = 29;
     static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 7;
     static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 6;
-    static final int EXPECTED_GLOWROOT_NATIVE_ABI_VERSION = 1;
+    static final int EXPECTED_GLOWROOT_NATIVE_ABI_VERSION = 3;
+    private static final int GLOWROOT_FEATURE_JVM_GAUGES = 1;
+    private static final int GLOWROOT_FEATURE_SQL = 1 << 1;
+    private static final int GLOWROOT_FEATURE_ERROR_STACKS = 1 << 2;
+    private static final int GLOWROOT_FEATURE_DIAGNOSTICS = 1 << 3;
     private static final long DEFAULT_MAX_REQUEST_BODY_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAX_RESPONSE_BODY_BYTES = 8L * 1024L * 1024L;
     private static final long DEFAULT_MAX_IN_FLIGHT_BODY_BYTES = 64L * 1024L * 1024L;
@@ -70,6 +75,11 @@ public class NativeBridge {
     private static final int RESPONSE_FRAME_HEADER_SIZE = 18;
     private static final byte[] EMPTY_REQUEST_BODY = new byte[0];
     private static volatile int asyncResponseTimeoutMs = DEFAULT_ASYNC_RESPONSE_TIMEOUT_MS;
+    private static volatile boolean glowrootConfigured;
+    private static volatile int activeGlowrootFeatureMask;
+    private static volatile int configuredGlowrootFeatureMask;
+    private static volatile long glowrootProfileGeneration;
+    private static long glowrootPendingProfileTransition;
 
     static {
         NativeLibraryLoader.load();
@@ -114,9 +124,133 @@ public class NativeBridge {
             int httpSampleRate,
             int traceCapacity,
             int maxRoutes,
-            int maxExportBytes);
+            int maxExportBytes,
+            int featureMask,
+            int sqlCapacity,
+            int errorTraceCapacity,
+            int errorMaxFrames,
+            int errorMaxBytes);
 
     public static native String glowrootDiagnosticsJson();
+
+    public static native int registerGlowrootSql(String operation, String sql);
+
+    public static native void recordGlowrootSql(
+            int slot,
+            long durationNanos,
+            boolean error,
+            long rows);
+
+    private static native boolean recordGlowrootError(Throwable error);
+
+    public static native boolean recordGlowrootErrorAtSlot(
+            int slot,
+            long durationNanos,
+            Throwable error);
+
+    private static native long requestGlowrootDiagnostic(int kind, String path);
+
+    private static native long updateGlowrootProfile(int featureMask);
+
+    private static native boolean awaitGlowrootProfileRelease(long transitionId, int timeoutMs);
+
+    /** Changes the bounded telemetry profile without restarting the application. */
+    public static synchronized void setGlowrootProfile(String profile) {
+        int timeoutMs = boundedInt(
+                "reactor.glowroot.profile.release-timeout-ms",
+                5_000,
+                100,
+                60_000
+        );
+        setGlowrootProfile(profile, timeoutMs);
+    }
+
+    /** Changes profile and waits until retired native state is no longer referenced. */
+    public static synchronized void setGlowrootProfile(String profile, int releaseTimeoutMs) {
+        if (!glowrootConfigured) {
+            throw new IllegalStateException("Glowroot telemetry is not configured");
+        }
+        if (releaseTimeoutMs < 100 || releaseTimeoutMs > 60_000) {
+            throw new IllegalArgumentException(
+                    "Glowroot profile release timeout must be between 100 and 60000 ms"
+            );
+        }
+        int featureMask = glowrootFeatureMask(profile == null ? "" : profile.trim());
+        awaitPendingGlowrootProfileRelease(releaseTimeoutMs);
+        if (featureMask == activeGlowrootFeatureMask) return;
+        long transitionId = updateGlowrootProfile(featureMask);
+        activeGlowrootFeatureMask = featureMask;
+        glowrootProfileGeneration++;
+        glowrootPendingProfileTransition = transitionId;
+        awaitPendingGlowrootProfileRelease(releaseTimeoutMs);
+    }
+
+    private static void awaitPendingGlowrootProfileRelease(int releaseTimeoutMs) {
+        long transitionId = glowrootPendingProfileTransition;
+        if (transitionId == 0L) return;
+        if (!awaitGlowrootProfileRelease(transitionId, releaseTimeoutMs)) {
+            throw new IllegalStateException(
+                    "Glowroot profile changed, but retired native state was not released within "
+                            + releaseTimeoutMs + " ms; inspect /diagnostics/glowroot before retrying"
+            );
+        }
+        glowrootPendingProfileTransition = 0L;
+    }
+
+    public static String activeGlowrootProfile() {
+        return glowrootProfileName(activeGlowrootFeatureMask);
+    }
+
+    public static String configuredGlowrootProfile() {
+        if (!glowrootConfigured) {
+            throw new IllegalStateException("Glowroot telemetry is not configured");
+        }
+        return glowrootProfileName(configuredGlowrootFeatureMask);
+    }
+
+    public static void restoreConfiguredGlowrootProfile() {
+        setGlowrootProfile(configuredGlowrootProfile());
+    }
+
+    public static void restoreConfiguredGlowrootProfile(int releaseTimeoutMs) {
+        setGlowrootProfile(configuredGlowrootProfile(), releaseTimeoutMs);
+    }
+
+    public static boolean glowrootConfigured() {
+        return glowrootConfigured;
+    }
+
+    public static boolean glowrootSqlEnabled() {
+        return glowrootConfigured && (activeGlowrootFeatureMask & GLOWROOT_FEATURE_SQL) != 0;
+    }
+
+    public static long glowrootProfileGeneration() {
+        return glowrootProfileGeneration;
+    }
+
+    static void captureGlowrootError(Throwable error) {
+        if (error != null
+                && glowrootConfigured
+                && (activeGlowrootFeatureMask & GLOWROOT_FEATURE_ERROR_STACKS) != 0) {
+            recordGlowrootError(error);
+        }
+    }
+
+    public static long submitGlowrootDiagnostic(String operation, String outputPath) {
+        if (!glowrootConfigured
+                || (activeGlowrootFeatureMask & GLOWROOT_FEATURE_DIAGNOSTICS) == 0) {
+            throw new IllegalStateException("Glowroot diagnostic profile is not active");
+        }
+        int kind = switch (operation == null ? "" : operation.trim().toLowerCase(Locale.ROOT)) {
+            case "thread-dump" -> 1;
+            case "heap-dump" -> 2;
+            case "heap-histogram" -> 3;
+            default -> throw new IllegalArgumentException(
+                    "Diagnostic operation must be thread-dump, heap-dump, or heap-histogram"
+            );
+        };
+        return requestGlowrootDiagnostic(kind, outputPath);
+    }
 
     public static native void nativeResetMetrics();
 
@@ -558,12 +692,7 @@ public class NativeBridge {
             return;
         }
         String profile = PropertiesLoader.get("reactor.glowroot.profile", "micro").trim();
-        if (!profile.equalsIgnoreCase("micro")) {
-            throw new IllegalArgumentException(
-                    "Unsupported reactor.glowroot.profile '" + profile
-                            + "'. Version 0.1 supports only the bounded micro profile."
-            );
-        }
+        int featureMask = glowrootFeatureMask(profile);
         String collectorAddress = PropertiesLoader.require("reactor.glowroot.collector.address");
         String agentId = PropertiesLoader.require("reactor.glowroot.agent.id");
         String applicationName = nonBlankOr(
@@ -586,6 +715,30 @@ public class NativeBridge {
                 65_536,
                 16 * 1024,
                 64 * 1024
+        );
+        int sqlCapacity = boundedInt(
+                "reactor.glowroot.sql.capacity",
+                16,
+                0,
+                32
+        );
+        int errorTraceCapacity = boundedInt(
+                "reactor.glowroot.error.trace.capacity",
+                8,
+                0,
+                16
+        );
+        int errorMaxFrames = boundedInt(
+                "reactor.glowroot.error.max-frames",
+                24,
+                0,
+                32
+        );
+        int errorMaxBytes = boundedInt(
+                "reactor.glowroot.error.max-bytes",
+                4 * 1024,
+                256,
+                8 * 1024
         );
         String agentVersion = PropertiesLoader.get(
                 "reactor.glowroot.agent.version",
@@ -612,8 +765,52 @@ public class NativeBridge {
                 httpSampleRate,
                 traceCapacity,
                 maxRoutes,
-                maxExportBytes
+                maxExportBytes,
+                featureMask,
+                sqlCapacity,
+                errorTraceCapacity,
+                errorMaxFrames,
+                errorMaxBytes
         );
+        activeGlowrootFeatureMask = featureMask;
+        configuredGlowrootFeatureMask = featureMask;
+        glowrootProfileGeneration++;
+        glowrootConfigured = true;
+    }
+
+    private static int glowrootFeatureMask(String profile) {
+        return switch (profile.toLowerCase(Locale.ROOT)) {
+            case "micro" -> 0;
+            case "jvm" -> GLOWROOT_FEATURE_JVM_GAUGES;
+            case "sql" -> GLOWROOT_FEATURE_SQL | GLOWROOT_FEATURE_ERROR_STACKS;
+            case "full" -> GLOWROOT_FEATURE_JVM_GAUGES
+                    | GLOWROOT_FEATURE_SQL
+                    | GLOWROOT_FEATURE_ERROR_STACKS;
+            case "diagnostic" -> GLOWROOT_FEATURE_JVM_GAUGES
+                    | GLOWROOT_FEATURE_SQL
+                    | GLOWROOT_FEATURE_ERROR_STACKS
+                    | GLOWROOT_FEATURE_DIAGNOSTICS;
+            default -> throw new IllegalArgumentException(
+                    "Unsupported reactor.glowroot.profile '" + profile
+                            + "'. Use micro, jvm, sql, full, or diagnostic."
+            );
+        };
+    }
+
+    private static String glowrootProfileName(int featureMask) {
+        return switch (featureMask) {
+            case 0 -> "micro";
+            case GLOWROOT_FEATURE_JVM_GAUGES -> "jvm";
+            case GLOWROOT_FEATURE_SQL | GLOWROOT_FEATURE_ERROR_STACKS -> "sql";
+            case GLOWROOT_FEATURE_JVM_GAUGES
+                    | GLOWROOT_FEATURE_SQL
+                    | GLOWROOT_FEATURE_ERROR_STACKS -> "full";
+            case GLOWROOT_FEATURE_JVM_GAUGES
+                    | GLOWROOT_FEATURE_SQL
+                    | GLOWROOT_FEATURE_ERROR_STACKS
+                    | GLOWROOT_FEATURE_DIAGNOSTICS -> "diagnostic";
+            default -> "custom";
+        };
     }
 
     private static int boundedInt(String key, int defaultValue, int min, int max) {

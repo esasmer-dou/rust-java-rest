@@ -42,45 +42,79 @@ These settings remove observability state only when the service does not expose 
 metric collection. Disabling metrics does not remove native HTTP counters from Rust; it only avoids
 retaining optional Java registry state that no endpoint can read.
 
-## Glowroot Micro Agent (4.4.1)
+## Glowroot Telemetry
 
-The published `4.4.1` runtime uses REST ABI `28` and Glowroot ABI `1`. Use only the DLL/SO packaged
-with the coordinated `4.4.1` artifact.
+The stable `4.5.0` runtime uses REST ABI `29` and Glowroot ABI `3`. It supports bounded runtime
+profile switching. Never combine these Java classes with a REST `4.4.x` ABI `28` DLL/SO.
 
-This is an application-side integration. Keep the existing Glowroot Central/collector unchanged.
-The strict low-memory path needs no agent JAR: enable the coordinated native capability with system
-properties, environment variables, or `rust-spring.properties`. The optional
-`java-rust-glowroot-agent.jar` only translates `-javaagent` arguments and is measured separately.
-Do not install the benchmark mock collector or a custom collector plugin in production.
+Glowroot Central and Cassandra remain unchanged. Rust-Java REST needs no agent JAR. The native
+runtime owns protobuf encoding, the collector connection, profile state, and one isolated `256 KiB`
+exporter thread. It does not consume Hyper workers. The optional `java-rust-glowroot-agent.jar` only
+maps early `-javaagent` arguments.
 
 | Property | Default | Allowed value | Purpose |
 | --- | ---: | --- | --- |
 | `reactor.glowroot.enabled` | `false` | boolean | Enables bounded telemetry state and exporter |
-| `reactor.glowroot.profile` | `micro` | `micro` | Rejects accidental use of an unbounded profile |
-| `reactor.glowroot.collector.address` | `http://127.0.0.1:8181` | plaintext `host:port` or `http://host:port` | Glowroot Central h2 endpoint |
+| `reactor.glowroot.profile` | `micro` | `micro`, `jvm`, `sql`, `full`, `diagnostic` | Selects the startup profile; the API can change it later |
+| `reactor.glowroot.profile.release-timeout-ms` | `5000` | 100-60000 | Maximum synchronous wait for retired profile state |
+| `reactor.glowroot.collector.address` | `http://127.0.0.1:8181` | plaintext `host:port` or `http://host:port` | Glowroot Central gRPC over HTTP/2 endpoint |
 | `reactor.glowroot.agent.id` | empty | 1-256 bytes | Required stable pod/rollup identity |
 | `reactor.glowroot.application.name` | application name | 1-128 bytes | Name displayed by Glowroot |
 | `reactor.glowroot.hostname` | `HOSTNAME` | up to 255 bytes | Pod or host identity |
 | `reactor.glowroot.export.interval-ms` | `60000` | 60000-3600000, multiple of 60000 | Aggregate and gauge interval |
-| `reactor.glowroot.connect-timeout-ms` | `1000` | 100-30000 | TCP/h2 connect limit |
+| `reactor.glowroot.connect-timeout-ms` | `1000` | 100-30000 | TCP/HTTP2 connect limit |
 | `reactor.glowroot.request-timeout-ms` | `2000` | 100-30000 | Whole unary gRPC lifecycle limit |
-| `reactor.glowroot.trace.slow-threshold-ms` | `500` | 1-3600000 | Slow trace threshold |
+| `reactor.glowroot.trace.slow-threshold-ms` | `500` | 1-3600000 | HTTP slow-trace threshold when the startup queue exists |
 | `reactor.glowroot.http.sample-rate` | `256` | power of two, 1-1024 | Samples successful HTTP aggregates; `5xx` stays exact |
-| `reactor.glowroot.trace.capacity` | `0` | 0-32 | Bounded slow/error trace queue; `0` allocates no trace state |
-| `reactor.glowroot.max-routes` | `64` | 1-64 | Maximum HTTP route slots in the 1 MiB profile |
-| `reactor.glowroot.max-export-bytes` | `65536` | 16384-65536 | Hard encoded request limit in the 1 MiB profile |
+| `reactor.glowroot.trace.capacity` | `0` | 0-32 | Startup-owned HTTP trace queue; `0` allocates none |
+| `reactor.glowroot.sql.capacity` | `16` | 0-32 | SQL slots allocated only while `sql`, `full`, or `diagnostic` is active |
+| `reactor.glowroot.error.trace.capacity` | `8` | 0-16 | Error details retained only by error-enabled profiles |
+| `reactor.glowroot.error.max-frames` | `24` | 0-32 | Maximum copied stack frames per error |
+| `reactor.glowroot.error.max-bytes` | `4096` | 256-8192 | Maximum UTF-8 bytes per error detail |
+| `reactor.glowroot.max-routes` | `64` | 1-64 | Maximum HTTP route slots |
+| `reactor.glowroot.max-export-bytes` | `65536` | 16384-65536 | Hard encoded request limit |
 
-If `reactor.native.capabilities` is explicit, add `glowroot` when the agent is enabled:
+If `reactor.native.capabilities` is explicit, add `glowroot`:
 
 ```properties
 reactor.native.capabilities=http,dubbo,redis,glowroot
 reactor.glowroot.enabled=true
+reactor.glowroot.profile=micro
 ```
 
-The default is aggregate-first: sample rate `256` and trace capacity `0`. Test `64` or `128` only
-when staging needs a denser successful-request latency distribution. Enable a bounded trace capacity
-such as `16` only for an explicit diagnostic use case. Do not change these values without a
-disabled/enabled p99, useful-RPS, `503`, process-RSS, and cgroup-memory gate.
+Use the control API from an authenticated internal operation, never from a public endpoint or the
+request hot path:
 
-Every key has the normal uppercase environment form. For example,
-`reactor.glowroot.http.sample-rate` maps to `REACTOR_GLOWROOT_HTTP_SAMPLE_RATE`.
+```java
+GlowrootTelemetry.switchTo(TelemetryProfile.FULL, Duration.ofSeconds(5));
+// Keep the incident window bounded.
+GlowrootTelemetry.restoreConfiguredProfile();
+```
+
+Do not automate per-request profile oscillation. SQL slots use a separate positive 32-bit token with
+a 25-bit generation, preventing stale-slot aliasing during normal process life. The runtime fails
+instead of wrapping only after more than `33 million` state-shape transitions.
+
+The call is serialized and synchronous. `restoreConfiguredProfile()` returns to the startup value
+from `reactor.glowroot.profile`; it does not hard-code `micro`. When that baseline is `micro`, SQL
+slots, error/diagnostic queues, profile-derived export data, and Rust-owned JNI MXBean global
+references have been dropped. Linux also requests `malloc_trim(0)` from the isolated agent thread
+after the final reference is gone. Windows releases ownership but does not force a process-wide
+working-set eviction.
+
+The isolated thread does not share Hyper workers or the server Tokio runtime. The glibc trim call is
+still process-wide, so profile switching is a rare control-plane operation, never a request-path
+feature. Attribute RSS with fresh telemetry-off/on processes rather than one post-switch reading.
+
+Create one reusable SQL descriptor per normalized statement. Do not include bind values and do not
+construct descriptors per request:
+
+```java
+private static final GlowrootTelemetry.SqlStatement FIND_CUSTOMER =
+        GlowrootTelemetry.sql("customer.find", "select id, name from customer where id = ?");
+```
+
+`http.sample-rate` and `trace.capacity` are startup settings. They are not resized by a profile
+switch. Keep `trace.capacity=0` for the strictest `micro` reclamation. Every key has the normal
+uppercase environment form; for example, `reactor.glowroot.profile.release-timeout-ms` maps to
+`REACTOR_GLOWROOT_PROFILE_RELEASE_TIMEOUT_MS`.
