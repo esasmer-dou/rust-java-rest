@@ -26,7 +26,7 @@ Run from the `rust-java-rest` directory:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.5.0-sample.jar
+java -jar sample/target/rust-java-rest-4.5.1-sample.jar
 ```
 
 Verify the process before running a benchmark:
@@ -46,10 +46,10 @@ The application reads `server.port` and the remaining runtime limits from
 
 | Need | Artifact |
 | --- | --- |
-| Production dependency | `com.reactor:rust-java-rest:4.5.0` |
-| Full compatibility application | `sample/target/rust-java-rest-4.5.0-sample.jar` |
-| Self-contained minimal benchmark classpath | `target/rust-java-rest-4.5.0-core-runtime.jar` |
-| Build-only processors | `rust-java-rest-4.5.0-codegen.jar` |
+| Production dependency | `com.reactor:rust-java-rest:4.5.1` |
+| Full compatibility application | `sample/target/rust-java-rest-4.5.1-sample.jar` |
+| Self-contained minimal benchmark classpath | `target/rust-java-rest-4.5.1-core-runtime.jar` |
+| Build-only processors | `rust-java-rest-4.5.1-codegen.jar` |
 
 The codegen JAR belongs on the annotation-processor path. It is not a runtime dependency.
 

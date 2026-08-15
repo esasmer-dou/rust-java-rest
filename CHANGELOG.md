@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.1] - 2026-08-16
+
+### Changed
+
+- Prepared the bounded Glowroot collector connection before the first aggregate boundary so initial
+  DNS, TCP, HTTP/2, and collector-init work does not compete with first-minute application traffic.
+- Lowered the isolated Rust exporter thread's operating-system scheduling priority while keeping it
+  separate from Hyper/Tokio request workers.
+
+### Compatibility
+
+- Java annotations, handlers, services, validation, records, and business logic are unchanged.
+- REST native ABI remains `29`, Glowroot native ABI remains `3`, Dubbo ABI remains `7`, and Redis ABI
+  remains `6`.
+- Windows x64 and Linux glibc x64 binaries come from the same clean `rust-spring v4.5.1` source
+  revision and are validated by the packaged SHA-256 provenance manifest.
+
 ## [4.5.0] - 2026-08-14
 
 ### Added
@@ -851,6 +868,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 ---
 
 [4.5.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.1...v4.5.0
+[4.5.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.0...v4.5.1
 [4.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.0...v4.4.1
 [4.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.1...v4.0.0
 [3.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.0...v3.4.1
