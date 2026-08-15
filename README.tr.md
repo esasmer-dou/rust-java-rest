@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.5.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.0)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.5.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.1)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.0)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.1)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -41,17 +41,20 @@ kütüphaneler gerektiriyorsa bu framework doğru başlangıç değildir.
 | Bir property'nin anlamını bulmak | [Konfigürasyon referansı](docs/configuration.tr.md) |
 | Startup, fallback, native yükleme veya `503` sorununu çözmek | [Sorun giderme](docs/troubleshooting.tr.md) |
 
-## 4.5.0 ile Neler Değişti?
+## 4.5.1 ile Neler Değişti?
 
-Bu sürüm, çalışma sırasında değiştirilebilen sınırlı telemetri profillerini ekler. Java business
-logic kullanımı ve endpoint davranışı değişmez.
+Bu sürüm, `4.5.0` ile gelen sınırlı telemetri profillerini korur. Exporter'ın CPU izolasyonunu
+iyileştirir. Java iş mantığı ve endpoint davranışı değişmez.
 
-- Windows ve Linux native dosyaları temiz `rust-spring v4.5.0` CI build'inden alınır.
+- Windows ve Linux native dosyaları temiz `rust-spring v4.5.1` CI build'inden alınır.
+- Collector DNS, TCP, HTTP/2 ve başlangıç bağlantısı ilk aggregate zamanından önce hazırlanır.
+- İzole exporter daha düşük işletim sistemi önceliğiyle çalışır. Tek vCPU sınırında HTTP trafiği
+  öncelikli kalır.
 - `micro`, `jvm`, `sql`, `full` ve `diagnostic` profilleri çalışma sırasında değiştirilebilir.
 - Düşük profile dönüldüğünde profile ait kuyruklar, SQL slot'ları, diagnostic state ve JNI
   referansları kontrol çağrısı tamamlanmadan bırakılır.
 - REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `3` kullanılır.
-- Native DLL/SO, `4.5.0` Maven artifact'i içinde gelen dosya olmalıdır.
+- Native DLL/SO, `4.5.1` Maven artifact'i içinde gelen dosya olmalıdır.
 
 ## İçindekiler
 
@@ -81,7 +84,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.5.0</version>
+  <version>4.5.1</version>
 </parent>
 
 <dependencies>
@@ -426,7 +429,7 @@ reactor.rust.http.idle-timeout-ms=30000
 
 ## Gözlemlenebilirlik
 
-`4.5.0` sürümü, uyumlu `java-rust-glowroot-agent:0.3.0` paketiyle kullanılabilir. Mikro ajan şu
+`4.5.1` sürümü, uyumlu `java-rust-glowroot-agent:0.3.0` paketiyle kullanılabilir. Mikro ajan şu
 verileri Glowroot Central'a gönderir:
 
 - HTTP route çağrı sayısı, süre dağılımı ve `5xx` sayısı;
@@ -493,7 +496,7 @@ Collector, HTTP request kritik yolunda beklenmez. Bağlantı kesilirse sınırl�
 çalışır. Süresi geçen rollup bellekte biriktirilmez; drop edilir ve sayaçta görünür. Uygulama servis
 vermeye devam eder. Kaynak kodla uygulanan agent-owned üst sınır `1 MiB` değeridir. Önceki
 `4.4.1` kanıtı shared-runtime yolunu ölçtü. Resident maksimum farkları `+1,742 MiB`, `+1,817 MiB`
-ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.5.0`, export ve profil kaynak bırakma işini
+ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.5.1`, export ve profil kaynak bırakma işini
 tek `256 KiB` Rust thread üzerinde izole eder. Hyper worker kullanmaz. Koordineli release gate'i,
 companion agent yayınlanmadan önce `+3 MiB`, RPS, p99 ve `503` sözleşmesini ölçer.
 
@@ -596,7 +599,7 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Uyumlu dependency çizgisi `rust-java-rest:4.5.0`, `java-rust-dubbo:0.7.2` ve
+Uyumlu dependency çizgisi `rust-java-rest:4.5.1`, `java-rust-dubbo:0.7.2` ve
 `java-rust-cache:0.7.4` şeklindedir. Native artifact'ler REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`
 ve Glowroot ABI `3` taşır.
 
@@ -615,7 +618,7 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Benchmark metodolojisi ve kanıt arşivi](benchmark/README.md)
-- [4.5.0 sürüm notları](docs/release-notes/v4.5.0.tr.md)
+- [4.5.1 sürüm notları](docs/release-notes/v4.5.1.tr.md)
 - [4.4.1 sürüm notları](docs/release-notes/v4.4.1.tr.md)
 
 ## Kısa Sözlük
