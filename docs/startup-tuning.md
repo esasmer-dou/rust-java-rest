@@ -215,7 +215,7 @@ Generate indexes while Java sources compile. This is the preferred path:
       <path>
         <groupId>com.reactor</groupId>
         <artifactId>rust-java-rest</artifactId>
-        <version>4.5.2</version>
+        <version>4.5.3</version>
         <classifier>codegen</classifier>
       </path>
     </annotationProcessorPaths>

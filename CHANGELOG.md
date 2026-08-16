@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.3] - 2026-08-16
+
+### Changed
+
+- Packed enabled HTTP telemetry capture state into one 32-bit request field, reducing the native
+  request guard from 32 bytes to at most 24 bytes.
+- Simplified the exact rotating sampling window while preserving bounded frequency, periodic-route
+  coverage, sampled aggregates, and exact 5xx accounting.
+- Moved the isolated exporter to low-priority batch scheduling on Linux and the lowest normal
+  thread priority on Windows so bounded export work yields to the HTTP data plane.
+
+### Compatibility
+
+- Java annotations, handlers, services, validation, records, and business logic are unchanged.
+- REST native ABI remains `29`, Glowroot native ABI remains `3`, Dubbo ABI remains `7`, and Redis ABI
+  remains `6`.
+- Windows x64 and Linux glibc x64 binaries come from the same clean `rust-spring v4.5.3` source
+  revision and are validated by the packaged SHA-256 provenance manifest.
+
 ## [4.5.2] - 2026-08-16
 
 ### Fixed
@@ -885,9 +904,10 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
-[4.5.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.1...v4.5.0
+[4.5.3]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.2...v4.5.3
 [4.5.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.1...v4.5.2
 [4.5.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.0...v4.5.1
+[4.5.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.1...v4.5.0
 [4.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.0...v4.4.1
 [4.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.1...v4.0.0
 [3.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.0...v3.4.1

@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-maven-plugin</artifactId>
-    <version>4.5.2</version>
+    <version>4.5.3</version>
     <packaging>maven-plugin</packaging>
     <name>Rust-Java Build Plugin</name>
 

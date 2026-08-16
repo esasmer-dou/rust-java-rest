@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
-    <groupId>com.reactor</groupId><artifactId>rust-java-starter-rest</artifactId><version>4.5.2</version>
+    <groupId>com.reactor</groupId><artifactId>rust-java-starter-rest</artifactId><version>4.5.3</version>
     <name>Rust-Java REST Starter</name>
     <dependencies><dependency><groupId>com.reactor</groupId><artifactId>rust-java-rest</artifactId><version>${project.version}</version></dependency></dependencies>
 </project>
