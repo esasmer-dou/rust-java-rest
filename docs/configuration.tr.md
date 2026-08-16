@@ -44,7 +44,7 @@ endpoint'in okumadığı Java registry verisinin bellekte tutulmasını engeller
 
 ## Glowroot Telemetrisi
 
-Stable `4.5.1` runtime REST ABI `29` ve Glowroot ABI `3` kullanır. Sınırlı profiller çalışma sırasında
+Stable `4.5.2` runtime REST ABI `29` ve Glowroot ABI `3` kullanır. Sınırlı profiller çalışma sırasında
 değiştirilebilir. Bu Java sınıflarını REST `4.4.x` ABI `28` DLL/SO dosyasıyla karıştırmayın.
 
 Glowroot Central ve Cassandra değişmez. Rust-Java REST için agent JAR gerekmez. Protobuf encode,

@@ -19,7 +19,7 @@ başlangıç rehberi değildir. Her tarihsel bölüm, başlığında yazan sourc
 Geçmiş bir sonucu doğrudan ürün iddiası olarak kullanmayın. Aynı testi güncel source, native binary,
 JVM, container limitleri, endpoint karışımı ve provider/database topology ile yeniden çalıştırın.
 
-Stable `4.5.1` kaynak ağacı REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `3` kullanır.
+Stable `4.5.2` kaynak ağacı REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `3` kullanır.
 İki build'i karşılaştırmadan önce native artifact'i aynı source revision'dan üretin.
 Eski DLL/SO ile yapılan test, uygulama başlasa bile geçerli değildir.
 

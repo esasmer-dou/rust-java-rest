@@ -24,7 +24,7 @@ replaced. Use direct dependencies only for embedding or framework development.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.5.1</version>
+  <version>4.5.2</version>
 </parent>
 
 <artifactId>customer-api</artifactId>

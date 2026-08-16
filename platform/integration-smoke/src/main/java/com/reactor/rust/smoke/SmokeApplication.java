@@ -4,7 +4,7 @@ import com.reactor.rust.annotations.ReactorApplication;
 
 @ReactorApplication(
         name = "Platform Integration Smoke",
-        version = "4.5.1",
+        version = "4.5.2",
         description = "Compile-time verification for REST, Dubbo, and cache starters")
 public final class SmokeApplication {
     private SmokeApplication() {}

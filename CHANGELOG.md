@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.2] - 2026-08-16
+
+### Fixed
+
+- Restored the proven embedded collector lifecycle: validate the collector at startup, release the
+  startup h2 connection, and reconnect only for each bounded export window. This prevents an idle
+  collector connection from competing with the Hyper request plane under a one-vCPU budget.
+- Kept the standalone Spring exporter on one reused bounded connection and retained the lower
+  operating-system scheduling priority in both modes.
+
+### Compatibility
+
+- Java annotations, handlers, services, validation, records, and business logic are unchanged.
+- REST native ABI remains `29`, Glowroot native ABI remains `3`, Dubbo ABI remains `7`, and Redis ABI
+  remains `6`.
+- Windows x64 and Linux glibc x64 binaries come from the same clean `rust-spring v4.5.2` source
+  revision and are validated by the packaged SHA-256 provenance manifest.
+
 ## [4.5.1] - 2026-08-16
 
 ### Changed
@@ -868,6 +886,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 ---
 
 [4.5.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.1...v4.5.0
+[4.5.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.1...v4.5.2
 [4.5.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.0...v4.5.1
 [4.4.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.4.0...v4.4.1
 [4.0.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v3.4.1...v4.0.0

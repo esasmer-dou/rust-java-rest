@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
-    <groupId>com.reactor</groupId><artifactId>rust-java-starter-scheduler</artifactId><version>4.5.1</version>
+    <groupId>com.reactor</groupId><artifactId>rust-java-starter-scheduler</artifactId><version>4.5.2</version>
     <name>Rust-Java Scheduler Starter</name>
     <properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
     <dependencies>
