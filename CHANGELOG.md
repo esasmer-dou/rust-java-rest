@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.4] - 2026-08-16
+
+### Changed
+
+- Removed repeated sampling-shift calculation from enabled embedded telemetry by encoding it once in
+  the immutable native policy.
+- Added a compact unsampled-success exit before decoding additional telemetry state.
+- Packaged Windows and Linux native artifacts from clean `rust-spring v4.5.4` CI builds while
+  preserving REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `3`.
+- Kept Java handlers, annotations, services, validation, DTOs, and business logic source-compatible.
+
 ## [4.5.3] - 2026-08-16
 
 ### Changed
@@ -904,6 +915,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[4.5.4]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.3...v4.5.4
 [4.5.3]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.2...v4.5.3
 [4.5.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.1...v4.5.2
 [4.5.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.0...v4.5.1

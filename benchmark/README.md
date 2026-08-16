@@ -19,7 +19,7 @@ its historical sections describe the exact source line named in each heading.
 Do not copy a historical result into a product claim. Re-run the matching gate on the current
 source, native binaries, JVM, container limits, endpoint mix, and provider/database topology.
 
-The stable `4.5.3` source tree uses REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI
+The stable `4.5.4` source tree uses REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI
 `3`. Before comparing two builds, rebuild the native artifact from the same source revision. A
 benchmark that uses an older DLL/SO is invalid even if the application starts.
 

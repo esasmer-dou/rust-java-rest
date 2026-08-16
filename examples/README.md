@@ -12,7 +12,7 @@ keep each isolated demo in a few files.
 ## Prerequisites
 
 - Java 21 and Maven 3.9+.
-- The aligned `rust-java-rest:4.5.3` package and its packaged DLL/SO.
+- The aligned `rust-java-rest:4.5.4` package and its packaged DLL/SO.
 - One free local port for the selected module.
 
 Every module is compiled by the examples reactor. If a README snippet and source diverge, the source
