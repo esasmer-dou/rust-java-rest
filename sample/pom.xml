@@ -8,7 +8,7 @@
     <artifactId>rust-java-rest-sample</artifactId>
     <version>4.5.4</version>
     <name>Rust-Java REST Sample</name>
-    <description>Runnable sample and benchmark application for rust-java-rest.</description>
+    <description>Runnable full-feature compatibility application for rust-java-rest.</description>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>

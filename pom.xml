@@ -149,7 +149,6 @@
                             <excludes>
                                 <exclude>com/reactor/rust/codegen/**</exclude>
                                 <exclude>com/reactor/rust/example/**</exclude>
-                                <exclude>com/reactor/rust/benchmark/**</exclude>
                                 <exclude>com/reactor/rust/dubbo/sample/**</exclude>
                                 <exclude>META-INF/reactor/**</exclude>
                                 <exclude>META-INF/services/javax.annotation.processing.Processor</exclude>
@@ -199,7 +198,6 @@
                                     <excludes>
                                         <exclude>com/reactor/rust/codegen/**</exclude>
                                         <exclude>com/reactor/rust/example/**</exclude>
-                                        <exclude>com/reactor/rust/benchmark/**</exclude>
                                         <exclude>com/reactor/rust/dubbo/sample/**</exclude>
                                         <exclude>META-INF/reactor/**</exclude>
                                         <exclude>META-INF/services/javax.annotation.processing.Processor</exclude>
@@ -260,7 +258,6 @@
                     <excludes>
                         <exclude>com/reactor/rust/codegen/**</exclude>
                         <exclude>com/reactor/rust/example/**</exclude>
-                        <exclude>com/reactor/rust/benchmark/**</exclude>
                         <exclude>com/reactor/rust/dubbo/sample/**</exclude>
                     </excludes>
                 </configuration>
@@ -291,7 +288,7 @@
                     <doclint>none</doclint>
                     <quiet>true</quiet>
                     <excludePackageNames>
-                        com.reactor.rust.codegen:com.reactor.rust.codegen.*:com.reactor.rust.example:com.reactor.rust.example.*:com.reactor.rust.benchmark:com.reactor.rust.benchmark.*:com.reactor.rust.dubbo.sample:com.reactor.rust.dubbo.sample.*
+                        com.reactor.rust.codegen:com.reactor.rust.codegen.*:com.reactor.rust.example:com.reactor.rust.example.*:com.reactor.rust.dubbo.sample:com.reactor.rust.dubbo.sample.*
                     </excludePackageNames>
                     <additionalOptions>
                         <additionalOption>--add-modules=java.net.http,java.management,java.compiler</additionalOption>

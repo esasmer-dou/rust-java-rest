@@ -27,7 +27,6 @@ testleri doğrudur; aynı değişiklik içinde README'yi de düzeltin.
 | `upload` | `8082` | Bounded request body ve JSON producer response | Dosya veya binary içerik alırken |
 | `streaming` | `8083` | `FileResponse` ve object graph kurmayan JSON | Export veya büyük dinamik liste dönerken |
 | `websocket` | `8084` | Bounded WebSocket session ve echo akışı | İki yönlü mesaj gerektiğinde |
-| `benchmark` | `8085` | Static, generated record ve producer yolu | Response stratejilerini karşılaştırırken |
 
 ## Tüm Örnekleri Derleyin
 
@@ -96,11 +95,10 @@ curl.exe -OJ http://localhost:8083/api/v1/orders/export
 
 ## Neyi Kopyalamamalısınız?
 
-- Benchmark route'larını business endpoint olarak kullanmayın.
 - Büyük dosyayı Java `byte[]` içine aldıktan sonra döndürmeyin.
 - Yalnız serialize etmek için büyük DTO listesi kurmayın.
 - Bounded admission yerine sınırsız executor veya queue kullanmayın.
 - Full `sample` JAR'ını production dependency olarak eklemeyin.
 
-Eski [`sample`](../sample/README.md) modülü compatibility ve benchmark fixture olarak korunur.
-Production framework runtime'ından bilinçli olarak ayrıdır.
+Eski [`sample`](../sample/README.md) modülü tam uyumluluk uygulaması olarak korunur. Production
+framework runtime'ından bilinçli olarak ayrıdır.

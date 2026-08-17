@@ -27,7 +27,6 @@ module and its tests are authoritative; fix the README in the same change.
 | `upload` | `8082` | Bounded request body and JSON producer response | You accept file or binary content |
 | `streaming` | `8083` | `FileResponse` and object-graph-free JSON | You return exports or large dynamic arrays |
 | `websocket` | `8084` | Bounded WebSocket session and echo flow | You need bidirectional messages |
-| `benchmark` | `8085` | Static, generated record, and producer paths | You want to compare response strategies |
 
 ## Build Every Example
 
@@ -94,11 +93,10 @@ curl.exe -OJ http://localhost:8083/api/v1/orders/export
 
 ## What Not To Copy
 
-- Do not use the benchmark routes as business endpoints.
 - Do not load a large file into a Java `byte[]` before returning it.
 - Do not build a large DTO list only to serialize and discard it.
 - Do not replace bounded admission with an unbounded executor or queue.
 - Do not add the full `sample` JAR to a production application.
 
-The original [`sample`](../sample/README.md) module remains a compatibility and benchmark fixture.
-It is deliberately separate from the production framework runtime.
+The original [`sample`](../sample/README.md) module remains a full compatibility application. It is
+deliberately separate from the production framework runtime.

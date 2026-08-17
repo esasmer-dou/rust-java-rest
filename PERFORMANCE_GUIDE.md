@@ -36,26 +36,13 @@ routes, or Dubbo sample classes. Those classes exist in `rust-java-rest-*-sample
 important because class metadata, startup indexes, sample DTOs, and benchmark route state can add
 noise to RSS attribution.
 
-The `-AppMode minimal` benchmark image is intentionally closer to a real production app than the
-bundled sample jar. It now compiles a tiny user application and generates
+Measure with a minimal real application instead of the bundled sample jar. Generate
 `META-INF/reactor/components.idx` plus `META-INF/reactor/routes.idx` during the Docker build. That
 keeps strict low-RSS checks clean and avoids measuring a classpath-scan fallback that production apps
 should not rely on.
 
-Use this command for production-like RSS attribution:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
-  -AppMode minimal `
-  -RuntimeProfile micro-rest `
-  -ConcurrencyValues 64,256 `
-  -DurationSeconds 4 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 6
-```
-
-Use `-AppMode sample` only when the benchmark intentionally depends on bundled sample routes. Always
-include the app mode in reports.
+Capture baseline, warmup, representative load, idle, and final-idle snapshots from the same image.
+Always record the application shape and profile in the report.
 
 ## JVM Thread Stack Sizing
 
@@ -64,18 +51,8 @@ but reserved stack budget is not the same as resident Kubernetes RSS. The stack 
 when they become resident, and lowering the limit too far can break deep service/RPC/JDBC call
 chains.
 
-Use the stack matrix before changing this value:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\xss_anon_matrix.ps1 `
-  -RuntimeProfile micro-rest `
-  -AppMode minimal `
-  -XssValues "256k,192k,160k,128k" `
-  -ConcurrencyValues "512" `
-  -DurationSeconds 5 `
-  -IdleSeconds 2 `
-  -FinalIdleSeconds 20
-```
+Before changing this value, compare `256k`, `192k`, `160k`, and `128k` with the deepest real HTTP,
+RPC, JDBC, and error paths. Include c512 load plus an idle snapshot.
 
 Latest local c512 indexed minimal-app evidence showed no stack/runtime failures for `256k`, `192k`,
 `160k`, or `128k`, but every row reached route admission and returned some `503`. The measured final
@@ -132,18 +109,8 @@ ACCEPTABLE: enable it during memory proof runs to validate pod sizing after load
 ANTI-PATTERN: calling native trim every N requests or from a response path. That can turn allocator
 cleanup into a user-visible p99 spike.
 
-Benchmark trim changes with both memory and latency:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
-  -AppMode minimal `
-  -RuntimeProfile micro-rest `
-  -ConcurrencyValues 64,256,512 `
-  -DurationSeconds 4 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 20 `
-  -ExtraJavaOpts "-Dreactor.rust.native-trim.enabled=true -Dreactor.rust.native-trim.initial-delay-ms=1000 -Dreactor.rust.native-trim.interval-ms=2000 -Dreactor.rust.native-trim.min-idle-ms=1000 -Dreactor.rust.native-trim.max-active-requests=0 -Dreactor.rust.native-trim.retain-small=16 -Dreactor.rust.native-trim.allocator-trim-enabled=true"
-```
+Compare trim disabled/enabled with the same image at c64/c256/c512. Record RSS, anon, p99, `503`,
+trim attempts, and active-traffic skips together.
 
 Pass condition for production: RSS/anon drops enough to matter, p99 does not regress in the normal
 benchmark matrix, and trim metrics show skips during active traffic rather than trims during load.
@@ -184,19 +151,8 @@ post-load anon plateau is allocator retention that idle trim can reclaim, not an
 
 ## Anon Attribution Gate
 
-When RSS is still above target, do not guess. Run the anon evidence gate and use the output to pick
-the next engineering target:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 `
-  -AppMode minimal `
-  -ConcurrencyValues "64,256,512" `
-  -DurationSeconds 5 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 12 `
-  -TrimFinalIdleSeconds 95 `
-  -TrimFinalIdleSnapshotSeconds "35,95"
-```
+When RSS is still above target, do not guess. Capture the same evidence classes and use them to pick
+the next engineering target.
 
 What it runs:
 
@@ -906,12 +862,11 @@ signal and should be surfaced to clients with retries or queueing at the caller/
 ```powershell
 mvn -q test
 cargo test
-powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 -RuntimeProfile low-rss -Duration 10s -Warmup 2s -ConcurrencyLevels "64,256,512,1000" -RepeatCount 3 -RandomSeed 20260531 -EndpointClasses "small-json-legacy,small-json-direct,echo-parse,echo-raw,dynamic-producer-json,dynamic-dto-json,direct-json-writer,rust-json-writer,raw-json,native-cache-json,file-static,file-stream"
-powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 -RuntimeProfile low-rss -Duration 8s -Warmup 2s -ConcurrencyLevels "256,512,1000" -EndpointClasses "file-stream-large" -FrameworkJavaOptsAppend "-Dreactor.rust.static-file.inline-max-bytes=0 -Dreactor.rust.static-file.max-concurrent-streams=64"
 ```
 
-For a stable release, also run a longer soak test after the benchmark and inspect RSS after idle. A good
-benchmark without idle recovery evidence is not enough to rule out retention or leak behavior.
+For a stable release, run the real application at c64/c256/c512/c1000 with repeat `3`, then run an
+idle/soak check. A good load result without idle recovery evidence is not enough to rule out retention
+or leak behavior.
 
 ## Profile Comparison at c=1000
 

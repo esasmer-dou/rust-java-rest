@@ -37,17 +37,9 @@ Important phases:
 | `startup.prewarm` | Optional readiness prewarm. |
 | `http.start` | Starts the Rust HTTP server. |
 
-Local benchmark:
-
-```powershell
-benchmark/startup_benchmark.ps1 -Build -Profile fast-start -JvmPreset none
-benchmark/startup_benchmark.ps1 -Profile fast-start -JvmPreset openj9-scc-aot
-benchmark/startup_benchmark.ps1 -Profile ready-low-latency -JvmPreset openj9-scc-aot
-benchmark/startup_benchmark.ps1 -Profile micro-rest -JvmPreset openj9-micro-rss
-benchmark/startup_benchmark.ps1 -Profile micro-dubbo -JvmPreset openj9-idle-rss
-benchmark/startup_benchmark.ps1 -Profile fast-start -JvmPreset openj9-scc-aot `
-  -JavaOptsAppend '-Dreactor.startup.route-index.validate=true'
-```
+Measure startup with the real container image. Run each candidate profile from a cold container at
+least three times, then repeat with the OpenJ9 shared classes cache already populated. Probe
+`/diagnostics/startup` and the first business endpoint; an open port alone is not readiness.
 
 Local sample result, measured on this workspace:
 

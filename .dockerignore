@@ -2,9 +2,6 @@
 .idea
 .vscode
 
-benchmark/results/
-benchmark/**/results/
-benchmark/load-probe/target/
 **/*.log
 **/*.tmp
 

@@ -44,4 +44,4 @@ service logic.
 Keep validation on the request record. Keep business decisions in a service. Use a bounded database
 pool and repository in production; do not turn the in-memory map into a shared mutable domain model.
 
-Return to the [examples index](../README.md) to choose upload, streaming, WebSocket, or benchmark paths.
+Return to the [examples index](../README.md) to choose upload, streaming, or WebSocket paths.

@@ -126,14 +126,14 @@ paths.
 ## What's New For Users
 
 - Maven dependency version is now `3.2.1`.
-- Production-like benchmark images can use `rust-java-rest-*-core-runtime.jar` instead of framework
+- Lean container images can use `rust-java-rest-*-core-runtime.jar` instead of framework
   `target/classes`.
-- Default jar, `core-runtime`, sources jar, and javadocs exclude framework sample/benchmark packages.
-- `sample` classifier remains available for demos and benchmark examples only.
+- Default jar, `core-runtime`, sources jar, and javadocs exclude framework sample packages.
+- `sample` classifier remains available for demos only.
 - Runtime profiles no longer overwrite values explicitly configured in `rust-spring.properties`.
 - Benchmark/demo comparison routes can now be marked `@BenchmarkOnlyRoute`; diagnostics separate
   production route counts from sample comparison routes.
-- README, benchmark docs, and production runtime docs now explain the production artifact rule.
+- README and production runtime docs now explain the production artifact rule.
 
 ## Maven Dependency
 
@@ -148,33 +148,25 @@ paths.
 ## Production Artifact Rule
 
 Use the normal Maven dependency for applications. Use `rust-java-rest-3.2.1-core-runtime.jar` only
-when a benchmark/container classpath needs one lean framework runtime jar. Do not use
+when a container classpath needs one lean framework runtime jar. Do not use
 `rust-java-rest-3.2.1-sample.jar` in production; it intentionally contains demo handlers, DTOs,
-benchmark endpoints, and a sample startup index.
+and a sample startup index.
 
 The existing `3.2.1` package already follows this rule:
 
-| Artifact | Contains framework sample/benchmark packages? | Intended use |
+| Artifact | Contains framework sample packages? | Intended use |
 |----------|----------------------------------------------|--------------|
 | `rust-java-rest-3.2.1.jar` | No | Normal Maven dependency |
 | `rust-java-rest-3.2.1-core-runtime.jar` | No | Lean framework runtime classpath |
-| `rust-java-rest-3.2.1-sample.jar` | Yes | Demo and bundled benchmark app only |
+| `rust-java-rest-3.2.1-sample.jar` | Yes | Demo app only |
 
 Do not overwrite a published Maven package under the same version. If packaged code, native binaries,
-or benchmark fixtures need to change for consumers, publish a new patch version. Documentation and
+or demo fixtures need to change for consumers, publish a new patch version. Documentation and
 release text can be clarified without changing package bytes.
 
-For production-like RSS reporting, prefer the minimal production benchmark mode:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
-  -AppMode minimal `
-  -RuntimeProfile micro-rest `
-  -ConcurrencyValues 64,256 `
-  -DurationSeconds 4 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 6
-```
+For production-like RSS reporting, measure the real application image with the same CPU and memory
+limits used in Kubernetes. Record ready, warm-load, peak-load, and final-idle RSS together with p99
+latency and non-2xx rate. Repeat each concurrency point at least three times.
 
 Use the bundled sample app only when you are intentionally testing bundled demo endpoints.
 

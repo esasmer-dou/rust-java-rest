@@ -474,9 +474,8 @@ keeps queue burst memory bounded without serializing buffer rental on one worker
 `reactor_native_response_pool_staging_*` metrics when diagnosing warm-state RSS; do not tune it by
 growing global JNI queues.
 
-Benchmark and anon memory evidence are kept later in this README under
-[Benchmark And Release Evidence](#benchmark-and-release-evidence). The top-level decision should be
-based on workload shape and configuration, not on copying benchmark numbers blindly.
+Choose profiles from your own workload shape, pod budget, latency target, and overload policy. Raw
+benchmark tools and machine-specific evidence are intentionally kept outside the public repository.
 
 ## Install
 
@@ -570,23 +569,23 @@ Artifact rule:
 
 - `rust-java-rest-4.5.4.jar`: normal application dependency. Use this in your Maven `pom.xml`.
 - `rust-java-rest-4.5.4-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.5.4-core-runtime.jar`: single lean runtime jar for benchmark/container
+- `rust-java-rest-4.5.4-core-runtime.jar`: single lean runtime jar for container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.5.4-sample.jar`: runnable demo and benchmark application built by
+- `sample/target/rust-java-rest-4.5.4-sample.jar`: runnable full-feature demo application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
-- Sources and javadocs are production-focused and exclude framework sample/benchmark packages.
+- Sources and javadocs are production-focused and exclude framework sample packages.
 
 What this means in practice:
 
 - If your application depends on `com.reactor:rust-java-rest:4.5.4`, it does not receive the
-  framework's demo handlers, sample DTOs, benchmark routes, or Dubbo sample classes.
+  framework's demo handlers, sample DTOs, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
 - Do not use framework `target/classes` or `rust-java-rest-*-sample.jar` to make production RSS
   claims. Those paths intentionally contain demo code and can make the memory picture look worse
   than the real library dependency.
-- For production-like memory checks, run either your real application or the minimal production
-  benchmark image built from `core-runtime` plus only application classes.
+- For production-like memory checks, run your real application with `core-runtime` plus only its
+  application classes.
 
 Package rule:
 
@@ -1646,37 +1645,15 @@ reactor.rust.websocket.outbound-queue-capacity=1024
 reactor.rust.websocket.send-timeout-ms=5000
 ```
 
-## Benchmark And Release Evidence
+## Performance Validation
 
-Release-gate commands used for the current stable line:
+Validate the framework with the real application image, production JVM flags, pod CPU/memory limits,
+and representative endpoint mix. Compare at least three randomized telemetry-off/on runs. Record
+useful `200` RPS, p95/p99, non-2xx rate, cgroup RSS, anonymous memory, thread count, and idle recovery
+together. Do not publish one workstation run as a universal framework claim.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\container_benchmark.ps1 `
-  -RuntimeProfile micro-rest-plus `
-  -FrameworkJvmPreset current `
-  -EndpointClasses "small-json-legacy,small-json-direct,dynamic-producer-json,dynamic-dto-json,producer-json,direct-json-writer,raw-json,native-cache-json,file-static" `
-  -ConcurrencyLevels "64,256,512,1000" `
-  -Duration 20s -Warmup 5s -RepeatCount 3 `
-  -RandomSeed 202606061 `
-  -ResultsDir "benchmark\results\release_gate_repeat_20260603" `
-  -SkipBuild
+Public operational guidance:
 
-powershell -ExecutionPolicy Bypass -File .\benchmark\route_admission_matrix.ps1 `
-  -EndpointClass "producer-json" `
-  -RouteAdmissionKey "get.api.v1.heavy.producer" `
-  -ConcurrencyLevels "256,512" `
-  -MaxConcurrentValues "64,80,96,128" `
-  -QueueTimeoutMsValues "75,125,150" `
-  -RuntimeProfile micro-rest-plus `
-  -Duration 20s -Warmup 5s -RepeatCount 3 `
-  -RandomSeed 202606062 `
-  -ResultsRoot "benchmark\results\release_gate_route_admission_full_20260603" `
-  -SkipBuild
-```
-
-More benchmark details:
-
-- [benchmark/README.md](benchmark/README.md)
 - [docs/production-runtime.md](docs/production-runtime.md)
 - [docs/release-notes/v4.5.4.md](docs/release-notes/v4.5.4.md)
 - [docs/release-notes/v4.4.1.md](docs/release-notes/v4.4.1.md)
@@ -1686,40 +1663,10 @@ More benchmark details:
 - [docs/release-notes/v3.2.2.md](docs/release-notes/v3.2.2.md)
 - [docs/release-notes/v3.2.1.md](docs/release-notes/v3.2.1.md)
 
-Production-like RSS measurement should now start from the minimal production app, not the framework
-sample app:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
-  -AppMode minimal `
-  -RuntimeProfile micro-rest `
-  -ConcurrencyValues 64,256 `
-  -DurationSeconds 4 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 6
-```
-
-Use `-AppMode sample` only when you intentionally want to test the bundled demo routes. Use
-`-AppMode minimal` when the question is "what does a clean production classpath cost before my own
-business code grows it?"
-
-For anonymous-memory attribution, use the evidence gate instead of reading one RSS number:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 `
-  -AppMode minimal `
-  -ConcurrencyValues "64,256,512" `
-  -DurationSeconds 5 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 12 `
-  -TrimFinalIdleSeconds 95 `
-  -TrimFinalIdleSnapshotSeconds "35,95"
-```
-
-This produces one report for `micro-rest`, `micro-rest-plus`, `micro-dubbo`, conservative native
-trim A/B, and OpenJ9 javacore/native evidence. Use it when RSS is above target and you need to know
-whether the next fix is Java heap/object graph, class metadata, JIT/code cache, thread/native pools,
-Rust buffers, allocator retention, or Dubbo runtime surface.
+Start production-like RSS attribution from the real minimal application, not the framework sample.
+Collect Linux cgroup and `smaps_rollup` evidence after baseline, warmup, load, idle, and optional
+conservative native trim. This distinguishes Java heap/object graph, class metadata, JIT/code cache,
+thread/native pools, Rust buffers, allocator retention, and optional Dubbo runtime surface.
 
 Do not treat this as a tuning preset. Treat it as a decision gate. If heap is already small but
 `anon_residual_mib` is high, lowering `-Xmx` is the wrong lever. If Java-heavy endpoints dominate
@@ -1772,7 +1719,7 @@ Before shipping a service:
 | Health, readiness, shutdown, and operational endpoints | [Operations](docs/operations.md) |
 | Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
 | Small projects that compile in the build | [Examples](examples/README.md) |
-| Repeatable benchmark rules and evidence archive | [Benchmark package](benchmark/README.md) |
+| Runtime sizing and performance decisions | [Production runtime guide](docs/production-runtime.md) |
 | Changes in this release | [4.5.4 release notes](docs/release-notes/v4.5.4.md) |
 
 ## License

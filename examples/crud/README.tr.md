@@ -44,4 +44,4 @@ Validation request record üzerinde kalmalıdır. Business kararı service için
 ortamında bounded DB pool ve repository kullanın. In-memory map'i shared mutable domain model olarak
 kullanmayın.
 
-Upload, streaming, WebSocket veya benchmark yolunu seçmek için [örnekler dizinine](../README.tr.md) dönün.
+Upload, streaming veya WebSocket yolunu seçmek için [örnekler dizinine](../README.tr.md) dönün.

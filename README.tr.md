@@ -590,7 +590,7 @@ Property ve profil ayrıntıları:
 | Dubbo provider çağıran REST API | `rest-sample-dubbo-consumer` |
 | Plain Java Dubbo provider | `rest-sample-dubbo-provider` |
 
-`sample` modülü tam uyumluluk ve benchmark demosudur. Production template değildir. Yeni proje için
+`sample` modülü tam uyumluluk demosudur. Production template değildir. Yeni proje için
 starter tabanlı yapı veya `scripts/new-reactor-project.ps1` kullanın.
 
 ```powershell
@@ -624,7 +624,7 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Operasyon](docs/operations.tr.md)
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
-- [Benchmark metodolojisi ve kanıt arşivi](benchmark/README.md)
+- [Production runtime ve performans kararları](docs/production-runtime.md)
 - [4.5.4 sürüm notları](docs/release-notes/v4.5.4.tr.md)
 - [4.4.1 sürüm notları](docs/release-notes/v4.4.1.tr.md)
 

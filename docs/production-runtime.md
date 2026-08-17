@@ -216,15 +216,8 @@ Do not lower `-Xss256k` globally just to chase RSS. The latest minimal `micro-re
 tested `256k/192k/160k/128k`: no stack/OOM/native-thread failure appeared, but cgroup anon did not
 drop predictably enough to justify a new default. `192k` or `128k` can be tested for a very small
 service, but only after the real deepest route path, RPC provider/consumer path, JDBC path, and
-error-handling path pass smoke/load tests. The benchmark helper is:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\xss_anon_matrix.ps1 `
-  -RuntimeProfile micro-rest `
-  -AppMode minimal `
-  -XssValues "256k,192k,160k,128k" `
-  -ConcurrencyValues "512"
-```
+error-handling path pass smoke/load tests. Compare `256k`, `192k`, `160k`, and `128k` with the same
+application image and c512 workload.
 
 The production Docker baseline keeps `MALLOC_ARENA_MAX=2` and
 `MALLOC_TRIM_THRESHOLD_=131072`. Do not change the arena count to `1` only because it lowers an idle
@@ -392,29 +385,29 @@ If they are part of the service contract, include them and enable the matching r
 Run production services with the lean framework artifact:
 
 - Use the normal Maven dependency for application compile/runtime.
-- Use `rust-java-rest-*-core-runtime.jar` in benchmark images when you need a single framework
+- Use `rust-java-rest-*-core-runtime.jar` in container images when you need a single framework
   runtime jar.
 - Do not put `target/classes` from the framework project on a production or production-like
-  benchmark classpath.
+  validation classpath.
 - Do not use the `sample` classifier for production. It intentionally contains demo handlers,
   DTOs, and a sample startup index.
 
 The default jar, `core-runtime` jar, sources jar, and javadocs exclude
-`com.reactor.rust.example`, `com.reactor.rust.benchmark`, and `com.reactor.rust.dubbo.sample`.
-The sample jar keeps those classes only so examples and local benchmarks remain runnable.
+`com.reactor.rust.example` and `com.reactor.rust.dubbo.sample`.
+The sample jar keeps those classes only so examples remain runnable.
 
 Read this as a production rule, not only as a packaging detail:
 
 | Artifact or classpath | Use it for | Do not use it for |
 |-----------------------|------------|-------------------|
 | Normal Maven dependency, `rust-java-rest` | Real applications and normal library consumption | Running the bundled sample app directly |
-| `rust-java-rest-*-core-runtime.jar` | Single-jar framework runtime classpath in container/benchmark images | Replacing your application code |
+| `rust-java-rest-*-core-runtime.jar` | Single-jar framework runtime classpath in container images | Replacing your application code |
 | `rust-java-rest-*-sample.jar` | Demo routes and local framework examples | Production, pod sizing, or RSS claims |
-| Framework `target/classes` | Local framework debugging | Production-like benchmarks |
+| Framework `target/classes` | Local framework debugging | Production-like validation |
 
-The reason is simple: sample and benchmark classes are useful for demos, but they are not part of a
+The reason is simple: sample classes are useful for demos, but they are not part of a
 real service contract. If they are placed on the classpath, they can load extra handlers, DTOs,
-startup-index entries, and benchmark metadata. That makes RSS attribution noisy and can hide the
+and startup-index entries. That makes RSS attribution noisy and can hide the
 actual cost of the production framework.
 
 Local verification from the `v3.2.2` package:
@@ -425,35 +418,16 @@ Local verification from the `v3.2.2` package:
 | `rust-java-rest-3.2.2-core-runtime.jar` | `0` |
 | `rust-java-rest-3.2.2-sample.jar` | demo/benchmark classes only |
 
-For memory work, default to the minimal production benchmark app:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\linux_smaps_breakdown.ps1 `
-  -AppMode minimal `
-  -RuntimeProfile micro-rest `
-  -ConcurrencyValues 64,256 `
-  -DurationSeconds 4 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 6
-```
+For memory work, default to a minimal real production application. Capture baseline, c64/c256 load,
+idle, and final-idle RSS plus `smaps_rollup` from the same container image.
 
 Use the sample app only when the route under test exists only in the bundled sample. Do not mix
 sample-route benchmark data with production-classpath RSS claims.
 
 ## Anonymous Memory Evidence Gate
 
-Before lowering Kubernetes memory limits, run the anon evidence gate on the minimal production app:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\benchmark\anon_evidence_gate.ps1 `
-  -AppMode minimal `
-  -ConcurrencyValues "64,256,512" `
-  -DurationSeconds 5 `
-  -IdleSeconds 3 `
-  -FinalIdleSeconds 12 `
-  -TrimFinalIdleSeconds 95 `
-  -TrimFinalIdleSnapshotSeconds "35,95"
-```
+Before lowering Kubernetes memory limits, collect anonymous-memory evidence from the minimal real
+application at c64/c256/c512, followed by normal idle and conservative trim snapshots.
 
 This gate runs:
 
