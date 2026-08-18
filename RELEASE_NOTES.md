@@ -1,3 +1,25 @@
+# Rust-Java REST Framework v4.5.6
+
+`v4.5.6` aligns the core package, platform parent, BOM, starters, examples, and companion libraries
+on one immutable dependency line. Java handlers, services, records, validation, and business logic
+remain unchanged. REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `3` are unchanged.
+
+## Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>4.5.6</version>
+</dependency>
+```
+
+Full release notes:
+
+- [docs/release-notes/v4.5.6.md](docs/release-notes/v4.5.6.md)
+
+---
+
 # Rust-Java REST Framework v3.3.1
 
 `v3.3.1` adds a smaller application bootstrap while preserving explicit Java business composition.

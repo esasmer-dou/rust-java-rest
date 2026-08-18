@@ -47,14 +47,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: esasmer-dou/java-rust-dubbo
-          ref: v0.7.2
+          ref: v0.7.3
           path: aligned/java-rust-dubbo
 
       - name: Checkout aligned cache library
         uses: actions/checkout@v4
         with:
           repository: esasmer-dou/java-rust-cache
-          ref: v0.7.4
+          ref: v0.7.5
           path: aligned/java-rust-cache
 
       - name: Install aligned libraries locally

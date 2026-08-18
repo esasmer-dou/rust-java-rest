@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.6] - 2026-08-18
+
+### Changed
+
+- Aligned the platform parent, BOM, starters, examples, project generator, and build gates on one
+  immutable `4.5.6` release line.
+- Aligned `java-rust-cache:0.7.5`, `java-rust-dubbo:0.7.3`, `rust-sample-model:0.4.2`, and
+  `rest-sample-utility:0.4.2` for generated and sample applications.
+- Reused the clean, SHA-256 verified Windows and Linux native runtime from `rust-spring v4.5.5`.
+- Kept REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `3`, Java handlers, annotations,
+  services, validation, and business logic unchanged.
+
 ## [4.5.5] - 2026-08-18
 
 ### Changed
@@ -928,6 +940,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[4.5.6]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.5...v4.5.6
 [4.5.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.4...v4.5.5
 [4.5.4]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.3...v4.5.4
 [4.5.3]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.2...v4.5.3

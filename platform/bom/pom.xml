@@ -5,16 +5,16 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-platform-bom</artifactId>
-    <version>4.5.4</version>
+    <version>4.5.6</version>
     <packaging>pom</packaging>
     <name>Rust-Java Platform BOM</name>
 
     <properties>
-        <rust-java-rest.version>4.5.4</rust-java-rest.version>
-        <java-rust-dubbo.version>0.7.2</java-rust-dubbo.version>
-        <java-rust-cache.version>0.7.4</java-rust-cache.version>
-        <rust-sample-model.version>0.4.1</rust-sample-model.version>
-        <rest-sample-utility.version>0.4.1</rest-sample-utility.version>
+        <rust-java-rest.version>4.5.6</rust-java-rest.version>
+        <java-rust-dubbo.version>0.7.3</java-rust-dubbo.version>
+        <java-rust-cache.version>0.7.5</java-rust-cache.version>
+        <rust-sample-model.version>0.4.2</rust-sample-model.version>
+        <rest-sample-utility.version>0.4.2</rest-sample-utility.version>
     </properties>
 
     <dependencyManagement>

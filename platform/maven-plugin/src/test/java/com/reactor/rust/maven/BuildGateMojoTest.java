@@ -70,7 +70,7 @@ class BuildGateMojoTest {
         project.setArtifacts(Set.of(new DefaultArtifact(
                 "com.reactor",
                 "rust-java-rest",
-                "4.5.4",
+                "4.5.6",
                 "compile",
                 "jar",
                 null,
@@ -90,7 +90,7 @@ class BuildGateMojoTest {
         project.setArtifacts(Set.of(new DefaultArtifact(
                 "com.reactor",
                 "rust-java-rest",
-                "4.5.4",
+                "4.5.6",
                 "compile",
                 "jar",
                 null,

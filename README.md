@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Version](https://img.shields.io/badge/version-4.5.5-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.5)
+[![Version](https://img.shields.io/badge/version-4.5.6-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.6)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.5)
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.5.6)
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -52,12 +52,12 @@ discovery, or libraries that require a Spring application context.
 
 ## Current Stable Line
 
-`4.5.5` is the stable declarative runtime line. It packages clean `rust-spring v4.5.5` native
+`4.5.6` is the stable declarative runtime line. It packages clean `rust-spring v4.5.5` native
 artifacts whose complete source commit matches the Maven provenance manifest. It uses REST ABI
 `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `3`. Always use the native file carried by the
 same coordinated Maven artifact.
 
-When bounded telemetry is enabled, `4.5.5` stores its per-request capture state in one compact
+When bounded telemetry is enabled, `4.5.6` stores its per-request capture state in one compact
 32-bit value and runs export as low-priority batch work outside the Hyper executor. Sampling,
 exact 5xx accounting, Java handler behavior, and the public annotation API are unchanged.
 
@@ -68,23 +68,23 @@ unchanged. If your application combines the published libraries, keep the versio
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.5.5</version>
+  <version>4.5.6</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.7.4</version>
+  <version>0.7.5</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.7.2</version>
+  <version>0.7.3</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.7.4` or `java-rust-dubbo:0.7.2` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.7.5` or `java-rust-dubbo:0.7.3` native mode with a DLL/SO copied from
 an older release. Startup verifies all four ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
@@ -99,7 +99,7 @@ the build-time AOT gates without adding runtime reflection.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.5.5</version>
+  <version>4.5.6</version>
 </parent>
 
 <dependencies>
@@ -223,11 +223,11 @@ final class ApiErrors {
 Exception handlers are indexed and invoked through generated code. Do not catch every exception in
 every route or expose dependency exception text to clients.
 
-## v4.5.5 At A Glance
+## v4.5.6 At A Glance
 
-`v4.5.5` keeps the Java handler and service model unchanged. It retains the bounded telemetry
-profiles introduced in `v4.5.0` and improves CPU isolation for the exporter. Export, JVM probes,
-diagnostics, and profile memory reclamation remain isolated in Rust.
+`v4.5.6` aligns the platform parent, BOM, starters, project generator, cache `0.7.5`, and Dubbo
+`0.7.3` on one immutable release line. The Java handler and service model is unchanged. Export, JVM
+probes, diagnostics, and profile memory reclamation remain isolated in Rust.
 
 - Telemetry is disabled by default and allocates no route table, queue, or collector connection.
 - Embedded REST telemetry validates collector reachability at startup, closes that probe, and opens
@@ -244,11 +244,11 @@ diagnostics, and profile memory reclamation remain isolated in Rust.
 - Startup validates REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `3`, source revision,
   platform, and SHA-256 before serving traffic.
 - Native release artifacts must come from a clean CI build of the exact recorded Rust commit.
-- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.3.0` and standalone
+- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.4.0` and standalone
   `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
 Existing REST annotations, handler signatures, response types, services, validation, and business
-logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.5.5`
+logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.5.6`
 artifact.
 
 ## How Startup And Configuration Work
@@ -485,7 +485,7 @@ benchmark tools and machine-specific evidence are intentionally kept outside the
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.5.5</version>
+  <version>4.5.6</version>
 </dependency>
 ```
 
@@ -567,17 +567,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.5.5.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.5.5-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.5.5-core-runtime.jar`: single lean runtime jar for container
+- `rust-java-rest-4.5.6.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.5.6-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.5.6-core-runtime.jar`: single lean runtime jar for container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.5.5-sample.jar`: runnable full-feature demo application built by
+- `sample/target/rust-java-rest-4.5.6-sample.jar`: runnable full-feature demo application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.5.5`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.5.6`, it does not receive the
   framework's demo handlers, sample DTOs, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -599,7 +599,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.5.5-sample.jar
+java -jar sample/target/rust-java-rest-4.5.6-sample.jar
 ```
 
 ## Copy/Paste REST Cookbook
@@ -1475,7 +1475,7 @@ Use:
 - `GET /diagnostics/routes` for route strategy/fallback visibility.
 - `NativeBridge.nativeMemoryDiagnosticsJson()` for native memory diagnostics.
 
-The stable `4.5.5` line can use `java-rust-glowroot-agent:0.4.0`. It sends bounded
+The stable `4.5.6` line can use `java-rust-glowroot-agent:0.4.0`. It sends bounded
 HTTP route, native Dubbo, native Redis, process RSS, thread, exporter health, and sampled slow/error
 trace data to Glowroot Central. The Java agent does not weave bytecode and adds no runtime
 dependencies. Protobuf and plaintext HTTP/2 export run inside the existing Rust runtime.
@@ -1534,7 +1534,7 @@ The collector is never on the HTTP request critical path. Collector failure uses
 backoff and drops an expired rollup instead of retaining data indefinitely. The application remains
 available. The source-enforced agent-owned ceiling is `1 MiB`. Earlier `4.4.1` evidence used the
 shared-runtime path and observed resident maxima of `+1.742 MiB`, `+1.817 MiB`, and `+1.754 MiB`
-with no telemetry thread. Version `4.5.5` isolates export and profile reclamation on one `256 KiB`
+with no telemetry thread. Version `4.5.6` isolates export and profile reclamation on one `256 KiB`
 Rust thread; it does not consume Hyper workers. Embedded REST closes the startup collector probe
 and reconnects only for a bounded export window. The coordinated release gate measures the
 disabled/enabled `+3 MiB`, RPS, p99, and `503` contract before publishing the companion agent.
@@ -1655,6 +1655,7 @@ together. Do not publish one workstation run as a universal framework claim.
 Public operational guidance:
 
 - [docs/production-runtime.md](docs/production-runtime.md)
+- [docs/release-notes/v4.5.6.md](docs/release-notes/v4.5.6.md)
 - [docs/release-notes/v4.5.5.md](docs/release-notes/v4.5.5.md)
 - [docs/release-notes/v4.4.1.md](docs/release-notes/v4.4.1.md)
 - [docs/release-notes/v4.3.0.md](docs/release-notes/v4.3.0.md)
@@ -1720,7 +1721,7 @@ Before shipping a service:
 | Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
 | Small projects that compile in the build | [Examples](examples/README.md) |
 | Runtime sizing and performance decisions | [Production runtime guide](docs/production-runtime.md) |
-| Changes in this release | [4.5.5 release notes](docs/release-notes/v4.5.5.md) |
+| Changes in this release | [4.5.6 release notes](docs/release-notes/v4.5.6.md) |
 
 ## License
 
