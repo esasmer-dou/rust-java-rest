@@ -12,7 +12,7 @@ processor sınıfları yalnız derleyici yolunda kalır. Production runtime bağ
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.5.4</version>
+  <version>4.5.5</version>
 </parent>
 
 <dependencies>

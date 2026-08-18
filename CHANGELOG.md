@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.5] - 2026-08-18
+
+### Changed
+
+- Packaged Windows and Linux native runtimes from clean `rust-spring v4.5.5` source revision
+  `0498f282556d3f0778a92956b18eaaf96d5c0916`.
+- Removed DNS resolver work when the Glowroot collector is configured with a literal IPv4 or IPv6
+  address.
+- Corrected the Windows process-thread gauge used by bounded telemetry without adding a Java
+  sampling thread.
+- Kept REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `3`, and every Java application API
+  unchanged.
+
 ## [4.5.4] - 2026-08-16
 
 ### Changed
@@ -915,6 +928,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[4.5.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.4...v4.5.5
 [4.5.4]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.3...v4.5.4
 [4.5.3]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.2...v4.5.3
 [4.5.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.1...v4.5.2
