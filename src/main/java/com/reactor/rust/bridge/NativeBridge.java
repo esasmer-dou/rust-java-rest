@@ -26,7 +26,7 @@ public class NativeBridge {
     static final int EXPECTED_NATIVE_ABI_VERSION = 29;
     static final int EXPECTED_DUBBO_NATIVE_ABI_VERSION = 7;
     static final int EXPECTED_REDIS_NATIVE_ABI_VERSION = 6;
-    static final int EXPECTED_GLOWROOT_NATIVE_ABI_VERSION = 3;
+    static final int EXPECTED_GLOWROOT_NATIVE_ABI_VERSION = 4;
     private static final int GLOWROOT_FEATURE_JVM_GAUGES = 1;
     private static final int GLOWROOT_FEATURE_SQL = 1 << 1;
     private static final int GLOWROOT_FEATURE_ERROR_STACKS = 1 << 2;

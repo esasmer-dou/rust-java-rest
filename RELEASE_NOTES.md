@@ -1,8 +1,11 @@
-# Rust-Java REST Framework v4.5.6
+# Rust-Java REST Framework v4.6.0
 
-`v4.5.6` aligns the core package, platform parent, BOM, starters, examples, and companion libraries
-on one immutable dependency line. Java handlers, services, records, validation, and business logic
-remain unchanged. REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `3` are unchanged.
+`v4.6.0` publishes Glowroot-compatible exact HTTP dashboard aggregates. Java handlers, services,
+records, validation, and business logic remain unchanged. REST ABI `29`, Dubbo ABI `7`, and Redis
+ABI `6` remain unchanged. Glowroot ABI moves from `3` to `4`.
+
+Use `java-rust-cache:0.7.6` when REST and cache run in the same process. The platform BOM and cache
+starters already select this coordinated version.
 
 ## Maven Dependency
 
@@ -10,13 +13,13 @@ remain unchanged. REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI 
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>4.5.6</version>
+    <version>4.6.0</version>
 </dependency>
 ```
 
 Full release notes:
 
-- [docs/release-notes/v4.5.6.md](docs/release-notes/v4.5.6.md)
+- [docs/release-notes/v4.6.0.md](docs/release-notes/v4.6.0.md)
 
 ---
 

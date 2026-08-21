@@ -28,7 +28,9 @@ param(
 
     [int]$RedisAbi = 6,
 
-    [int]$GlowrootAbi = 3
+    [int]$GlowrootAbi = 4,
+
+    [string]$LinuxMinimumGlibc = "2.17"
 )
 
 $ErrorActionPreference = "Stop"
@@ -92,6 +94,9 @@ if ($windowsMeta.'source.revision' -ne $sourceRevisionFull `
         -or $linuxMeta.'source.revision' -ne $sourceRevisionFull) {
     throw "Native artifacts were not built from the checked-out revision $sourceRevisionFull"
 }
+if ($linuxMeta.'glibc.minimum' -ne $LinuxMinimumGlibc) {
+    throw "Linux native metadata must declare glibc.minimum=$LinuxMinimumGlibc"
+}
 $verifiedWindowsHash = Assert-ArtifactChecksum $windowsSource $WindowsChecksum
 $verifiedLinuxHash = Assert-ArtifactChecksum $linuxSource $LinuxChecksum
 $resources = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\src\main\resources\native")).Path
@@ -121,6 +126,7 @@ crate.version=$crateVersion
 source.revision=$sourceRevision
 windows-x64.sha256=$windowsHash
 linux-x64.sha256=$linuxHash
+linux-x64.glibc-minimum=$LinuxMinimumGlibc
 "@
 $manifestPath = Join-Path $resources "native-provenance.properties"
 [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))

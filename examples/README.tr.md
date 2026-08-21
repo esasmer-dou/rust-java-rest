@@ -12,7 +12,7 @@ module kullanır.
 ## Gereksinimler
 
 - Java 21 ve Maven 3.9+.
-- Uyumlu `rust-java-rest:4.5.6` paketi ve onunla gelen DLL/SO.
+- Uyumlu `rust-java-rest:4.6.0` paketi ve onunla gelen DLL/SO.
 - Seçtiğiniz modül için boş bir lokal port.
 
 Her modül examples reactor tarafından derlenir. README örneği ile source ayrışırsa source modülü ve

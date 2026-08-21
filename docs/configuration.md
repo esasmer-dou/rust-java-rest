@@ -44,8 +44,8 @@ retaining optional Java registry state that no endpoint can read.
 
 ## Glowroot Telemetry
 
-The stable `4.5.6` runtime uses REST ABI `29` and Glowroot ABI `3`. It supports bounded runtime
-profile switching. Never combine these Java classes with a REST `4.4.x` ABI `28` DLL/SO.
+The stable `4.6.0` runtime uses REST ABI `29` and Glowroot ABI `4`. It supports bounded runtime
+profile switching. Never combine these Java classes with a Glowroot ABI `3` DLL/SO.
 
 Glowroot Central and Cassandra remain unchanged. Rust-Java REST needs no agent JAR. The native
 runtime owns protobuf encoding, the collector connection, profile state, and one isolated `256 KiB`
@@ -65,7 +65,7 @@ maps early `-javaagent` arguments.
 | `reactor.glowroot.connect-timeout-ms` | `1000` | 100-30000 | TCP/HTTP2 connect limit |
 | `reactor.glowroot.request-timeout-ms` | `2000` | 100-30000 | Whole unary gRPC lifecycle limit |
 | `reactor.glowroot.trace.slow-threshold-ms` | `500` | 1-3600000 | HTTP slow-trace threshold when the startup queue exists |
-| `reactor.glowroot.http.sample-rate` | `256` | power of two, 1-1024 | Samples successful HTTP aggregates; `5xx` stays exact |
+| `reactor.glowroot.http.sample-rate` | `256` | power of two, 1-1024 | Samples optional HTTP trace detail; endpoint count, latency histogram, throughput, and errors remain exact |
 | `reactor.glowroot.trace.capacity` | `0` | 0-32 | Startup-owned HTTP trace queue; `0` allocates none |
 | `reactor.glowroot.sql.capacity` | `16` | 0-32 | SQL slots allocated only while `sql`, `full`, or `diagnostic` is active |
 | `reactor.glowroot.error.trace.capacity` | `8` | 0-16 | Error details retained only by error-enabled profiles |

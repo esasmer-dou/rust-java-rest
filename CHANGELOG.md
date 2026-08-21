@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.0] - 2026-08-21
+
+### Fixed
+
+- Count every completed HTTP request exactly once in Glowroot Average, Percentile, Throughput, and
+  Errors while keeping optional trace sampling bounded.
+- Emit Glowroot-compatible `Web` transaction types, route-only names, and the `http request` root
+  timer.
+- Preserve route-cardinality overflow under one bounded `<route-limit-exceeded>` aggregate.
+
+### Compatibility
+
+- Packaged clean `rust-spring v4.6.0` Windows and GLIBC 2.17 Linux artifacts from source revision
+  `0ec9c9df091f225d3e78e6ced4f9b118dd9ba73c`.
+- Kept REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and the Java programming model unchanged.
+- Raised Glowroot ABI from `3` to `4`; mismatched native files fail during startup.
+- Aligned `java-rust-cache:0.7.6` so REST and cache starters package the same ABI `4` native
+  revision.
+
 ## [4.5.6] - 2026-08-18
 
 ### Changed
@@ -940,6 +959,7 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[4.6.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.6...v4.6.0
 [4.5.6]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.5...v4.5.6
 [4.5.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.4...v4.5.5
 [4.5.4]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.3...v4.5.4

@@ -33,7 +33,7 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
     @Parameter(property = "reactor.native.redisAbi", defaultValue = "6")
     private int expectedRedisAbi;
 
-    @Parameter(property = "reactor.native.glowrootAbi", defaultValue = "3")
+    @Parameter(property = "reactor.native.glowrootAbi", defaultValue = "4")
     private int expectedGlowrootAbi;
 
     @Override

@@ -44,8 +44,8 @@ endpoint'in okumadığı Java registry verisinin bellekte tutulmasını engeller
 
 ## Glowroot Telemetrisi
 
-Stable `4.5.6` runtime REST ABI `29` ve Glowroot ABI `3` kullanır. Sınırlı profiller çalışma sırasında
-değiştirilebilir. Bu Java sınıflarını REST `4.4.x` ABI `28` DLL/SO dosyasıyla karıştırmayın.
+Stable `4.6.0` runtime REST ABI `29` ve Glowroot ABI `4` kullanır. Sınırlı profiller çalışma sırasında
+değiştirilebilir. Bu Java sınıflarını Glowroot ABI `3` DLL/SO dosyasıyla karıştırmayın.
 
 Glowroot Central ve Cassandra değişmez. Rust-Java REST için agent JAR gerekmez. Protobuf encode,
 collector bağlantısı, profil state'i ve izole `256 KiB` exporter thread'i native runtime'a aittir.
@@ -65,7 +65,7 @@ Hyper worker'ları kullanılmaz. İsteğe bağlı `java-rust-glowroot-agent.jar`
 | `reactor.glowroot.connect-timeout-ms` | `1000` | 100-30000 | TCP/HTTP2 bağlantı zaman sınırı |
 | `reactor.glowroot.request-timeout-ms` | `2000` | 100-30000 | Tüm unary gRPC çağrısının zaman sınırı |
 | `reactor.glowroot.trace.slow-threshold-ms` | `500` | 1-3600000 | Startup kuyruğu varsa HTTP yavaş trace eşiği |
-| `reactor.glowroot.http.sample-rate` | `256` | 1-1024 arasında ikinin kuvveti | Başarılı HTTP aggregate örneklemesi; `5xx` tam sayılır |
+| `reactor.glowroot.http.sample-rate` | `256` | 1-1024 arasında ikinin kuvveti | İsteğe bağlı HTTP trace ayrıntısını örnekler; endpoint sayısı, latency histogramı, throughput ve hatalar tam kalır |
 | `reactor.glowroot.trace.capacity` | `0` | 0-32 | Startup'ta ayrılan HTTP trace kuyruğu; `0` iken ayrılmaz |
 | `reactor.glowroot.sql.capacity` | `16` | 0-32 | Yalnız `sql`, `full` veya `diagnostic` açıkken ayrılan SQL slotu |
 | `reactor.glowroot.error.trace.capacity` | `8` | 0-16 | Yalnız hata profilleri açıkken tutulan hata ayrıntısı |
