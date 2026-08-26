@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.6.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.0)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.6.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.1)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.0)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.1)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -41,12 +41,12 @@ kütüphaneler gerektiriyorsa bu framework doğru başlangıç değildir.
 | Bir property'nin anlamını bulmak | [Konfigürasyon referansı](docs/configuration.tr.md) |
 | Startup, fallback, native yükleme veya `503` sorununu çözmek | [Sorun giderme](docs/troubleshooting.tr.md) |
 
-## 4.6.0 ile Neler Değişti?
+## 4.6.1 ile Neler Değişti?
 
-Bu sürüm, sınırlı telemetri yolunu mevcut Glowroot transaction ekranlarıyla uyumlu hale getirir.
+Bu sürüm, Spring yavaş/hatalı trace ayrıntılarını ve Glowroot canlı JVM işlemlerini tamamlar.
 Exporter CPU izolasyonu korunur. Java iş mantığı ve endpoint davranışı değişmez.
 
-- Windows ve Linux native dosyaları temiz `rust-spring v4.6.0` build'inden alınır.
+- Windows ve Linux native dosyaları temiz `rust-spring v4.6.1` build'inden alınır.
 - Embedded REST telemetrisi başlangıçta collector erişimini doğrular ve bu bağlantıyı kapatır.
   Sınırlı h2 bağlantısını yalnız export penceresinde açar. Hyper data plane yanında idle collector
   bağlantısı tutmaz.
@@ -54,6 +54,14 @@ Exporter CPU izolasyonu korunur. Java iş mantığı ve endpoint davranışı de
   kullanmaya devam eder.
 - Tamamlanan her HTTP isteği `Web` transaction type altında tam olarak bir kez sayılır. Route adı
   HTTP metodunu içermez. Örneğin `/orders/{id}`, `/orders/*` olarak görünür.
+- Diagnostic yavaş/hatalı trace; HTTP metodu, response kodu, Spring controller satırı ve süresi,
+  request thread CPU/blocked/waited/allocation sayaçları, iç Dubbo süresi ve sınırlı exception
+  stack bilgisini gösterebilir.
+- Ayrı çift yönlü collector bağlantısı Thread dump, OpenJ9 heap histogram/dump, Force GC, MBean
+  tree, System properties ve capability isteklerini destekler. Hyper worker kullanmaz.
+- Environment ekranına host, process, Java/OpenJ9, maskelenmiş JVM argümanları, dump dizini ve
+  agent sürümü gönderilir. Kubernetes secret içerebildiği için bütün işletim sistemi environment
+  variable değerleri gönderilmez.
 - `reactor.glowroot.http.sample-rate` yalnız isteğe bağlı trace ayrıntısını sınırlar. Endpoint
   sayısını, latency histogramını, throughput veya hata toplamını azaltmaz.
 - İzole exporter Linux'ta düşük öncelikli batch işi, Windows'ta en düşük normal thread önceliğiyle
@@ -61,8 +69,8 @@ Exporter CPU izolasyonu korunur. Java iş mantığı ve endpoint davranışı de
 - `micro`, `jvm`, `sql`, `full` ve `diagnostic` profilleri çalışma sırasında değiştirilebilir.
 - Düşük profile dönüldüğünde profile ait kuyruklar, SQL slot'ları, diagnostic state ve JNI
   referansları kontrol çağrısı tamamlanmadan bırakılır.
-- REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `4` kullanılır.
-- Native DLL/SO, `4.6.0` Maven artifact'i içinde gelen dosya olmalıdır.
+- REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `6` kullanılır.
+- Native DLL/SO, `4.6.1` Maven artifact'i içinde gelen dosya olmalıdır.
 
 ## İçindekiler
 
@@ -92,7 +100,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.0</version>
+  <version>4.6.1</version>
 </parent>
 
 <dependencies>
@@ -437,7 +445,7 @@ reactor.rust.http.idle-timeout-ms=30000
 
 ## Gözlemlenebilirlik
 
-`4.6.0` sürümü, uyumlu `java-rust-glowroot-agent:0.5.0` paketiyle kullanılabilir. Mikro ajan şu
+`4.6.1` sürümü, uyumlu `java-rust-glowroot-agent:0.5.2` paketiyle kullanılabilir. Mikro ajan şu
 verileri Glowroot Central'a gönderir:
 
 - HTTP route çağrı sayısı, süre dağılımı ve `5xx` sayısı;
@@ -450,8 +458,8 @@ Java agent bytecode weaving yapmaz. Runtime dependency eklemez. Protobuf encode 
 HTTP/2 gönderimi mevcut Rust runtime içinde çalışır. Handler, service, validation ve business logic
 Java'da aynı şekilde kalır.
 
-Stable `4.6.0` runtime; sınırlı `micro`, `jvm`, `sql`, `full` ve `diagnostic` profillerini destekler.
-REST ABI `29` ve Glowroot ABI `4` gerekir. Bu Java sınıflarını Glowroot ABI `3` DLL/SO ile
+Stable `4.6.1` runtime; sınırlı `micro`, `jvm`, `sql`, `full` ve `diagnostic` profillerini destekler.
+REST ABI `29` ve Glowroot ABI `6` gerekir. Bu Java sınıflarını eski Glowroot ABI DLL/SO ile
 kullanmayın.
 
 Trafik gönderdikten sonra bir export aralığı bekleyin. **Transactions** ekranında transaction type
@@ -465,10 +473,11 @@ binary'sinde `glowroot` capability bulunan uyumlu Rust-Java REST artifact'ini ku
 `-javaagent:/app/agent/java-rust-glowroot-agent.jar` yalnız konfigürasyon kolaylığı sağlar ve ayrı
 ölçülür. Java controller, handler, service, validation ve iş mantığı değişmez.
 
-Rastgele Java metodunu izlemek, otomatik JDBC weaving, geniş JMX discovery, sürekli profiler, log
-capture veya canlı weaving istiyorsanız tam Glowroot Java agent'ı seçin. Sınırlı runtime artık açıkça
-tanımlanan SQL sürelerini, sabit JVM/GC ölçümlerini, sınırlı hata stack bilgisini ve yetkili tanılama
-komutlarını sağlayabilir. Yine de tam upstream agent değildir.
+Rastgele Java metodunu izlemek, otomatik JDBC weaving, sürekli profiler, uygulama log weaving,
+request/response body yakalama veya canlı bytecode weaving istiyorsanız tam Glowroot Java agent'ı
+seçin. Sınırlı runtime; SQL varsa açık SQL sürelerini, sabit JVM/GC ölçümlerini, Spring controller ve
+Dubbo trace ayrıntısını, sınırlı hata stack bilgisini, MBean erişimini ve yetkili tanılama komutlarını
+sağlar. Yalnız Dubbo çağıran bir serviste SQL telemetrisi gerekmez.
 
 Agent'ın ağır işleri Rust tarafında kalır. İsteğe bağlı MXBean discovery ve polling, JNI global
 referans sahipliği, aggregate işlemleri, kuyruklar, protobuf/h2 gönderimi, tanılama yönetimi, dosya
@@ -508,7 +517,7 @@ Collector, HTTP request kritik yolunda beklenmez. Bağlantı kesilirse sınırl�
 çalışır. Süresi geçen rollup bellekte biriktirilmez; drop edilir ve sayaçta görünür. Uygulama servis
 vermeye devam eder. Kaynak kodla uygulanan agent-owned üst sınır `1 MiB` değeridir. Önceki
 `4.4.1` kanıtı shared-runtime yolunu ölçtü. Resident maksimum farkları `+1,742 MiB`, `+1,817 MiB`
-ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.6.0`, export ve profil kaynak bırakma işini
+ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.6.1`, export ve profil kaynak bırakma işini
 tek `256 KiB` Rust thread üzerinde izole eder. Hyper worker kullanmaz. Embedded REST başlangıç
 collector bağlantısını kapatır ve yalnız sınırlı export penceresinde yeniden bağlanır. Koordineli
 release gate'i, companion agent yayınlanmadan önce `+3 MiB`, RPS, p99 ve `503` sözleşmesini ölçer.
@@ -612,9 +621,9 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Uyumlu dependency çizgisi `rust-java-rest:4.6.0`, `java-rust-dubbo:0.7.3` ve
+Uyumlu dependency çizgisi `rust-java-rest:4.6.1`, `java-rust-dubbo:0.7.3` ve
 `java-rust-cache:0.7.6` şeklindedir. Native artifact'ler REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`
-ve Glowroot ABI `4` taşır.
+ve Glowroot ABI `6` taşır.
 
 Native DLL/SO dosyasını başka bir sürümden kopyalamayın. Startup; ABI, platform, source revision ve
 SHA-256 provenance bilgisini doğrular. Uyumsuz binary trafik başlamadan reddedilir.
@@ -631,6 +640,7 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Production runtime ve performans kararları](docs/production-runtime.md)
+- [4.6.1 sürüm notları](docs/release-notes/v4.6.1.tr.md)
 - [4.6.0 sürüm notları](docs/release-notes/v4.6.0.tr.md)
 - [4.5.5 sürüm notları](docs/release-notes/v4.5.5.tr.md)
 - [4.4.1 sürüm notları](docs/release-notes/v4.4.1.tr.md)

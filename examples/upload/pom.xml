@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.reactor.examples</groupId>
         <artifactId>rust-java-rest-examples</artifactId>
-        <version>4.6.0</version>
+        <version>4.6.1</version>
     </parent>
     <artifactId>rust-java-rest-example-upload</artifactId>
     <properties>

@@ -28,7 +28,7 @@ param(
 
     [int]$RedisAbi = 6,
 
-    [int]$GlowrootAbi = 4,
+    [int]$GlowrootAbi = 6,
 
     [string]$LinuxMinimumGlibc = "2.17"
 )

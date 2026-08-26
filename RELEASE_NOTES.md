@@ -1,3 +1,25 @@
+# Rust-Java REST Framework v4.6.1
+
+`v4.6.1` completes bounded Spring trace detail and live Glowroot JVM diagnostics. Java handlers,
+services, records, validation, annotations, and business logic remain unchanged. REST ABI `29`,
+Dubbo ABI `7`, and Redis ABI `6` remain unchanged. Glowroot ABI moves from `4` to `6`.
+
+## Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.reactor</groupId>
+    <artifactId>rust-java-rest</artifactId>
+    <version>4.6.1</version>
+</dependency>
+```
+
+Full release notes:
+
+- [docs/release-notes/v4.6.1.md](docs/release-notes/v4.6.1.md)
+
+---
+
 # Rust-Java REST Framework v4.6.0
 
 `v4.6.0` publishes Glowroot-compatible exact HTTP dashboard aggregates. Java handlers, services,

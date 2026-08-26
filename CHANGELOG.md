@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.1] - 2026-08-26
+
+### Fixed
+
+- Added bounded Spring slow/error trace detail: HTTP method, response status, controller timing,
+  request-thread counters, nested Dubbo consumer timing, and exception stacks.
+- Added the Glowroot downstream connection required by live Thread dump, OpenJ9 heap
+  histogram/dump, Force GC, MBean, System Properties, and capability requests.
+- Preserved unsent exact aggregate counters across collector connection failures.
+
+### Compatibility
+
+- Packaged clean `rust-spring v4.6.1` Windows and GLIBC 2.17 Linux artifacts from source revision
+  `121888cbfe8cd28a32fd4489685f58c6e30642cb`.
+- Kept REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Java handlers, annotations, and business logic
+  unchanged.
+- Raised Glowroot ABI from `4` to `6`; mismatched native files fail during startup.
+
 ## [4.6.0] - 2026-08-21
 
 ### Fixed

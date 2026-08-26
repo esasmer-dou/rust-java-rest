@@ -22,7 +22,7 @@ class NativeProvenanceTest {
                 rest.abi=29
                 dubbo.abi=7
                 redis.abi=6
-                glowroot.abi=4
+                glowroot.abi=6
                 crate.version=0.1.0
                 source.revision=abc123
                 windows-x64.sha256=%s
@@ -38,7 +38,7 @@ class NativeProvenanceTest {
 
         assertEquals(7, manifest.dubboAbi());
         assertEquals(6, manifest.redisAbi());
-        assertEquals(4, manifest.glowrootAbi());
+        assertEquals(NativeBridge.EXPECTED_GLOWROOT_NATIVE_ABI_VERSION, manifest.glowrootAbi());
         assertEquals(hash, manifest.sha256());
     }
 
@@ -93,7 +93,9 @@ class NativeProvenanceTest {
         );
 
         assertEquals(
-                "Native Glowroot build provenance ABI mismatch: expected 4 but binary reported 1",
+                "Native Glowroot build provenance ABI mismatch: expected "
+                        + NativeBridge.EXPECTED_GLOWROOT_NATIVE_ABI_VERSION
+                        + " but binary reported 1",
                 error.getMessage()
         );
     }

@@ -12,7 +12,7 @@ on the compiler path and are not runtime dependencies.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.0</version>
+  <version>4.6.1</version>
 </parent>
 
 <dependencies>
