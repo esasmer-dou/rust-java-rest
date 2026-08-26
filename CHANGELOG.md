@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.2] - 2026-08-26
+
+### Fixed
+
+- Rotate standalone Glowroot collector connections after 15 minutes, before Central's 20-minute
+  maximum age.
+- Check connection readiness before aggregate counters are drained.
+- Retain one bounded aggregate batch until Central acknowledges it. A close race now reconnects,
+  initializes, and retries the byte-identical payload instead of losing the current interval.
+- Preserve the pending batch after retry exhaustion while newer transactions remain in the
+  preallocated counters.
+
+### Added
+
+- Expose proactive reconnect, recovered retry, deferred interval, and pending aggregate transaction
+  counters through diagnostics, Prometheus, and Glowroot gauges.
+- Add a deterministic HTTP/2 close-before-ACK test for the embedded and standalone native builds.
+
+### Compatibility
+
+- Package clean `rust-spring v4.6.2` Windows and GLIBC 2.17 Linux artifacts from source revision
+  `5bc1b825673967b8105c05944523f977131071de`.
+- Keep REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `6`, and the Java programming model
+  unchanged.
+- Use `java-rust-glowroot-agent:0.5.3` for Spring Boot applications.
+
 ## [4.6.1] - 2026-08-26
 
 ### Fixed
@@ -977,6 +1003,8 @@ None. All v2.0.0 code is compatible with v3.0.0.
 
 ---
 
+[4.6.2]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.6.1...v4.6.2
+[4.6.1]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.6.0...v4.6.1
 [4.6.0]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.6...v4.6.0
 [4.5.6]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.5...v4.5.6
 [4.5.5]: https://github.com/esasmer-dou/rust-java-rest/compare/v4.5.4...v4.5.5

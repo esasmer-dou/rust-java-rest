@@ -44,7 +44,7 @@ retaining optional Java registry state that no endpoint can read.
 
 ## Glowroot Telemetry
 
-The stable `4.6.1` runtime uses REST ABI `29` and Glowroot ABI `6`. It supports bounded runtime
+The stable `4.6.2` runtime uses REST ABI `29` and Glowroot ABI `6`. It supports bounded runtime
 profile switching. Never combine these Java classes with a Glowroot ABI `3` DLL/SO.
 
 Glowroot Central and Cassandra remain unchanged. Rust-Java REST needs no agent JAR. The native

@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.6.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.1)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.6.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.2)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.1)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.2)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -41,17 +41,22 @@ kütüphaneler gerektiriyorsa bu framework doğru başlangıç değildir.
 | Bir property'nin anlamını bulmak | [Konfigürasyon referansı](docs/configuration.tr.md) |
 | Startup, fallback, native yükleme veya `503` sorununu çözmek | [Sorun giderme](docs/troubleshooting.tr.md) |
 
-## 4.6.1 ile Neler Değişti?
+## 4.6.2 ile Neler Değişti?
 
-Bu sürüm, Spring yavaş/hatalı trace ayrıntılarını ve Glowroot canlı JVM işlemlerini tamamlar.
-Exporter CPU izolasyonu korunur. Java iş mantığı ve endpoint davranışı değişmez.
+Bu sürüm, collector bağlantı yenilemesi sırasında oluşabilen veri kaybını düzeltir. Exporter CPU
+izolasyonu korunur. Java iş mantığı ve endpoint davranışı değişmez.
 
-- Windows ve Linux native dosyaları temiz `rust-spring v4.6.1` build'inden alınır.
+- Windows ve Linux native dosyaları temiz `rust-spring v4.6.2` build'inden alınır.
 - Embedded REST telemetrisi başlangıçta collector erişimini doğrular ve bu bağlantıyı kapatır.
   Sınırlı h2 bağlantısını yalnız export penceresinde açar. Hyper data plane yanında idle collector
   bağlantısı tutmaz.
 - Ayrı Spring agent, standalone Rust runtime içinde tek sınırlı collector bağlantısını yeniden
   kullanmaya devam eder.
+- Standalone bağlantı 15 dakika sonra yenilenir. Bu süre Glowroot Central'ın 20 dakikalık bağlantı
+  sınırından kısadır. Aggregate sayaçları alınmadan önce bağlantı hazırlık kontrolü yapılır.
+- Aggregate payload, Central onay verene kadar tek ve sınırlı pending batch içinde tutulur.
+  Bağlantı kapanırsa exporter yeniden bağlanır ve aynı protobuf byte dizisini tekrar yollar. Retry
+  geçici olarak sonuç vermezse yeni trafik önceden ayrılmış sayaçlarda birikmeye devam eder.
 - Tamamlanan her HTTP isteği `Web` transaction type altında tam olarak bir kez sayılır. Route adı
   HTTP metodunu içermez. Örneğin `/orders/{id}`, `/orders/*` olarak görünür.
 - Diagnostic yavaş/hatalı trace; HTTP metodu, response kodu, Spring controller satırı ve süresi,
@@ -70,7 +75,9 @@ Exporter CPU izolasyonu korunur. Java iş mantığı ve endpoint davranışı de
 - Düşük profile dönüldüğünde profile ait kuyruklar, SQL slot'ları, diagnostic state ve JNI
   referansları kontrol çağrısı tamamlanmadan bırakılır.
 - REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `6` kullanılır.
-- Native DLL/SO, `4.6.1` Maven artifact'i içinde gelen dosya olmalıdır.
+- Native DLL/SO, `4.6.2` Maven artifact'i içinde gelen dosya olmalıdır.
+- `collector_preflight_reconnects`, `collector_request_retries`, `deferred_intervals` ve
+  `pending_aggregate_transactions` alanları rotasyonun kayıpsız toparlandığını gösterir.
 
 ## İçindekiler
 
@@ -100,7 +107,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.1</version>
+  <version>4.6.2</version>
 </parent>
 
 <dependencies>
@@ -445,7 +452,7 @@ reactor.rust.http.idle-timeout-ms=30000
 
 ## Gözlemlenebilirlik
 
-`4.6.1` sürümü, uyumlu `java-rust-glowroot-agent:0.5.2` paketiyle kullanılabilir. Mikro ajan şu
+`4.6.2` sürümü, uyumlu `java-rust-glowroot-agent:0.5.3` paketiyle kullanılabilir. Mikro ajan şu
 verileri Glowroot Central'a gönderir:
 
 - HTTP route çağrı sayısı, süre dağılımı ve `5xx` sayısı;
@@ -458,7 +465,7 @@ Java agent bytecode weaving yapmaz. Runtime dependency eklemez. Protobuf encode 
 HTTP/2 gönderimi mevcut Rust runtime içinde çalışır. Handler, service, validation ve business logic
 Java'da aynı şekilde kalır.
 
-Stable `4.6.1` runtime; sınırlı `micro`, `jvm`, `sql`, `full` ve `diagnostic` profillerini destekler.
+Stable `4.6.2` runtime; sınırlı `micro`, `jvm`, `sql`, `full` ve `diagnostic` profillerini destekler.
 REST ABI `29` ve Glowroot ABI `6` gerekir. Bu Java sınıflarını eski Glowroot ABI DLL/SO ile
 kullanmayın.
 
@@ -517,7 +524,7 @@ Collector, HTTP request kritik yolunda beklenmez. Bağlantı kesilirse sınırl�
 çalışır. Süresi geçen rollup bellekte biriktirilmez; drop edilir ve sayaçta görünür. Uygulama servis
 vermeye devam eder. Kaynak kodla uygulanan agent-owned üst sınır `1 MiB` değeridir. Önceki
 `4.4.1` kanıtı shared-runtime yolunu ölçtü. Resident maksimum farkları `+1,742 MiB`, `+1,817 MiB`
-ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.6.1`, export ve profil kaynak bırakma işini
+ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.6.2`, export ve profil kaynak bırakma işini
 tek `256 KiB` Rust thread üzerinde izole eder. Hyper worker kullanmaz. Embedded REST başlangıç
 collector bağlantısını kapatır ve yalnız sınırlı export penceresinde yeniden bağlanır. Koordineli
 release gate'i, companion agent yayınlanmadan önce `+3 MiB`, RPS, p99 ve `503` sözleşmesini ölçer.
@@ -621,7 +628,7 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Uyumlu dependency çizgisi `rust-java-rest:4.6.1`, `java-rust-dubbo:0.7.3` ve
+Uyumlu dependency çizgisi `rust-java-rest:4.6.2`, `java-rust-dubbo:0.7.3` ve
 `java-rust-cache:0.7.6` şeklindedir. Native artifact'ler REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`
 ve Glowroot ABI `6` taşır.
 
@@ -640,7 +647,7 @@ business logic kullanımını değiştirmez. Yalnız runtime ve native binary ay
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Production runtime ve performans kararları](docs/production-runtime.md)
-- [4.6.1 sürüm notları](docs/release-notes/v4.6.1.tr.md)
+- [4.6.2 sürüm notları](docs/release-notes/v4.6.2.tr.md)
 - [4.6.0 sürüm notları](docs/release-notes/v4.6.0.tr.md)
 - [4.5.5 sürüm notları](docs/release-notes/v4.5.5.tr.md)
 - [4.4.1 sürüm notları](docs/release-notes/v4.4.1.tr.md)
