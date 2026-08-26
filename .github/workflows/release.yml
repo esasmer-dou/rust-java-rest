@@ -110,7 +110,7 @@ jobs:
           grep -qx 'rest.abi=29' "$MANIFEST"
           grep -qx 'dubbo.abi=7' "$MANIFEST"
           grep -qx 'redis.abi=6' "$MANIFEST"
-          grep -qx 'glowroot.abi=4' "$MANIFEST"
+          grep -qx 'glowroot.abi=6' "$MANIFEST"
           grep -qx 'linux-x64.glibc-minimum=2.17' "$MANIFEST"
           grep -Eq '^source.revision=[0-9a-f]{40}$' "$MANIFEST"
           ! grep -q -- '-dirty$' "$MANIFEST"
