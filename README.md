@@ -1703,7 +1703,7 @@ raw/read-model, or native serialization.
 
 ## Native Binaries
 
-The Maven package includes:
+The published `4.6.2` Maven package includes:
 
 - `native/windows-x64/rust_hyper.dll`
 - `native/linux-x64/librust_hyper.so`
@@ -1717,6 +1717,30 @@ Java checks the native ABI and provenance schema at startup. The packaged manife
 `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `6`, source revision, crate version, and a SHA-256 hash for each
 platform. If the DLL/SO does not match the Java artifact, startup fails early instead of running with
 a broken JNI contract.
+
+### ARM64 Paths In This Checkout
+
+The loader and native build workflow now support these resource paths:
+
+| Platform | REST resource |
+| --- | --- |
+| Linux ARM64 | `native/linux-arm64/librust_hyper.so` |
+| macOS ARM64 | `native/macos-arm64/librust_hyper.dylib` |
+
+Use an ARM64 Java 21 runtime. macOS builds target macOS `11.0`; Linux builds keep the GLIBC `2.17`
+floor. The artifact must be built for the target CPU and included with its SHA-256 provenance.
+These source changes do not add ARM64 files to the existing published `4.6.2` package.
+Build and synchronize the ARM64 artifacts before deploying this checkout on ARM64.
+See the [native packaging steps](https://github.com/esasmer-dou/rust-spring#package-the-native-artifacts).
+
+For a workspace with sibling framework and sample repositories, check parent versions from this repo:
+
+```powershell
+.\scripts\verify-version-alignment.ps1
+```
+
+The script reads `platform/parent/pom.xml` and checks every sample that uses the platform parent.
+A mismatch returns exit code `1`.
 
 ## Production Checklist
 

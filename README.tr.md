@@ -638,6 +638,30 @@ SHA-256 provenance bilgisini doğrular. Uyumsuz binary trafik başlamadan redded
 Java tarafındaki handler, service, record ve annotation modeli korunur. Native ABI değişikliği Java
 business logic kullanımını değiştirmez. Yalnız runtime ve native binary aynı paket çizgisinde olmalıdır.
 
+### Bu Kaynak Ağacındaki ARM64 Desteği
+
+Native yükleyici ve build iş akışı şu dosya yollarını destekler:
+
+| Platform | REST resource yolu |
+| --- | --- |
+| Linux ARM64 | `native/linux-arm64/librust_hyper.so` |
+| macOS ARM64 | `native/macos-arm64/librust_hyper.dylib` |
+
+ARM64 Java 21 kullanın. macOS build hedefi `11.0`, Linux GLIBC alt sınırı `2.17` olarak ayarlanır.
+Binary, hedef işlemci için üretilmeli ve SHA-256 provenance bilgisiyle paketlenmelidir.
+Bu kaynak değişiklikleri, yayınlanmış `4.6.2` paketine ARM64 dosyası eklemez.
+ARM64 üzerinde çalıştırmadan önce ilgili dosyaları üretip paketleyin.
+[Native paketleme adımlarını](https://github.com/esasmer-dou/rust-spring/blob/master/README.tr.md#native-dosyaları-paketleme) izleyin.
+
+Framework ve sample repoları aynı çalışma dizinindeyse bu repo içinde parent sürümlerini kontrol edin:
+
+```powershell
+.\scripts\verify-version-alignment.ps1
+```
+
+Betik `platform/parent/pom.xml` sürümünü okur. Platform parent kullanan tüm sample projelerini
+karşılaştırır. Uyuşmazlıkta çıkış kodu `1` olur.
+
 ## Ayrıntılı Rehberler
 
 - [Deklaratif geliştirme](docs/declarative-development.tr.md)

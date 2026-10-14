@@ -24,7 +24,7 @@ replaced. Use direct dependencies only for embedding or framework development.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.0</version>
+  <version>4.6.2</version>
 </parent>
 
 <artifactId>customer-api</artifactId>
@@ -46,6 +46,19 @@ mvn clean verify
 
 Expected result: generated component/route metadata is present, dependency boundaries pass, and no
 processor artifact is packaged as a runtime dependency.
+
+### Check Versions Across Repositories
+
+If the framework and sample repositories are sibling directories, run from `rust-java-rest`:
+
+```powershell
+.\scripts\verify-version-alignment.ps1
+```
+
+The script compares the platform parent POM version with each sample parent version.
+A mismatch returns exit code `1`. Run `mvn -B -ntp clean verify` in each sample.
+This runs `doctor`, `verify-aot`, and `verify-native-abi` for the selected application surface.
+The cache artifact checks Redis ABI `6`. The REST artifact checks REST `29`, Dubbo `7`, Redis `6`, and Glowroot `6`.
 
 ## Choose A Process Shape
 

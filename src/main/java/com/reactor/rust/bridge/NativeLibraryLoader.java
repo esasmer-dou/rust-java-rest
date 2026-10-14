@@ -19,10 +19,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * Supported platforms:
  * - Linux x64: native/linux-x64/librust_hyper.so
+ * - Linux ARM64: native/linux-arm64/librust_hyper.so
  * - Windows x64: native/windows-x64/rust_hyper.dll
- *
- * Coming soon:
- * - macOS x64: native/macos-x64/librust_hyper.dylib
  * - macOS ARM64: native/macos-arm64/librust_hyper.dylib
  *
  * Usage:
@@ -170,17 +168,9 @@ public final class NativeLibraryLoader {
             Platform platform) {
         try (InputStream is = NativeLibraryLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (is == null) {
-                String macOSNote = platform.os == OsType.MACOS
-                    ? "\n\nmacOS support is coming soon! For now, you can build from source:\n" +
-                      "  1. Install Rust: https://rustup.rs\n" +
-                      "  2. cd rust-spring && cargo build --release\n" +
-                      "  3. Run with: -Drust.lib.path=/path/to/librust_hyper.dylib"
-                    : "";
-
                 throw new UnsatisfiedLinkError(
                     "Native library not found in JAR resources: " + resourcePath + "\n" +
-                    "Supported platforms: linux-x64, windows-x64" +
-                    macOSNote + "\n\n" +
+                    "Supported platforms: linux-x64, linux-arm64, windows-x64, macos-arm64\n\n" +
                     "Alternative: set -Drust.lib.path=/path/to/library"
                 );
             }
@@ -298,16 +288,24 @@ public final class NativeLibraryLoader {
      * Detect current platform (OS + architecture).
      */
     private static Platform detectPlatform() {
-        String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        String osArch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
+        return detectPlatform(System.getProperty("os.name"), System.getProperty("os.arch"));
+    }
+
+    static String libraryResourcePath(String osName, String osArch) {
+        return detectPlatform(osName, osArch).getLibraryResourcePath();
+    }
+
+    private static Platform detectPlatform(String osName, String osArch) {
+        String normalizedOs = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
+        String normalizedArch = osArch == null ? "" : osArch.toLowerCase(Locale.ROOT);
 
         // Detect OS
         OsType osType;
-        if (osName.contains("linux")) {
+        if (normalizedOs.contains("linux")) {
             osType = OsType.LINUX;
-        } else if (osName.contains("windows")) {
+        } else if (normalizedOs.contains("windows")) {
             osType = OsType.WINDOWS;
-        } else if (osName.contains("mac") || osName.contains("darwin")) {
+        } else if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
             osType = OsType.MACOS;
         } else {
             throw new UnsatisfiedLinkError("Unsupported OS: " + osName);
@@ -315,9 +313,11 @@ public final class NativeLibraryLoader {
 
         // Detect Architecture
         ArchType archType;
-        if (osArch.contains("aarch64") || osArch.contains("arm64")) {
+        if (normalizedArch.contains("aarch64") || normalizedArch.contains("arm64")) {
             archType = ArchType.ARM64;
-        } else if (osArch.contains("x86_64") || osArch.contains("amd64") || osArch.contains("x64")) {
+        } else if (normalizedArch.contains("x86_64")
+                || normalizedArch.contains("amd64")
+                || normalizedArch.contains("x64")) {
             archType = ArchType.X64;
         } else {
             throw new UnsatisfiedLinkError("Unsupported architecture: " + osArch);

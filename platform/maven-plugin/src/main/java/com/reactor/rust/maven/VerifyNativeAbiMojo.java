@@ -33,7 +33,7 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
     @Parameter(property = "reactor.native.redisAbi", defaultValue = "6")
     private int expectedRedisAbi;
 
-    @Parameter(property = "reactor.native.glowrootAbi", defaultValue = "4")
+    @Parameter(property = "reactor.native.glowrootAbi", defaultValue = "6")
     private int expectedGlowrootAbi;
 
     @Override
@@ -70,6 +70,27 @@ public final class VerifyNativeAbiMojo extends AbstractMojo {
             }
         } catch (IOException error) {
             throw new MojoExecutionException("Cannot inspect native provenance", error);
+        }
+
+        verifyProvenance(
+                runtime.getArtifactId(),
+                provenance,
+                expectedRestAbi,
+                expectedDubboAbi,
+                expectedRedisAbi,
+                expectedGlowrootAbi);
+    }
+
+    static void verifyProvenance(
+            String artifactId,
+            Properties provenance,
+            int expectedRestAbi,
+            int expectedDubboAbi,
+            int expectedRedisAbi,
+            int expectedGlowrootAbi) throws MojoExecutionException {
+        if ("java-rust-cache".equals(artifactId)) {
+            assertAbi(provenance, "redis.abi", expectedRedisAbi);
+            return;
         }
 
         assertAbi(provenance, "rest.abi", expectedRestAbi);

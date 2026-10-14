@@ -24,7 +24,7 @@ dependency yolunu yalnız embedding veya framework geliştirme için seçin.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.0</version>
+  <version>4.6.2</version>
 </parent>
 
 <artifactId>customer-api</artifactId>
@@ -46,6 +46,19 @@ mvn clean verify
 
 Beklenen sonuç: generated component/route metadata oluşur, dependency sınırları geçer ve processor
 artifact'i runtime dependency olarak paketlenmez.
+
+### Birden Fazla Repoda Sürüm Kontrolü
+
+Framework ve sample repolarını aynı çalışma dizinine klonladıysanız `rust-java-rest` dizininden çalıştırın:
+
+```powershell
+.\scripts\verify-version-alignment.ps1
+```
+
+Betik, platform parent POM'undaki sürümü sample parent sürümleriyle karşılaştırır.
+Uyuşmazlıkta çıkış kodu `1` olur. Her sample içinde `mvn -B -ntp clean verify` çalıştırın.
+Bu komut `doctor`, `verify-aot` ve `verify-native-abi` kontrollerini uygulamanın seçtiği kapsama göre çalıştırır.
+Cache artifact'i Redis ABI `6` doğrular. REST artifact'i REST `29`, Dubbo `7`, Redis `6` ve Glowroot `6` doğrular.
 
 ## Process Tipini Seçin
 
