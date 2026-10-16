@@ -212,7 +212,7 @@ if ($hasLinuxArm64) {
     $manifestLines += "linux-arm64.sha256=$linuxArm64Hash"
     $manifestLines += "linux-arm64.glibc-minimum=$LinuxMinimumGlibc"
 }
-$manifest = ($manifestLines -join [Environment]::NewLine) + [Environment]::NewLine
+$manifest = ($manifestLines -join "`n") + "`n"
 $manifestPath = Join-Path $resources "native-provenance.properties"
 [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
 

@@ -20,10 +20,15 @@ permissions:
   contents: write
   packages: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build, publish package, and create release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -124,6 +129,18 @@ jobs:
           bash scripts/verify-linux-native-compatibility.sh \
             src/main/resources/native/linux-x64/librust_hyper.so \
             2.17
+          grep -qx 'linux-arm64.glibc-minimum=2.17' "$MANIFEST"
+          for PLATFORM in linux-arm64 macos-arm64; do
+            EXT=so
+            [ "$PLATFORM" != macos-arm64 ] || EXT=dylib
+            BINARY="src/main/resources/native/$PLATFORM/librust_hyper.$EXT"
+            EXPECTED="$(sed -n "s/^$PLATFORM.sha256=//p" "$MANIFEST")"
+            test -n "$EXPECTED"
+            test "$(sha256sum "$BINARY" | awk '{print $1}')" = "$EXPECTED"
+            strings "$BINARY" | grep -Fq "$REVISION"
+          done
+          bash scripts/verify-linux-native-compatibility.sh \
+            src/main/resources/native/linux-arm64/librust_hyper.so 2.17
 
       - name: Build isolated sample application
         shell: bash
@@ -172,6 +189,9 @@ jobs:
           cp "target/rust-java-rest-${VERSION}-javadoc.jar" "release-assets/"
           cp "src/main/resources/native/windows-x64/rust_hyper.dll" "release-assets/rust_hyper-windows-x64.dll"
           cp "src/main/resources/native/linux-x64/librust_hyper.so" "release-assets/librust_hyper-linux-x64.so"
+          cp "src/main/resources/native/linux-arm64/librust_hyper.so" "release-assets/librust_hyper-linux-arm64.so"
+          cp "src/main/resources/native/macos-arm64/librust_hyper.dylib" "release-assets/librust_hyper-macos-arm64.dylib"
+          cp "src/main/resources/native/native-provenance.properties" release-assets/
           (cd release-assets && sha256sum * > SHA256SUMS)
 
       - name: Create GitHub release

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.3] - 2026-10-16
+
+- Align platform parent, BOM, starters and sample dependencies.
+- Package clean matching Windows x64, Linux x64/ARM64 and macOS ARM64 native artifacts.
+- Keep REST 29, Dubbo 7, Redis 6 and Glowroot 6 ABI contracts unchanged.
+- Include ARM64 loader tests, native verification plugin fixes and coordinated provenance checks.
+
 ## [4.6.2] - 2026-08-26
 
 ### Fixed

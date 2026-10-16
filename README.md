@@ -2,10 +2,10 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
-[![Version](https://img.shields.io/badge/version-4.6.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.2)
+[![Version](https://img.shields.io/badge/version-4.6.3-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.3)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.2)
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.6.3)
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -52,7 +52,7 @@ discovery, or libraries that require a Spring application context.
 
 ## Current Stable Line
 
-`4.6.2` is the stable declarative runtime line. It packages clean `rust-spring v4.6.2` native
+`4.6.3` is the stable declarative runtime line. It packages clean `rust-spring v4.6.3` native
 artifacts whose complete source commit matches the Maven provenance manifest. It uses REST ABI
 `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `6`. Always use the native file carried by the
 same coordinated Maven artifact.
@@ -69,23 +69,23 @@ unchanged. If your application combines the published libraries, keep the versio
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.6.2</version>
+  <version>4.6.3</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.7.6</version>
+  <version>0.7.7</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.7.3</version>
+  <version>0.7.4</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.7.6` or `java-rust-dubbo:0.7.3` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.7.7` or `java-rust-dubbo:0.7.4` native mode with a DLL/SO copied from
 an older release. Startup verifies all four ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
@@ -100,7 +100,7 @@ the build-time AOT gates without adding runtime reflection.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.2</version>
+  <version>4.6.3</version>
 </parent>
 
 <dependencies>
@@ -224,9 +224,17 @@ final class ApiErrors {
 Exception handlers are indexed and invoked through generated code. Do not catch every exception in
 every route or expose dependency exception text to clients.
 
-## v4.6.2 At A Glance
+## v4.6.3 At A Glance
 
-`v4.6.2` fixes collector-rotation data loss while keeping the Java handler and service model
+This patch aligns the platform parent, BOM, starters and sample dependencies. Packaged native
+libraries now include Windows x64, Linux x64, Linux ARM64 and macOS ARM64. The Linux GLIBC floor
+stays at `2.17`; macOS ARM64 targets `11.0`. The ABI numbers and Java handler API are unchanged.
+Use the bundled native library rather than copying one from another release.
+See [4.6.3 release notes](docs/release-notes/v4.6.3.md) for the complete upgrade set.
+
+### Telemetry Fixes Retained From v4.6.2
+
+`v4.6.2` fixed collector-rotation data loss while keeping the Java handler and service model
 unchanged. Export, reconnect, JVM probes, diagnostics, and profile memory reclamation remain
 isolated in Rust.
 
@@ -269,7 +277,7 @@ isolated in Rust.
   `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
 Existing REST annotations, handler signatures, response types, services, validation, and business
-logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.6.2`
+logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.6.3`
 artifact.
 
 ## How Startup And Configuration Work
@@ -506,7 +514,7 @@ benchmark tools and machine-specific evidence are intentionally kept outside the
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.6.2</version>
+  <version>4.6.3</version>
 </dependency>
 ```
 
@@ -588,17 +596,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.6.2.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.6.2-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.6.2-core-runtime.jar`: single lean runtime jar for container
+- `rust-java-rest-4.6.3.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.6.3-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.6.3-core-runtime.jar`: single lean runtime jar for container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.6.2-sample.jar`: runnable full-feature demo application built by
+- `sample/target/rust-java-rest-4.6.3-sample.jar`: runnable full-feature demo application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.6.2`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.6.3`, it does not receive the
   framework's demo handlers, sample DTOs, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -620,7 +628,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.6.2-sample.jar
+java -jar sample/target/rust-java-rest-4.6.3-sample.jar
 ```
 
 ## Copy/Paste REST Cookbook
@@ -1496,7 +1504,7 @@ Use:
 - `GET /diagnostics/routes` for route strategy/fallback visibility.
 - `NativeBridge.nativeMemoryDiagnosticsJson()` for native memory diagnostics.
 
-The stable `4.6.2` line can use `java-rust-glowroot-agent:0.5.3`. It sends bounded
+The stable `4.6.3` line can use `java-rust-glowroot-agent:0.6.0`. It sends bounded
 HTTP route, native Dubbo, native Redis, process RSS, thread, exporter health, and sampled slow/error
 trace data to Glowroot Central. The Java agent does not weave bytecode and adds no runtime
 dependencies. Protobuf and plaintext HTTP/2 export run inside the existing Rust runtime.
@@ -1560,7 +1568,7 @@ The collector is never on the HTTP request critical path. Collector failure uses
 backoff and drops an expired rollup instead of retaining data indefinitely. The application remains
 available. The source-enforced agent-owned ceiling is `1 MiB`. Earlier `4.4.1` evidence used the
 shared-runtime path and observed resident maxima of `+1.742 MiB`, `+1.817 MiB`, and `+1.754 MiB`
-with no telemetry thread. Version `4.6.2` isolates export and profile reclamation on one `256 KiB`
+with no telemetry thread. Version `4.6.3` isolates export and profile reclamation on one `256 KiB`
 Rust thread; it does not consume Hyper workers. Embedded REST closes the startup collector probe
 and reconnects only for a bounded export window. The coordinated release gate measures the
 disabled/enabled `+3 MiB`, RPS, p99, and `503` contract before publishing the companion agent.
@@ -1681,9 +1689,9 @@ together. Do not publish one workstation run as a universal framework claim.
 Public operational guidance:
 
 - [docs/production-runtime.md](docs/production-runtime.md)
+- [docs/release-notes/v4.6.3.md](docs/release-notes/v4.6.3.md)
 - [docs/release-notes/v4.6.2.md](docs/release-notes/v4.6.2.md)
 - [docs/release-notes/v4.6.0.md](docs/release-notes/v4.6.0.md)
-- [docs/release-notes/v4.5.5.md](docs/release-notes/v4.5.5.md)
 - [docs/release-notes/v4.4.1.md](docs/release-notes/v4.4.1.md)
 - [docs/release-notes/v4.3.0.md](docs/release-notes/v4.3.0.md)
 - [docs/release-notes/v3.2.5.md](docs/release-notes/v3.2.5.md)
@@ -1703,10 +1711,12 @@ raw/read-model, or native serialization.
 
 ## Native Binaries
 
-The published `4.6.2` Maven package includes:
+The published `4.6.3` Maven package includes:
 
 - `native/windows-x64/rust_hyper.dll`
 - `native/linux-x64/librust_hyper.so`
+- `native/linux-arm64/librust_hyper.so`
+- `native/macos-arm64/librust_hyper.dylib`
 
 The release asset names are:
 
@@ -1729,8 +1739,8 @@ The loader and native build workflow now support these resource paths:
 
 Use an ARM64 Java 21 runtime. macOS builds target macOS `11.0`; Linux builds keep the GLIBC `2.17`
 floor. The artifact must be built for the target CPU and included with its SHA-256 provenance.
-These source changes do not add ARM64 files to the existing published `4.6.2` package.
-Build and synchronize the ARM64 artifacts before deploying this checkout on ARM64.
+The `4.6.3` package includes all four platforms and their SHA-256 provenance.
+Native ARM64 builds pass CI; application smoke tests in this release were run on x64.
 See the [native packaging steps](https://github.com/esasmer-dou/rust-spring#package-the-native-artifacts).
 
 For a workspace with sibling framework and sample repositories, check parent versions from this repo:
@@ -1772,7 +1782,7 @@ Before shipping a service:
 | Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
 | Small projects that compile in the build | [Examples](examples/README.md) |
 | Runtime sizing and performance decisions | [Production runtime guide](docs/production-runtime.md) |
-| Changes in this release | [4.6.2 release notes](docs/release-notes/v4.6.2.md) |
+| Changes in this release | [4.6.3 release notes](docs/release-notes/v4.6.3.md) |
 
 ## License
 
