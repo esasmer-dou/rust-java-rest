@@ -273,7 +273,7 @@ isolated in Rust.
 - Startup validates REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `6`, source revision,
   platform, and SHA-256 before serving traffic.
 - Native release artifacts must come from a clean CI build of the exact recorded Rust commit.
-- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.5.3` and standalone
+- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.6.0` and standalone
   `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
 Existing REST annotations, handler signatures, response types, services, validation, and business
