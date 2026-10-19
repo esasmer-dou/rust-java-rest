@@ -35,6 +35,29 @@ jobs:
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
+      - name: Authenticate coordinated dependency repositories
+        shell: pwsh
+        run: |
+          $path = Join-Path $HOME '.m2/settings.xml'
+          [xml]$settings = Get-Content -LiteralPath $path -Raw
+          $namespace = $settings.DocumentElement.NamespaceURI
+          $servers = $settings.settings.servers
+          foreach ($id in @('github-java-rust-dubbo', 'github-rust-java-rest')) {
+            if (@($servers.server | Where-Object id -eq $id).Count -ne 0) { continue }
+            $server = $settings.CreateElement('server', $namespace)
+            foreach ($entry in @(
+                @('id', $id),
+                @('username', '${env.GITHUB_ACTOR}'),
+                @('password', '${env.GITHUB_TOKEN}')
+            )) {
+              $element = $settings.CreateElement($entry[0], $namespace)
+              $element.InnerText = $entry[1]
+              [void]$server.AppendChild($element)
+            }
+            [void]$servers.AppendChild($server)
+          }
+          $settings.Save($path)
+
       - name: Verify platform version
         shell: bash
         run: |
