@@ -25,6 +25,10 @@ The candidate images receive the same checksum-verified SO from the completed
 clean native build before warmup. Its full source revision and build run are
 recorded in `RuntimeOverride`. Original image IDs and measured derived image IDs
 are both retained; the embedded native artifact is checked in each candidate.
+Capture `native-build-run.json` with the authorized maintainer CLI and include its
+checksum in the contract. This avoids granting the test workflow a personal token
+for the separate private native-source repository. The record must identify the
+successful push build, full source revision and expected repository.
 
 The candidate uses the normal allocator, normal Java entrypoint and no additional
 JVM tuning. Rejected allocator, huge-page or nursery experiments are excluded.

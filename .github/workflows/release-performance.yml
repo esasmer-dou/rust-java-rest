@@ -46,9 +46,12 @@ jobs:
           BUILD_RUN="$(jq -r '.RuntimeOverride.BuildRun' contract.json)"
           [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
           REVISION="$(jq -r '.RuntimeOverride.SourceRevision' contract.json)"
-          gh api "repos/esasmer-dou/rust-spring/actions/runs/$BUILD_RUN" > native-build-run.json
-          jq --arg revision "$REVISION" -e \
-            '.head_sha == $revision and .conclusion == "success" and .event == "push"' \
+          # The native source repository may be private. Its captured API record
+          # is checksum-pinned by the same trusted dispatch contract.
+          jq --arg revision "$REVISION" --argjson run "$BUILD_RUN" -e \
+            '.id == $run and .head_sha == $revision and .status == "completed" and
+             .conclusion == "success" and .event == "push" and
+             .repository.full_name == "esasmer-dou/rust-spring"' \
             native-build-run.json >/dev/null
       - name: Transfer verified inputs to read-only test jobs
         uses: actions/upload-artifact@v4
