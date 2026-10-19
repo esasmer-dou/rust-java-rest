@@ -1,3 +1,4 @@
 com.reactor.rust.codegen.DirectJsonWriterProcessor
 com.reactor.rust.codegen.JdbcRecordMapperProcessor
 com.reactor.rust.codegen.ReactorStartupProcessor
+com.reactor.rust.codegen.ContractManifestProcessor

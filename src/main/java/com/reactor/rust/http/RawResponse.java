@@ -16,6 +16,8 @@ import java.util.Map;
 public final class RawResponse {
 
     private static final byte[] EMPTY_BYTES = new byte[0];
+    private static final byte[] JSON_HEADERS = ("Content-Type: " + MediaType.APPLICATION_JSON_UTF8 + "\n")
+            .getBytes(StandardCharsets.UTF_8);
 
     private final byte[] body;
     private final HeaderMap headers;
@@ -143,6 +145,10 @@ public final class RawResponse {
     private static byte[] encodeHeaders(Map<String, String> headers) {
         if (headers == null || headers.isEmpty()) {
             return EMPTY_BYTES;
+        }
+        if (headers.size() == 1 && MediaType.APPLICATION_JSON_UTF8.equals(headers.get("Content-Type"))) {
+            // Each response owns its exposed byte array; callers may mutate it.
+            return JSON_HEADERS.clone();
         }
         StringBuilder sb = new StringBuilder(headers.size() * 32);
         for (Map.Entry<String, String> entry : headers.entrySet()) {

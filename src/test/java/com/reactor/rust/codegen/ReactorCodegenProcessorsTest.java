@@ -157,6 +157,35 @@ class ReactorCodegenProcessorsTest {
     }
 
     @Test
+    void registersRoutesOnExplicitBeanTypesFromDependenciesWithoutScanning() throws Exception {
+        Path source = source("generated/fixture/HealthConfiguration.java", """
+                package generated.fixture;
+                import com.reactor.rust.di.annotation.Bean;
+                import com.reactor.rust.di.annotation.Configuration;
+                import com.reactor.rust.health.HealthEndpoint;
+                import com.reactor.rust.health.HealthStarter;
+
+                @Configuration
+                public final class HealthConfiguration {
+                    @Bean
+                    public HealthEndpoint health() {
+                        return HealthStarter.application("fixture").build();
+                    }
+                }
+                """);
+        Compilation output = compile(source, new ReactorStartupProcessor());
+        String routes = Files.readString(output.classes().resolve("META-INF/reactor/routes.idx"));
+        assertTrue(routes.contains("GET /app/health"));
+        assertTrue(routes.contains("GET /app/liveness"));
+        assertTrue(routes.contains("GET /app/readiness"));
+        String factory = Files.readString(output.generated().resolve(
+                "generated/fixture/HealthConfiguration__ReactorFactory.java"));
+        assertTrue(factory.contains("registry.registerBean(container.getBean(com.reactor.rust.health.HealthEndpoint.class))"));
+        assertTrue(factory.contains("((com.reactor.rust.health.HealthEndpoint) bean).readiness()"));
+        assertFalse(factory.contains("new com.reactor.rust.health.HealthEndpoint("));
+    }
+
+    @Test
     void generatesConditionalBeanFactoriesOptionalInjectionAndActiveRouteMetadata() throws Exception {
         Path source = source("generated/fixture/ConditionalBeansApplication.java", """
                 package generated.fixture;

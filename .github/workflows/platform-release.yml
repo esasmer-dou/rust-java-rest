@@ -44,18 +44,21 @@ jobs:
       - name: Install REST core locally
         run: mvn -B -ntp -DskipTests install
 
+      - name: Bootstrap explicit JDBC without a platform dependency cycle
+        run: mvn -B -ntp -f platform/jdbc/pom.xml -DskipTests install
+
       - name: Checkout aligned Dubbo and cache libraries
         uses: actions/checkout@v4
         with:
           repository: esasmer-dou/java-rust-dubbo
-          ref: v0.7.4
+          ref: v0.8.0
           path: aligned/java-rust-dubbo
 
       - name: Checkout aligned cache library
         uses: actions/checkout@v4
         with:
           repository: esasmer-dou/java-rust-cache
-          ref: v0.7.7
+          ref: v0.8.0
           path: aligned/java-rust-cache
 
       - name: Install aligned libraries locally

@@ -41,6 +41,7 @@ import java.util.TreeSet;
         "reactor.codegen.handlers",
         "reactor.codegen.excludePackages",
         "reactor.codegen.excludeClasses"
+        , "reactor.application.version"
 })
 public final class ReactorStartupProcessor extends AbstractProcessor {
 
@@ -256,7 +257,8 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
         applicationType = qualifiedName;
         String configuredName = annotationString(application, "name", "").trim();
         openApiTitle = configuredName.isEmpty() ? type.getSimpleName().toString() : configuredName;
-        String configuredVersion = annotationString(application, "version", "1.0.0").trim();
+        String configuredVersion = processingEnv.getOptions().getOrDefault("reactor.application.version",
+                annotationString(application, "version", "1.0.0")).trim();
         openApiVersion = configuredVersion.isEmpty() ? "1.0.0" : configuredVersion;
         openApiDescription = annotationString(application, "description", "").trim();
     }
@@ -2054,6 +2056,18 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
             }
             TypeMirror erased = processingEnv.getTypeUtils().erasure(method.getReturnType());
             Element returnElement = processingEnv.getTypeUtils().asElement(erased);
+            if (returnElement instanceof TypeElement beanType && !excluded(beanType)) {
+                // Explicit @Bean types may live in a dependency, outside this compilation's roots.
+                // Bind their public routes at build time; do not scan the runtime classpath.
+                String basePath = controllerBasePath(beanType);
+                for (Element member : processingEnv.getElementUtils().getAllMembers(beanType)) {
+                    if (member instanceof ExecutableElement route
+                            && member.getKind() == ElementKind.METHOD
+                            && member.getModifiers().contains(Modifier.PUBLIC)) {
+                        collectRoute(beanType, route, basePath);
+                    }
+                }
+            }
             methods.add(new BeanMethodModel(
                     method.getSimpleName().toString(),
                     beanName,

@@ -14,7 +14,7 @@ import javax.lang.model.SourceVersion;
 /** Small, dependency-free project generator for the supported production shapes. */
 public final class ProjectGenerator {
 
-    private static final String REST_VERSION = "4.6.2";
+    private static final String REST_VERSION = "4.7.0";
     private static final String ZOOKEEPER_VERSION = "3.7.2";
     private static final Pattern MAVEN_ID = Pattern.compile("[A-Za-z0-9_.-]+");
     private static final Pattern JAVA_PACKAGE = Pattern.compile(
@@ -147,6 +147,9 @@ public final class ProjectGenerator {
                 reactor.cache.redis.host=127.0.0.1
                 reactor.cache.redis.port=6379
                 reactor.cache.redis.read-connections=2
+                app.cache.projections=snapshot
+                app.cache.namespace=app.snapshot
+                app.cache.version-cache-ms=1000
                 """);
         writeReadme(options);
     }

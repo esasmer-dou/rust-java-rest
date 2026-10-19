@@ -34,6 +34,12 @@ public final class HttpErrorMapper {
         if (root instanceof NotFoundException) {
             return mapped(404, "not_found", publicMessage(root, "Resource not found"));
         }
+        if (root instanceof ConflictException) {
+            return mapped(409, "conflict", publicMessage(root, "Resource conflict"));
+        }
+        if (root instanceof DependencyUnavailableException) {
+            return mapped(503, "dependency_unavailable", "Dependency is temporarily unavailable");
+        }
         if (root instanceof UnauthorizedException) {
             return mapped(401, "unauthorized", publicMessage(root, "Authentication required"));
         }
@@ -69,6 +75,7 @@ public final class HttpErrorMapper {
                 case 401 -> "Unauthorized";
                 case 403 -> "Forbidden";
                 case 405 -> "Method Not Allowed";
+                case 409 -> "Conflict";
                 case 503 -> "Service Unavailable";
                 case 504 -> "Gateway Timeout";
                 default -> "Internal Server Error";
@@ -103,10 +110,11 @@ public final class HttpErrorMapper {
 
     public static Throwable unwrap(Throwable error) {
         Throwable current = error == null ? new IllegalStateException("Unknown framework error") : error;
-        while ((current instanceof CompletionException
+        int depth = 0;
+        while (depth++ < 32 && (current instanceof CompletionException
                 || current instanceof ExecutionException
                 || current instanceof InvocationTargetException)
-                && current.getCause() != null) {
+                && current.getCause() != null && current.getCause() != current) {
             current = current.getCause();
         }
         return current;

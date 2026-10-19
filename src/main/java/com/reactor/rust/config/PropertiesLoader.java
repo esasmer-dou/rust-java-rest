@@ -18,6 +18,7 @@ import java.util.Set;
  * Constraint #8: Properties-based configuration
  */
 public final class PropertiesLoader {
+    private static final Set<String> profilePropertyKeys = new HashSet<>();
 
     private static final Properties properties = new Properties();
     private static final Set<String> explicitPropertyKeys = new HashSet<>();
@@ -37,6 +38,7 @@ public final class PropertiesLoader {
     public static void load() {
         properties.clear();
         explicitPropertyKeys.clear();
+        profilePropertyKeys.clear();
         boolean loaded = false;
 
         // Try classpath first. The framework's own bundled properties are defaults, not user
@@ -275,6 +277,7 @@ public final class PropertiesLoader {
     public static void setProfileValue(String key, String value) {
         if (!hasExternalOverride(key) && !explicitPropertyKeys.contains(key)) {
             properties.setProperty(key, value);
+            profilePropertyKeys.add(key);
         }
     }
 
@@ -283,6 +286,24 @@ public final class PropertiesLoader {
             properties.setProperty(key, value);
         }
     }
+
+    /** On-demand and allowlisted: custom keys remain redacted unless explicitly marked public. */
+    public static java.util.List<EffectiveProperty> effective(java.util.Set<String> keys,
+                                                             java.util.Set<String> publicKeys) {
+        return keys.stream().sorted().map(key -> {
+            String value = get(key);
+            String source = System.getProperty(key) != null ? "system-property"
+                    : System.getenv(toEnvKey(key)) != null ? "environment"
+                    : explicitPropertyKeys.contains(key) ? "application-config"
+                    : profilePropertyKeys.contains(key) ? "runtime-profile" : "default";
+            String lower = key.toLowerCase(Locale.ROOT);
+            boolean secret = !publicKeys.contains(key) || lower.matches(".*(password|passwd|secret|token|credential|authorization|private[-.]?key).*"
+                    ) || value != null && (value.contains("://") || value.contains("\n") || value.contains("\r"));
+            return new EffectiveProperty(key, value == null ? "<unset>" : secret ? "<redacted>" : value, source);
+        }).toList();
+    }
+
+    public record EffectiveProperty(String key, String value, String source) {}
 
     /**
      * Get string property
