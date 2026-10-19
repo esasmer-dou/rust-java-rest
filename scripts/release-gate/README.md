@@ -10,10 +10,15 @@ three fresh-start pairs, semantic body checks and raw error evidence are retaine
 Parallel lanes do not share a Docker daemon or application CPU quota.
 
 The input is a temporary **draft** release containing `contract.json`,
-`harness.tar.gz` and `images.tar.gz`. Pin the contract's SHA-256 at dispatch.
+`harness.tar.gz`, `images.tar.gz` and a clean `librust_hyper.so`. Pin the contract's SHA-256 at dispatch.
 The contract identifies every image by its immutable ID and every archive by
 SHA-256. Do not put production credentials or data in this bundle. The only
 credentials used by these fixtures are disposable local test credentials.
+
+The candidate images receive the same checksum-verified SO from the completed
+clean native build before warmup. Its full source revision and build run are
+recorded in `RuntimeOverride`. Original image IDs and measured derived image IDs
+are both retained; the embedded native artifact is checked in each candidate.
 
 The candidate uses the normal allocator, normal Java entrypoint and no additional
 JVM tuning. Rejected allocator, huge-page or nursery experiments are excluded.

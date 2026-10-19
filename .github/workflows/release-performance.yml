@@ -50,6 +50,13 @@ jobs:
           cd "$RUNNER_TEMP/frozen"
           printf '%s  contract.json\n' "$CONTRACT_SHA" | sha256sum --check --strict
           jq -r '.Files[] | "\(.Sha256)  \(.Path)"' contract.json | sha256sum --check --strict
+          BUILD_RUN="$(jq -r '.RuntimeOverride.BuildRun' contract.json)"
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
+          REVISION="$(jq -r '.RuntimeOverride.SourceRevision' contract.json)"
+          gh api "repos/esasmer-dou/rust-spring/actions/runs/$BUILD_RUN" > native-build-run.json
+          jq --arg revision "$REVISION" -e \
+            '.head_sha == $revision and .conclusion == "success" and .event == "push"' \
+            native-build-run.json >/dev/null
           tar -xzf harness.tar.gz
           docker load --input images.tar.gz
       - name: Compare identical budgets on an independent Linux runner
