@@ -36,6 +36,13 @@ The workflow retains raw logs, sampled RSS, idle memory, errors and both success
 and failed verdicts. Each lane is bounded to 30 minutes; infrastructure failures
 are not converted to a performance PASS.
 
+`lanes=writer` runs only a writer reconfirmation. It is not a three-lane gate PASS.
+`WriterWarmRounds=80` in a newly pinned contract gives both sides 400 warmup
+publications, while measured work remains 200 publications per JVM. Keep the
+original failed run. Do not subtract compilation time or loosen CPU/p99/RSS
+thresholds. Reuse other lane evidence only when image, source and native identities
+are unchanged, recording the distinct contracts and run IDs explicitly.
+
 ```powershell
 ./scripts/release-gate/Test-Comparison.ps1
 gh workflow run release-performance.yml `

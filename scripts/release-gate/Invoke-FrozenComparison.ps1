@@ -63,8 +63,15 @@ try {
             & (Join-Path $harness 'summarize-native-paired.ps1') -Candidate phase7 -Label $label -Kind cache
         }
         'writer' {
-            & (Join-Path $harness 'writer-pairs.ps1') -Candidate phase7 -Baseline phase2 -Repeats 3 -Label $label
+            $warmRounds = if ($null -eq $manifest.WriterWarmRounds) { 40 } else { [int]$manifest.WriterWarmRounds }
+            if ($warmRounds -notin @(40, 80)) { throw 'Unsupported writer warmup contract' }
+            & (Join-Path $harness 'writer-pairs.ps1') -Candidate phase7 -Baseline phase2 -Repeats 3 -Label $label -WarmRounds $warmRounds
             & (Join-Path $harness 'summarize-writer.ps1') -Candidate phase7 -Baseline phase2 -Repeats 3 -Label $label
+            $summaryPath = Join-Path $harness "$label-summary.json"
+            $result = Get-Content $summaryPath -Raw | ConvertFrom-Json
+            $result | Add-Member NoteProperty WarmupPublicationsPerJvm ($warmRounds * 5)
+            $result.Note = $result.Note.Replace('200 warmup publications', "$($warmRounds * 5) warmup publications")
+            $result | ConvertTo-Json -Depth 7 | Set-Content $summaryPath
         }
         'consumer' {
             Invoke-Docker @('run', '-d', '--name', 'fp-provider', '--network', 'functional-plan-20261018', '--cpus=1', '--memory=192m',

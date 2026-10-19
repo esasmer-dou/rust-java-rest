@@ -11,6 +11,12 @@ on:
         description: SHA-256 of contract.json, fixed before dispatch
         required: true
         type: string
+      lanes:
+        description: All lanes, or a bounded writer-only reconfirmation (not a full gate)
+        required: true
+        default: all
+        type: choice
+        options: [all, writer]
 
 permissions:
   contents: read
@@ -69,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [cache, writer, consumer]
+        lane: ${{ fromJSON(inputs.lanes == 'writer' && '["writer"]' || '["cache","writer","consumer"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -107,7 +113,7 @@ jobs:
           retention-days: 14
 
   verdict:
-    name: Strict comparison verdict
+    name: Selected comparison verdict
     needs: compare
     if: always()
     runs-on: ubuntu-24.04
