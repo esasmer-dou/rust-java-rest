@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.7.1] - 2026-10-19
+
+- Keep exact HTTP aggregates without trace-sampler work when the bounded trace queue is disabled.
+- Route embedded HTTP completions directly through scalar nanosecond counters in Rust.
+- Package matching Windows x64, Linux x64/ARM64 and macOS ARM64 artifacts from clean source `edc105b632ed25e6e64b98226bd1a09627005cdc`.
+- Preserve all ABI numbers, Java handlers, annotations, profiles and memory/concurrency defaults.
+- Coordinate optional telemetry qualification with agent 0.7.0; production publication requires the new REST/Spring performance gate.
+
 ## [4.6.3] - 2026-10-16
 
 - Align platform parent, BOM, starters and sample dependencies.
