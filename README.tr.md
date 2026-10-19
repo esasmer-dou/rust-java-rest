@@ -4,6 +4,9 @@
 
 Yeni kullanım rehberi: [Açık ve sınırlı işlemler](docs/explicit-operations.tr.md).
 
+Yayın hazırlığı: `4.7.1` henüz yayımlanmadı. REST kontrolü geçti. Eşleşen agent `0.7.0` yayını ise
+Spring bellek/RPS sınırı nedeniyle kapalıdır. Yayımlanan REST stable sürümü `4.7.0` olarak kalır.
+
 [![Sürüm](https://img.shields.io/badge/sürüm-4.7.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
