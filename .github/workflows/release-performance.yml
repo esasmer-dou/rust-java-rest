@@ -1,0 +1,83 @@
+name: Frozen Release Comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      snapshot_tag:
+        description: Private draft containing the frozen comparison bundle
+        required: true
+        type: string
+      contract_sha256:
+        description: SHA-256 of contract.json, fixed before dispatch
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frozen-release-${{ inputs.contract_sha256 }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: ${{ matrix.lane }} frozen A/B
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [cache, writer, consumer]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check fail-closed comparison logic
+        shell: pwsh
+        run: ./scripts/release-gate/Test-Comparison.ps1
+      - name: Download frozen draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_TAG: ${{ inputs.snapshot_tag }}
+          CONTRACT_SHA: ${{ inputs.contract_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SNAPSHOT_TAG" =~ ^gate-snapshot-[0-9-]+$ ]]
+          [[ "$CONTRACT_SHA" =~ ^[0-9a-fA-F]{64}$ ]]
+          mkdir -p "$RUNNER_TEMP/frozen"
+          gh release download "$SNAPSHOT_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/frozen"
+          cd "$RUNNER_TEMP/frozen"
+          printf '%s  contract.json\n' "$CONTRACT_SHA" | sha256sum --check --strict
+          jq -r '.Files[] | "\(.Sha256)  \(.Path)"' contract.json | sha256sum --check --strict
+          tar -xzf harness.tar.gz
+          docker load --input images.tar.gz
+      - name: Compare identical budgets on an independent Linux runner
+        env:
+          LANE: ${{ matrix.lane }}
+        shell: pwsh
+        run: >-
+          ./scripts/release-gate/Invoke-FrozenComparison.ps1
+          -Lane $env:LANE -BundleDirectory "$env:RUNNER_TEMP/frozen"
+      - name: Retain success and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-comparison-${{ matrix.lane }}
+          path: |
+            ${{ runner.temp }}/frozen/contract.json
+            ${{ runner.temp }}/frozen/regression-phase2-20261019/isolated-*
+          if-no-files-found: warn
+          retention-days: 14
+
+  verdict:
+    name: Strict comparison verdict
+    needs: compare
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require all independent lanes
+        env:
+          RESULT: ${{ needs.compare.result }}
+        run: test "$RESULT" = success
