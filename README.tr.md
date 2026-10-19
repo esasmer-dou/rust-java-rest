@@ -461,7 +461,7 @@ reactor.rust.http.idle-timeout-ms=30000
 
 ## Gözlemlenebilirlik
 
-`4.7.0` sürümü, uyumlu `java-rust-glowroot-agent:0.7.0` paketiyle kullanılabilir. Mikro ajan şu
+`4.7.0` sürümü, uyumlu `java-rust-glowroot-agent:0.6.0` paketiyle kullanılabilir. Mikro ajan şu
 verileri Glowroot Central'a gönderir:
 
 - HTTP route çağrı sayısı, süre dağılımı ve `5xx` sayısı;
