@@ -45,6 +45,7 @@ foreach ($image in $manifest.Images | Where-Object { $_.Name -match ':phase7$' }
 }
 $harness = Join-Path $root 'regression-phase2-20261019'
 $label = "isolated-$Lane"
+$summaryPath = Join-Path $harness "$label-summary.json"
 try {
     Invoke-Docker @('network', 'create', 'functional-plan-20261018')
     Invoke-Docker @('run', '-d', '--name', 'fp-db', '--network', 'functional-plan-20261018', '--cpus=1', '--memory=256m',
@@ -88,10 +89,19 @@ try {
             if (-not $ready) { throw 'Provider fixture did not become ready' }
             & (Join-Path $harness 'native-pairs.ps1') -Candidate phase7 -BaselineImageTag phase2 -Label $label -NoPause `
                 -QuietSeconds 5 -JvmExtraOptions '-XX:-TransparentHugePage'
-            & (Join-Path $harness 'summarize-native-paired.ps1') -Candidate phase7 -Label $label -Kind dubbo
+            $normalized = Join-Path $harness "$label-normalized"
+            $files = @(Get-ChildItem $harness -Filter "$label-*")
+            $null = New-Item -ItemType Directory -Path $normalized
+            foreach ($file in $files) { Copy-Item -LiteralPath $file.FullName -Destination $normalized -Recurse }
+            $rawCsv = Join-Path $harness "$label-results.csv"
+            & "$PSScriptRoot/Add-ConsumerCohorts.ps1" -Rows @(Import-Csv $rawCsv) -Label $label |
+                Export-Csv (Join-Path $normalized "$label-results.csv") -NoTypeInformation
+            Copy-Item (Join-Path $harness 'summarize-native-paired.ps1') $normalized
+            & (Join-Path $normalized 'summarize-native-paired.ps1') -Candidate phase7 -Label $label -Kind dubbo
+            $summaryPath = Join-Path $normalized "$label-summary.json"
         }
     }
-    & (Join-Path $PSScriptRoot 'Assert-Comparison.ps1') -SummaryPath (Join-Path $harness "$label-summary.json") -Lane $Lane
+    & (Join-Path $PSScriptRoot 'Assert-Comparison.ps1') -SummaryPath $summaryPath -Lane $Lane
 } finally {
     $names = @(& docker ps -a --format '{{.Names}}')
     foreach ($name in $names) {

@@ -82,7 +82,9 @@ jobs:
           persist-credentials: false
       - name: Check fail-closed comparison logic
         shell: pwsh
-        run: ./scripts/release-gate/Test-Comparison.ps1
+        run: |
+          ./scripts/release-gate/Test-Comparison.ps1
+          ./scripts/release-gate/Test-ConsumerCohorts.ps1
       - uses: actions/download-artifact@v4
         with:
           name: frozen-inputs
