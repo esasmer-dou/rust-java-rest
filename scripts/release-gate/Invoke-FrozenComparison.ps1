@@ -33,9 +33,11 @@ $null = New-Item -ItemType Directory -Path $context -Force
 Copy-Item -LiteralPath (Join-Path $root $runtime.Path) -Destination $context
 foreach ($image in $manifest.Images | Where-Object { $_.Name -match ':phase7$' }) {
     if ($image.Id -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Invalid base image identity' }
-    @("FROM $($image.Id)", 'COPY librust_hyper.so /app/native/librust_hyper.so') |
+    # BuildKit resolves FROM by a local tag, not a bare config-image SHA.
+    # The tag's immutable ID was checked above on this exclusive runner.
+    @("FROM $($image.Name)", 'COPY librust_hyper.so /app/native/librust_hyper.so') |
         Set-Content (Join-Path $context 'Dockerfile')
-    Invoke-Docker @('build', '--network=none', '-t', $image.Name, $context)
+    Invoke-Docker @('build', '--pull=false', '--network=none', '-t', $image.Name, $context)
     $actual = & docker run --rm --entrypoint sha256sum $image.Name /app/native/librust_hyper.so
     if ($LASTEXITCODE -ne 0 -or ($actual -split '\s+')[0] -ne $runtime.Sha256) {
         throw "Candidate does not contain the pinned clean runtime: $($image.Name)"
