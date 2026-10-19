@@ -4,8 +4,9 @@
 
 New usage guide: [Explicit, bounded operations](docs/explicit-operations.md).
 
-Release preparation: `4.7.1` is not published yet. Its REST gate passed, but coordinated agent `0.7.0`
-publication remains blocked by Spring memory/RPS. The published REST stable release is `4.7.0`.
+Release line: `4.7.1`, coordinated with optional agent `0.7.0`. Publication requires the matching
+production gate. Use a version listed in [published releases](https://github.com/esasmer-dou/rust-java-rest/releases).
+The release assets carry the final validation reports; a source branch is not a published package.
 
 [![Version](https://img.shields.io/badge/version-4.7.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

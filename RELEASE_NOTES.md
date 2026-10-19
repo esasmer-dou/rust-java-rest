@@ -1,3 +1,20 @@
+# Rust-Java REST Framework v4.7.1
+
+Java handlers, services, records and annotations stay unchanged. Align your platform parent/BOM
+and REST dependency to `4.7.1`. Use the matching native files from that package.
+
+Micro telemetry skips disabled trace sampling and reuses the HTTP histogram selection. Exact
+request/error counts and optional diagnostic traces remain available. Export stays on the isolated
+Rust executor. No worker, queue or heap default is increased. ABI versions do not change.
+
+Publication requires the coordinated agent `0.7.0` Production Gate. The release attachments carry
+the final RSS, container-memory, useful-RPS and p99 verdicts. The 3 MiB gate evaluates paired medians,
+not every observed peak.
+
+[English release notes](docs/release-notes/v4.7.1.md) | [Türkçe sürüm notları](docs/release-notes/v4.7.1.tr.md)
+
+---
+
 # Rust-Java REST Framework v4.6.2
 
 `v4.6.2` prevents an aggregate interval from being lost when Glowroot Central closes a retained
