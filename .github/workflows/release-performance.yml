@@ -20,21 +20,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  compare:
-    name: ${{ matrix.lane }} frozen A/B
+  prepare:
+    name: Verify frozen inputs
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [cache, writer, consumer]
+    timeout-minutes: 10
+    permissions:
+      # Draft releases require push access. No downloaded test code runs here.
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check fail-closed comparison logic
-        shell: pwsh
-        run: ./scripts/release-gate/Test-Comparison.ps1
       - name: Download frozen draft assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,6 +50,39 @@ jobs:
           jq --arg revision "$REVISION" -e \
             '.head_sha == $revision and .conclusion == "success" and .event == "push"' \
             native-build-run.json >/dev/null
+      - name: Transfer verified inputs to read-only test jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: frozen-inputs
+          path: ${{ runner.temp }}/frozen/*
+          compression-level: 0
+          retention-days: 2
+
+  compare:
+    name: ${{ matrix.lane }} frozen A/B
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [cache, writer, consumer]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check fail-closed comparison logic
+        shell: pwsh
+        run: ./scripts/release-gate/Test-Comparison.ps1
+      - uses: actions/download-artifact@v4
+        with:
+          name: frozen-inputs
+          path: ${{ runner.temp }}/frozen
+      - name: Load frozen fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/frozen"
           tar -xzf harness.tar.gz
           docker load --input images.tar.gz
       - name: Compare identical budgets on an independent Linux runner

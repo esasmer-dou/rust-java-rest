@@ -9,6 +9,12 @@ runner with the same image/JVM and resource budgets. The existing workload,
 three fresh-start pairs, semantic body checks and raw error evidence are retained.
 Parallel lanes do not share a Docker daemon or application CPU quota.
 
+A separate input-download job has `contents: write` only because GitHub restricts
+draft visibility to users with push access. It verifies checksums and the clean
+native build without executing downloaded test code. Test jobs have read-only
+repository permissions and no persisted Git credentials. The download job has a
+10-minute limit; each independent comparison lane has a 30-minute limit.
+
 The input is a temporary **draft** release containing `contract.json`,
 `harness.tar.gz`, `images.tar.gz` and a clean `librust_hyper.so`. Pin the contract's SHA-256 at dispatch.
 The contract identifies every image by its immutable ID and every archive by
