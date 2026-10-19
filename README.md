@@ -55,7 +55,7 @@ discovery, or libraries that require a Spring application context.
 ## Current Stable Line
 
 `4.7.1` is the stable declarative runtime line. It packages clean `rust-spring v4.7.1` native
-artifacts from source `edc105b632ed25e6e64b98226bd1a09627005cdc`, matching the Maven provenance manifest. It uses REST ABI
+artifacts from source `b98f791d9889c67dc10e537757fc3c0927ed0bbe`, matching the Maven provenance manifest. It uses REST ABI
 `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `6`. Always use the native file carried by the
 same coordinated Maven artifact.
 
