@@ -12,7 +12,7 @@
     <properties>
         <rust-java-rest.version>4.7.1</rust-java-rest.version>
         <java-rust-dubbo.version>0.8.0</java-rust-dubbo.version>
-        <java-rust-cache.version>0.8.0</java-rust-cache.version>
+        <java-rust-cache.version>0.8.1</java-rust-cache.version>
         <rust-sample-model.version>0.4.4</rust-sample-model.version>
         <rest-sample-utility.version>0.4.4</rest-sample-utility.version>
     </properties>

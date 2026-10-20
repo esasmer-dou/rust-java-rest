@@ -14,7 +14,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <rust-java-rest.version>4.7.1</rust-java-rest.version>
         <java-rust-dubbo.version>0.8.0</java-rust-dubbo.version>
-        <java-rust-cache.version>0.8.0</java-rust-cache.version>
+        <java-rust-cache.version>0.8.1</java-rust-cache.version>
         <dsl-json.version>2.0.2</dsl-json.version>
     </properties>
 

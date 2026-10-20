@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep exact HTTP aggregates without trace-sampler work when the bounded trace queue is disabled.
 - Route embedded HTTP completions directly through scalar nanosecond counters in Rust.
 - Reuse the framework histogram bucket for embedded telemetry instead of calculating it twice; colocate hot counters with explicitly budgeted 64-byte alignment.
-- Package matching Windows x64, Linux x64/ARM64 and macOS ARM64 artifacts from clean source `b98f791d9889c67dc10e537757fc3c0927ed0bbe`.
+- Release exporter ownership on cancellation before the first task poll; permit safe quick close/restart.
+- Package matching Windows x64, Linux x64/ARM64 and macOS ARM64 artifacts from clean source `ccf11143cea8b7513706c439c67939b7803469d0`.
+- Align the cache starter to java-rust-cache 0.8.1 so standalone cache telemetry receives the same fix.
 - Preserve all ABI numbers, Java handlers, annotations, profiles and memory/concurrency defaults.
 - Coordinate optional telemetry qualification with agent 0.7.0; production publication requires the new REST/Spring performance gate.
 
