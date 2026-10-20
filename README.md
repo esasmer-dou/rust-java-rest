@@ -8,6 +8,10 @@ Release line: `4.7.1`, coordinated with optional agent `0.7.0`. Publication requ
 production gate. Use a version listed in [published releases](https://github.com/esasmer-dou/rust-java-rest/releases).
 The release assets carry the final validation reports; a source branch is not a published package.
 
+Platform source builds for this release use tag `platform-v4.7.1`. Core/native source stays at
+`v4.7.1`. Both Maven versions remain `4.7.1`; the platform tag fixes the cache-writer dependency
+before its first publication. See the [platform guide](platform/README.md).
+
 [![Version](https://img.shields.io/badge/version-4.7.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)

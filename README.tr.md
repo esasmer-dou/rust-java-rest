@@ -8,6 +8,10 @@ Bu doküman `4.7.1` ve isteğe bağlı agent `0.7.0` hattını anlatır. Yayın 
 kontrolü geçmelidir. [Yayımlanan sürümlerden](https://github.com/esasmer-dou/rust-java-rest/releases)
 birini kullanın. Son doğrulama raporları yayına eklenir. Kaynak branch'i yayımlanmış paket değildir.
 
+Bu sürümün platform modüllerini kaynaktan derlemek için `platform-v4.7.1` tag'ini kullanın.
+Core/native kaynak tag'i `v4.7.1` olarak kalır. İki Maven sürümü de `4.7.1` olur. Platform tag'i,
+ilk yayından önce cache-writer bağımlılığını düzeltir. [Platform rehberine](platform/README.tr.md) bakın.
+
 [![Sürüm](https://img.shields.io/badge/sürüm-4.7.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
