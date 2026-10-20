@@ -283,7 +283,7 @@ isolated in Rust.
 - Startup validates REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `6`, source revision,
   platform, and SHA-256 before serving traffic.
 - Native release artifacts must come from a clean CI build of the exact recorded Rust commit.
-- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.6.0` and standalone
+- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.7.0` and standalone
   `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
 Existing REST annotations, handler signatures, response types, services, validation, and business
@@ -1514,10 +1514,11 @@ Use:
 - `GET /diagnostics/routes` for route strategy/fallback visibility.
 - `NativeBridge.nativeMemoryDiagnosticsJson()` for native memory diagnostics.
 
-The stable `4.7.1` line can use `java-rust-glowroot-agent:0.6.0`. It sends bounded
+The stable `4.7.1` line can use `java-rust-glowroot-agent:0.7.0`. It sends bounded
 HTTP route, native Dubbo, native Redis, process RSS, thread, exporter health, and sampled slow/error
 trace data to Glowroot Central. The Java agent does not weave bytecode and adds no runtime
-dependencies. Protobuf and plaintext HTTP/2 export run inside the existing Rust runtime.
+dependencies. Protobuf and plaintext HTTP/2 export run on the isolated Rust exporter, not the
+Hyper request executor.
 
 The bounded `micro`, `jvm`, `sql`, `full`, and `diagnostic` profiles use REST ABI `29` and Glowroot
 ABI `6`. Do not use these Java classes with an older ABI DLL/SO.
