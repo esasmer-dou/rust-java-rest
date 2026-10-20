@@ -7,6 +7,11 @@ on:
         description: "Aligned REST platform version, for example 4.3.0"
         required: true
         type: string
+      source_ref:
+        description: "Optional immutable platform tag; defaults to the core version tag"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -23,7 +28,7 @@ jobs:
       - name: Checkout aligned REST source
         uses: actions/checkout@v4
         with:
-          ref: v${{ inputs.version }}
+          ref: ${{ inputs.source_ref || format('v{0}', inputs.version) }}
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -112,6 +117,10 @@ jobs:
           find platform -path '*/target/*.jar' -type f -exec cp {} release-assets/platform/ \;
           cp platform/bom/pom.xml "release-assets/platform/rust-java-platform-bom-${VERSION}.pom"
           cp platform/parent/pom.xml "release-assets/platform/rust-java-platform-parent-${VERSION}.pom"
+          printf 'platform.source.revision=%s\ncore.version=%s\n' \
+            "$(git rev-parse HEAD)" \
+            "$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)" \
+            > release-assets/platform/platform-source.properties
           tar -C release-assets -czf "release-assets/rust-java-platform-${VERSION}.tar.gz" platform
           sha256sum "release-assets/rust-java-platform-${VERSION}.tar.gz" > "release-assets/rust-java-platform-${VERSION}.sha256"
           gh release upload "v${VERSION}" \

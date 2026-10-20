@@ -8,6 +8,10 @@ platform parent kullanın. Ardından yalnız process'in gerçekten ihtiyaç duyd
 Yeni servis için parent kullanın. Şirket parent POM'u değiştirilemiyorsa BOM kullanın. Doğrudan
 dependency yolunu yalnız embedding veya framework geliştirme için seçin.
 
+Platform `4.7.1`, iki cache starter'ında da cache `0.8.1` kullanır. Platform kaynağının tag'i
+`platform-v4.7.1` olur. Değişmeyen core/native runtime'ın tag'i `v4.7.1` olarak kalır.
+Platform paketi kaynak commit bilgisini de içerir. Maven bağımlılık tanımı değişmez.
+
 ## İçindekiler
 
 - [Kopyala-çalıştır parent kurulumu](#buradan-başlayın)
@@ -24,7 +28,7 @@ dependency yolunu yalnız embedding veya framework geliştirme için seçin.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.3</version>
+  <version>4.7.1</version>
 </parent>
 
 <artifactId>customer-api</artifactId>

@@ -8,6 +8,10 @@ platform parent to align versions, then add only the starters required by the pr
 Use the parent for a new service. Use the BOM only when an existing corporate parent cannot be
 replaced. Use direct dependencies only for embedding or framework development.
 
+Platform `4.7.1` aligns both cache starters to cache `0.8.1`. Its source tag is
+`platform-v4.7.1`; the unchanged core/native runtime remains tagged `v4.7.1`.
+The platform bundle includes the source revision. Maven coordinates do not change.
+
 ## Contents
 
 - [Copy-paste parent setup](#start-here)
@@ -24,7 +28,7 @@ replaced. Use direct dependencies only for embedding or framework development.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.6.3</version>
+  <version>4.7.1</version>
 </parent>
 
 <artifactId>customer-api</artifactId>
