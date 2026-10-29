@@ -2,6 +2,12 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## Prepared ARM64 Patch: 4.8.1
+
+The published version is still 4.8.0. The working tree prepares REST/platform
+4.8.1 with cache 0.9.1. ARM manifests are corrected without changing native
+binaries or ABIs. [Upgrade details](docs/release-notes/v4.8.1.md).
+
 ## Start With 4.8.0
 
 Optional native edge policies, JWT security, W3C propagation, generated dispatch and bounded native JSON views. Java handlers and business rules remain in Java. OpenJ9 uses JNI; FFM remains a separate opt-in.

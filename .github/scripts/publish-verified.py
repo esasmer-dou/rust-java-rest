@@ -44,10 +44,33 @@ def validate(root, checkout, repository, commit, version):
     for artifact in manifest["artifacts"]:
         if artifact["version"] != version or artifact["pom"] not in manifest["files"]:
             raise ValueError("Artifact/version mismatch")
+        if not artifact["downloads"]:
+            raise ValueError("Artifact downloads must not be empty")
+        if artifact["primary"] not in {item["file"] for item in artifact["downloads"]}:
+            raise ValueError("Primary artifact is missing from downloads")
         for item in artifact["downloads"]:
             if item["file"] not in manifest["files"]:
                 raise ValueError("Artifact without a recorded checksum")
     return manifest
+
+
+def verify_native_jars(root, checkout, manifest):
+    artifacts = [item for item in manifest['artifacts'] if item.get('id') == 'rust-java-rest']
+    if not artifacts:
+        return
+    if len(artifacts) != 1:
+        raise ValueError('Exactly one REST native artifact is required')
+    artifact = artifacts[0]
+    runtime = [item['file'] for item in artifact.get('attached', []) if item['classifier'] == 'core-runtime']
+    if len(runtime) != 1:
+        raise ValueError('Exactly one REST core-runtime JAR is required')
+    names = [artifact['primary'], runtime[0]]
+    if any(name not in manifest['files'] for name in names):
+        raise ValueError('Native JAR without a recorded checksum')
+    source = checked(checkout, 'src/main/java/com/reactor/rust/codegen/PackagedNativeProvenanceVerifier.java')
+    contract = checked(checkout, 'scripts/native-provenance-gate.properties')
+    subprocess.run(['java', str(source), str(contract), *(str(checked(root, name)) for name in names)],
+                   cwd=checkout, check=True)
 
 
 def download(url, actor, token):
@@ -91,6 +114,7 @@ def main():
                     raise ValueError("Unsafe archive path")
             archive.extractall(root)
         manifest = validate(root, checkout, repository, commit, version)
+        verify_native_jars(root, checkout, manifest)
         actor, token = os.environ["GITHUB_ACTOR"], os.environ["GITHUB_TOKEN"]
         base = f"https://maven.pkg.github.com/{repository}"
         proof = []

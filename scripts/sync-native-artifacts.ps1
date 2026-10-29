@@ -20,7 +20,7 @@ param(
 
     [string]$NativeSourceDirectory = (Join-Path $PSScriptRoot "..\..\rust-spring"),
 
-    [string]$CacheResourcesDirectory = (Join-Path $PSScriptRoot "..\..\java-rust-cache\src\main\resources\native"),
+    [string]$CacheResourcesDirectory,
 
     [int]$RestAbi = 29,
 
@@ -124,9 +124,13 @@ $linuxArm64Source = if ($hasLinuxArm64) { Resolve-RequiredFile $LinuxArm64Binary
 $sourceRepository = (Resolve-Path -LiteralPath $NativeSourceDirectory).Path
 $sourceRevision = Read-SourceRevision $sourceRepository
 $resourcesRoot = Join-Path $PSScriptRoot "..\src\main\resources\native"
+$resourceRoots = @($resourcesRoot)
+if (-not [string]::IsNullOrWhiteSpace($CacheResourcesDirectory)) {
+    $resourceRoots += $CacheResourcesDirectory
+}
 foreach ($platform in @("macos-arm64", "linux-arm64")) {
     $provided = if ($platform -eq "macos-arm64") { $hasMacosArm64 } else { $hasLinuxArm64 }
-    foreach ($resourceRoot in @($resourcesRoot, $CacheResourcesDirectory)) {
+    foreach ($resourceRoot in $resourceRoots) {
         $existingPlatform = Join-Path $resourceRoot $platform
         if (-not $provided -and (Test-Path -LiteralPath $existingPlatform) -and
                 @(Get-ChildItem -LiteralPath $existingPlatform -File).Count -gt 0) {
@@ -196,65 +200,60 @@ $linuxHash = (Get-FileHash -LiteralPath $linuxTarget -Algorithm SHA256).Hash.ToL
 if ($windowsHash -ne $verifiedWindowsHash -or $linuxHash -ne $verifiedLinuxHash) {
     throw "Native artifact changed while being synchronized"
 }
-$manifestLines = @(
-    "schema=2"
-    "rest.abi=$RestAbi"
-    "dubbo.abi=$DubboAbi"
-    "redis.abi=$RedisAbi"
-    "glowroot.abi=$GlowrootAbi"
-    "crate.version=$crateVersion"
-    "source.revision=$sourceRevision"
-    "windows-x64.sha256=$windowsHash"
-    "linux-x64.sha256=$linuxHash"
-    "linux-x64.glibc-minimum=$LinuxMinimumGlibc"
-)
+$restBinaries = @{ "windows-x64" = "rust_hyper.dll"; "linux-x64" = "librust_hyper.so" }
+$expectedHashes = @{ "windows-x64" = $verifiedWindowsHash; "linux-x64" = $verifiedLinuxHash }
 if ($hasMacosArm64) {
-    $macosArm64Hash = (Get-FileHash -LiteralPath $macosArm64Target -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($macosArm64Hash -ne $verifiedMacosArm64Hash) {
-        throw "macOS ARM64 native artifact changed while being synchronized"
-    }
-    $manifestLines += "macos-arm64.sha256=$macosArm64Hash"
+    $restBinaries["macos-arm64"] = "librust_hyper.dylib"
+    $expectedHashes["macos-arm64"] = $verifiedMacosArm64Hash
 }
 if ($hasLinuxArm64) {
-    $linuxArm64Hash = (Get-FileHash -LiteralPath $linuxArm64Target -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($linuxArm64Hash -ne $verifiedLinuxArm64Hash) {
-        throw "Linux ARM64 native artifact changed while being synchronized"
-    }
-    $manifestLines += "linux-arm64.sha256=$linuxArm64Hash"
-    $manifestLines += "linux-arm64.glibc-minimum=$LinuxMinimumGlibc"
+    $restBinaries["linux-arm64"] = "librust_hyper.so"
+    $expectedHashes["linux-arm64"] = $verifiedLinuxArm64Hash
 }
-$manifest = ($manifestLines -join "`n") + "`n"
-$manifestPath = Join-Path $resources "native-provenance.properties"
-[System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
+$provenanceArguments = @{
+    SourceRevision = $sourceRevision
+    CrateVersion = $crateVersion
+    RestAbi = $RestAbi
+    DubboAbi = $DubboAbi
+    RedisAbi = $RedisAbi
+    GlowrootAbi = $GlowrootAbi
+    LinuxMinimumGlibc = $LinuxMinimumGlibc
+    ExpectedHashes = $expectedHashes
+}
+& (Join-Path $PSScriptRoot "write-native-provenance.ps1") @provenanceArguments `
+    -ResourcesDirectory $resources -BinaryNames $restBinaries
 
-$cacheResources = [System.IO.Path]::GetFullPath($CacheResourcesDirectory)
-$cacheWindowsDirectory = Join-Path $cacheResources "windows-x64"
-$cacheLinuxDirectory = Join-Path $cacheResources "linux-x64"
-New-Item -ItemType Directory -Force -Path $cacheResources, $cacheWindowsDirectory, $cacheLinuxDirectory | Out-Null
-Copy-Item -LiteralPath $windowsSource -Destination (Join-Path $cacheWindowsDirectory "rust_hyper-windows-x64.dll") -Force
-Copy-Item -LiteralPath $linuxSource -Destination (Join-Path $cacheLinuxDirectory "librust_hyper-linux-x64.so") -Force
-if ($hasMacosArm64) {
-    $cacheMacosArm64Directory = Join-Path $cacheResources "macos-arm64"
-    New-Item -ItemType Directory -Force -Path $cacheMacosArm64Directory | Out-Null
-    Copy-Item -LiteralPath $macosArm64Source `
-        -Destination (Join-Path $cacheMacosArm64Directory "librust_hyper-macos-arm64.dylib") -Force
+if (-not [string]::IsNullOrWhiteSpace($CacheResourcesDirectory)) {
+    $cacheResources = [System.IO.Path]::GetFullPath($CacheResourcesDirectory)
+    $cacheWindowsDirectory = Join-Path $cacheResources "windows-x64"
+    $cacheLinuxDirectory = Join-Path $cacheResources "linux-x64"
+    New-Item -ItemType Directory -Force -Path $cacheResources, $cacheWindowsDirectory, $cacheLinuxDirectory | Out-Null
+    Copy-Item -LiteralPath $windowsSource -Destination (Join-Path $cacheWindowsDirectory "rust_hyper-windows-x64.dll") -Force
+    Copy-Item -LiteralPath $linuxSource -Destination (Join-Path $cacheLinuxDirectory "librust_hyper-linux-x64.so") -Force
+    if ($hasMacosArm64) {
+        $cacheMacosArm64Directory = Join-Path $cacheResources "macos-arm64"
+        New-Item -ItemType Directory -Force -Path $cacheMacosArm64Directory | Out-Null
+        Copy-Item -LiteralPath $macosArm64Source `
+            -Destination (Join-Path $cacheMacosArm64Directory "librust_hyper-macos-arm64.dylib") -Force
+    }
+    if ($hasLinuxArm64) {
+        $cacheLinuxArm64Directory = Join-Path $cacheResources "linux-arm64"
+        New-Item -ItemType Directory -Force -Path $cacheLinuxArm64Directory | Out-Null
+        Copy-Item -LiteralPath $linuxArm64Source `
+            -Destination (Join-Path $cacheLinuxArm64Directory "librust_hyper-linux-arm64.so") -Force
+    }
+    $cacheBinaries = @{ "windows-x64" = "rust_hyper-windows-x64.dll"; "linux-x64" = "librust_hyper-linux-x64.so" }
+    if ($hasMacosArm64) { $cacheBinaries["macos-arm64"] = "librust_hyper-macos-arm64.dylib" }
+    if ($hasLinuxArm64) { $cacheBinaries["linux-arm64"] = "librust_hyper-linux-arm64.so" }
+    & (Join-Path $PSScriptRoot "write-native-provenance.ps1") @provenanceArguments `
+        -ResourcesDirectory $cacheResources -BinaryNames $cacheBinaries
+    Write-Host "  cache resources: $cacheResources"
 }
-if ($hasLinuxArm64) {
-    $cacheLinuxArm64Directory = Join-Path $cacheResources "linux-arm64"
-    New-Item -ItemType Directory -Force -Path $cacheLinuxArm64Directory | Out-Null
-    Copy-Item -LiteralPath $linuxArm64Source `
-        -Destination (Join-Path $cacheLinuxArm64Directory "librust_hyper-linux-arm64.so") -Force
-}
-[System.IO.File]::WriteAllText(
-    (Join-Path $cacheResources "native-provenance.properties"),
-    $manifest,
-    [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "Native artifacts synchronized."
 Write-Host "  source revision: $sourceRevision"
 Write-Host "  Windows SHA-256: $windowsHash"
 Write-Host "  Linux SHA-256:   $linuxHash"
-if ($hasMacosArm64) { Write-Host "  macOS ARM64 SHA-256: $macosArm64Hash" }
-if ($hasLinuxArm64) { Write-Host "  Linux ARM64 SHA-256: $linuxArm64Hash" }
-Write-Host "  manifest:        $manifestPath"
-Write-Host "  cache resources: $cacheResources"
+if ($hasMacosArm64) { Write-Host "  macOS ARM64 SHA-256: $verifiedMacosArm64Hash" }
+if ($hasLinuxArm64) { Write-Host "  Linux ARM64 SHA-256: $verifiedLinuxArm64Hash" }
+Write-Host "  manifest:        $(Join-Path $resources 'native-provenance.properties')"

@@ -2,6 +2,12 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## Hazırlanan ARM64 Düzeltmesi: 4.8.1
+
+Yayımlanmış sürüm hâlâ 4.8.0'dır. Bu kaynak ağacı REST/platform 4.8.1 ve cache
+0.9.1 için hazırlanır. ARM manifestleri düzeltilir. Native dosyalar ve ABI'ler
+aynı kalır. [Geçiş ayrıntıları](docs/release-notes/v4.8.1.tr.md).
+
 ## 4.8.0 İle Başlayın
 
 İsteğe bağlı native edge politikaları, JWT güvenliği, W3C izleme başlıkları, üretilmiş çağrı kodu ve sınırlı native JSON görünümleri eklendi. Handler ve iş kuralları Java'da kalır. OpenJ9 JNI kullanır. FFM ayrı bir seçenektir.

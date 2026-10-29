@@ -109,6 +109,11 @@ jobs:
       - name: Verify native release provenance
         shell: bash
         run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          java src/main/java/com/reactor/rust/codegen/PackagedNativeProvenanceVerifier.java \
+            scripts/native-provenance-gate.properties \
+            "target/rust-java-rest-${VERSION}.jar" \
+            "target/rust-java-rest-${VERSION}-core-runtime.jar"
           MANIFEST="src/main/resources/native/native-provenance.properties"
           test -f "$MANIFEST"
           grep -qx 'schema=2' "$MANIFEST"

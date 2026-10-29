@@ -8,7 +8,7 @@
 
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-rest</artifactId>
-    <version>4.8.0</version>
+    <version>4.8.1</version>
     <name>Rust-Java REST Framework</name>
     <description>Low-latency REST API framework with Rust Hyper HTTP I/O, Java handlers, low-RSS runtime profiles, route admission, and native response paths</description>
 
@@ -257,6 +257,19 @@
                                 <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
                                 <argument>${project.build.directory}/${project.build.finalName}-codegen.jar</argument>
                                 <argument>com/reactor/rust/codegen/</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}-core-runtime.jar</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>verify-packaged-native-provenance</id>
+                        <phase>verify</phase>
+                        <goals><goal>java</goal></goals>
+                        <configuration>
+                            <mainClass>com.reactor.rust.codegen.PackagedNativeProvenanceVerifier</mainClass>
+                            <arguments>
+                                <argument>${project.basedir}/scripts/native-provenance-gate.properties</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
                                 <argument>${project.build.directory}/${project.build.finalName}-core-runtime.jar</argument>
                             </arguments>
                         </configuration>
