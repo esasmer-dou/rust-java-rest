@@ -7,10 +7,12 @@ Security starter runtime classpath içinde kalmalıdır. JAR'ları birleştirirk
 token'ın 401 aldığını değil, reader kullanıcısının admin rotasında 403 aldığını
 da kontrol edin. Böylece Java rol kontrolünün de kurulduğunu doğrularsınız.
 
-Bu isteğe bağlı özellik koordineli 4.8.0 kaynak/yayım setine dahildir.
-Seçilen native dosya `edge-jwt` yeteneği taşımalıdır; yoksa
-`--features edge-jwt` ile derleyin. REST ABI 29'un değişmemesi tek başına bu ek
-yeteneğin her platformda bulunduğu anlamına gelmez.
+Bu filtre ilk kez REST 4.8.0 ile yayımlanmıştır. Üretilen installer rota kaydından
+önce açıkça çağrılmadıkça kapalıdır. Paketlenmiş dosyalar `edge-jwt` içerir; özel
+derlemelerde `--features edge-jwt` gerekir. REST ABI 29 tek başına yetenek kontrolü
+değildir. [Platform doğrulama sınırlarına](docs/native-availability.tr.md) bakın:
+Linux x64 çalışma kanıtı ARM çalışma onayı değildir. Yayımlanmış 4.8.0 ARM64
+sidecar'ları için hazırlanan 4.8.1 düzeltmesi gerekir.
 
 ## Ne Zaman Kullanılır?
 
@@ -63,7 +65,8 @@ Import'lar `com.reactor.rust.config.PropertiesLoader` ve
 `com.reactor.rust.app.RestApplication` şeklindedir. `Application`, mevcut
 `@ReactorApplication` sınıfınızdır. Yalnız anotasyon eklemek native yolu açmaz.
 [Çalışan sample](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/OUTBOUND.tr.md),
-bu çağrıyı `sample.edge.jwt.enabled` ayarına göre yapar.
+bu çağrıyı `sample.edge.jwt.enabled` (varsayılan `false`) ayarına göre yapar.
+Bu, sample başlangıç anahtarıdır; core runtime property değildir.
 
 Korumalı rotayı public edge cache veya `@PermitAll` ile birleştirmeyin. Derleyici
 bu birleşimleri reddeder. Native static/file yolu da Java guard'ın yerine

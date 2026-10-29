@@ -35,7 +35,9 @@ This separately published opt-in Java module leaves the default JNI reader, vers
 
 Optional integration: [Borrowed native views and optional prebaked JSON writes](docs/native-views.md).
 Optional integration: [Generated switch dispatch, compatibility and build-time rollback](docs/generated-dispatch.md).
-These additions are opt-in; existing routes keep their current path.
+Native views and SWAR require explicit selection. Generated dispatch defaults to
+build-time `auto`; use `legacy` for the previous generated adapters. HTTP contracts
+and native ABI are unchanged.
 
 Optional owned JSON bodies: the cache integration can transfer a `CacheReadSnapshot`
 to `CacheResponses.ownedJson(...)`. On an L1 hit, payload bytes go directly from the
@@ -52,7 +54,7 @@ must validate constructors, sort or change rows. This is bounded buffer writing,
 not unlimited chunked streaming. The sample's `direct-json-consumer` profile
 shows the complete flow; use the matching 0.8.0 modules.
 Use the matching REST `4.8.0` / cache `0.9.0` packages for
-this new API. See the [sample L1 guide](https://github.com/esasmer-dou/rest-sample-cache-reader#optional-l1-reads-source-checkout).
+this new API. See the [sample L1 guide](https://github.com/esasmer-dou/rest-sample-cache-reader#optional-l1-reads).
 
 Explicit opt-in: [Public GET edge cache and bounded rate limits](NATIVE_EDGE.md).
 Native hits bypass Java guards, so installation requires explicit public-route consent.
@@ -1182,7 +1184,7 @@ native responses release their ownership as well. This does not increase route
 concurrency, queue capacity or timeouts. Keep separate RPC and response-byte
 limits; a slow client must not become an unbounded ready-response queue.
 
-The source checkout also hands a headerless `RawResponse.nativeResponse(id)`
+The published 4.8.0 runtime also hands a headerless `RawResponse.nativeResponse(id)`
 async result to Rust as an ID and status. Java still runs your handler and
 future transformations. It does not build a byte-array control frame for this
 case. Rust keeps the response-byte limit and owns late-result cleanup.

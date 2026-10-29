@@ -1,12 +1,15 @@
-# Public GET Edge Policies (Unreleased)
+# Public GET Edge Policies
 
 For a protected HS256 route, use the separate [native JWT filter](NATIVE_JWT.md).
 It rejects invalid tokens before JNI but keeps valid-request authorization in Java.
 Do not use public response caching for that purpose.
 
 This is an explicit acceleration path, not a replacement for Java business logic.
-It requires a native library built with `--features edge-cache`. The ordinary
-native artifact does not contain the edge branch or allocate an edge slab.
+First published in REST 4.8.0, this path is off until policies are explicitly
+installed before route registration. The packaged native binaries include
+`edge-cache`; custom builds need `--features edge-cache`. Availability alone does
+not allocate a route slab. See [platform verification limits](docs/native-availability.md),
+including the published 4.8.0 ARM64 sidecar issue.
 
 Use it for public catalog snapshots. Do not use it for authorization, tenant
 selection, per-user output or a handler that must execute business side effects.
@@ -100,9 +103,9 @@ The published body must already be valid UTF-8 JSON. This path does not deserial
 or validate the JSON body; the Java publisher owns that contract. Do not point a
 public policy at arbitrary or private Redis keys.
 
-## Declarative Cache Startup (Source Preview)
+## Declarative Cache Startup
 
-With the coordinated cache source checkout, manual cache wiring is optional:
+With published REST 4.8.0 and cache 0.9.0, manual cache wiring is optional:
 
 ```java
 @EnableRustCache(publicEdgePolicies = PublicCatalogHandler.class,
@@ -126,7 +129,9 @@ Only explicitly public, uniform data may bypass Java. These options do not
 implement native JWT validation. Private routes keep their existing security
 guards. The optional `public-edge` build of `rest-sample-cache-reader` demonstrates
 separate public caching and rate-limit endpoints without publishing customer data.
-It is source-only, not part of the currently published packages.
+The sample 0.8.0 POM includes this profile, but its optional application is not in
+the default sample JAR. Rebuild the selected source profile; its enable property
+remains off by default.
 
 For cache-backed string path parameters, native hits do not build Java path
 strings. The original parameter is materialized only when falling back to Java;

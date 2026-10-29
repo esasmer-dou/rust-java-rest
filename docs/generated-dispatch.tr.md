@@ -2,7 +2,7 @@
 
 [English](generated-dispatch.md) | [Türkçe](generated-dispatch.tr.md)
 
-Yayımlanmamış kaynak özelliğidir. Uygun annotation'lı handler'ların çağrılma
+İlk kez REST 4.8.0 ile yayımlanmıştır. Uygun annotation'lı handler'ların çağrılma
 biçimini değiştirir; Java API'sini, istek sözleşmesini veya native ABI'yi değiştirmez.
 
 ## Derleme Zamanında Seçim

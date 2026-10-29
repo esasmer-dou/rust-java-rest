@@ -112,8 +112,8 @@ inaccessible nested schema metadata and enums with more than 256 values fail com
 
 ## Optional Prebaked JSON Writes
 
-This SWAR option is available in the source checkout only; it has not been released
-in a new Maven package. The focused real-HTTP comparison passed on EmaTech on
+This default-off SWAR option first shipped in the REST 4.8.0 Maven artifacts.
+The focused real-HTTP comparison passed on EmaTech on
 26 October 2026: four fresh process pairs, concurrency 16/64/256, control and
 literal routes, 1 CPU/128 MiB per application, and zero response errors.
 

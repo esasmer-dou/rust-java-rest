@@ -2,7 +2,7 @@
 
 [English](generated-dispatch.md) | [Türkçe](generated-dispatch.tr.md)
 
-Unreleased source feature. Generated dispatch changes how eligible annotated
+First published in REST 4.8.0. Generated dispatch changes how eligible annotated
 handlers are called, not their Java API, request contract or native ABI.
 
 ## Choose At Build Time
@@ -116,4 +116,5 @@ The OpenJ9 allocation-method abort is not counted as a pass; this does not prove
 that complete HTTP requests allocate nothing. Earlier FAIL receipts remain
 preserved. These bounded results do not establish universal speedup, consumer
 performance, public-network behavior, long-soak stability, other platforms or
-full production/release qualification. The feature remains unpublished.
+full production/release qualification. This measurement predates publication;
+shipping the feature in 4.8.0 does not turn it into full production or user acceptance.

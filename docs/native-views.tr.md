@@ -114,8 +114,8 @@ olan enum'lar derleme hatası verir.
 
 ## İsteğe Bağlı Toplu JSON Yazımı
 
-Bu SWAR seçeneği yalnız kaynak kod deposunda bulunur; yeni bir Maven paketi olarak
-henüz yayımlanmamıştır. Dar kapsamlı gerçek HTTP karşılaştırması 26 Ekim 2026'da
+Varsayılan olarak kapalı olan SWAR seçeneği ilk kez REST 4.8.0 Maven paketleriyle
+yayımlanmıştır. Dar kapsamlı gerçek HTTP karşılaştırması 26 Ekim 2026'da
 EmaTech'te geçti: dört yeni süreç çifti, 16/64/256 eşzamanlılık, kontrol ve literal
 endpoint'leri, uygulama başına 1 CPU/128 MiB ve sıfır yanıt hatası.
 

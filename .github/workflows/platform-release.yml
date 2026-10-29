@@ -30,6 +30,20 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || format('v{0}', inputs.version) }}
 
+      - name: Report release claims for manual review
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/review-release-version-claims.ps1 -ReportPath "$env:RUNNER_TEMP/release-version-review.json"
+
+      - name: Upload manual release-claim review
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-version-review
+          path: ${{ runner.temp }}/release-version-review.json
+          if-no-files-found: ignore
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:

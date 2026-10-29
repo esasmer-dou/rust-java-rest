@@ -1,12 +1,15 @@
-# Herkese Açık GET Rotaları İçin Edge Kuralları (Henüz Yayımlanmadı)
+# Herkese Açık GET Rotaları İçin Edge Kuralları
 
 Korumalı HS256 rotaları için ayrı [native JWT filtresini](NATIVE_JWT.tr.md)
 kullanın. Geçersiz token JNI'dan önce reddedilir. Geçerli isteğin yetki kararı
 Java'da kalır. Bu amaçla herkese açık yanıt cache'i kullanmayın.
 
 Bu yol Java iş mantığının yerine geçmez. Yalnız herkese açık katalog gibi hazır
-cache yanıtlarını hızlandırır. Native kütüphane `--features edge-cache` ile
-derlenmelidir. Normal native pakette edge kontrolü ve edge slab tahsisatı yoktur.
+cache yanıtlarını hızlandırır. İlk kez REST 4.8.0 ile yayımlanmıştır; rota kaydından
+önce policy açıkça kurulmadıkça kapalıdır. Paketlenmiş native dosyalar `edge-cache`
+içerir; özel derlemelerde `--features edge-cache` gerekir. Desteğin bulunması tek
+başına rota slab'ı ayırmaz. Yayımlanmış 4.8.0 ARM64 sidecar sorunu dahil
+[platform doğrulama sınırlarına](docs/native-availability.tr.md) bakın.
 
 Cache isabetinde Java handler ve Java guard çalışmaz. Kullanıcıya veya tenant'a
 özel yanıtlar, yetki kontrolü ve her istekte çalışması gereken işler bu yola uygun
@@ -99,9 +102,9 @@ Yayımlanan gövde zaten geçerli UTF-8 JSON olmalıdır. Bu yol JSON gövdesini
 ve doğrulamaz. Bu sözleşmenin sahibi Java yayıncıdır. Public bir kuralı rastgele
 veya özel Redis anahtarlarına bağlamayın.
 
-## Deklaratif Cache Başlangıcı (Kaynak Kod Önizlemesi)
+## Deklaratif Cache Başlangıcı
 
-Birlikte derlenmiş cache kaynak kodunda manuel kurulum yerine şu tanım kullanılabilir:
+Yayımlanmış REST 4.8.0 ve cache 0.9.0 ile manuel kurulum yerine şu tanım kullanılabilir:
 
 ```java
 @EnableRustCache(publicEdgePolicies = PublicCatalogHandler.class,
@@ -125,8 +128,9 @@ Yalnız açıkça herkese sunulan, kullanıcıdan bağımsız veriler Java'yı a
 Bu seçenek native JWT doğrulaması eklemez. Özel endpoint'lerin mevcut Java
 güvenlik kontrolleri korunur. `rest-sample-cache-reader` projesindeki isteğe bağlı
 `public-edge` derlemesi, müşteri verilerini açmadan public cache ve hız sınırı
-için ayrı adresler gösterir. Bu özellikler kaynak kod önizlemesidir; mevcut
-yayımlanmış paketlerin parçası değildir.
+için ayrı adresler gösterir. Sample 0.8.0 POM'u bu profili içerir; isteğe bağlı
+uygulama varsayılan sample JAR'ında yoktur. Seçilen kaynak profilini yeniden
+derleyin; etkinleştirme ayarı varsayılan olarak kapalı kalır.
 
 Cache kullanan string path parametrelerinde native hit için Java parametre
 String'leri oluşturulmaz. Parametre yalnız Java yoluna dönülürse hazırlanır.

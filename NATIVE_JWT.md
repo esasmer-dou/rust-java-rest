@@ -2,10 +2,12 @@
 
 [English](NATIVE_JWT.md) | [Turkish](NATIVE_JWT.tr.md)
 
-This opt-in feature is included in the coordinated 4.8.0 source/release set.
-The selected native library must have `edge-jwt` capability; build it with
-`--features edge-jwt` if your artifact lacks it. Unchanged REST ABI 29
-alone does not establish that additive feature's availability on every platform.
+First published in REST 4.8.0, this filter remains off until the generated
+installer is explicitly called before route registration. Packaged binaries include
+`edge-jwt`; custom builds need `--features edge-jwt`. REST ABI 29 alone is not a
+capability check. See [platform verification limits](docs/native-availability.md):
+Linux x64 runtime evidence is not ARM runtime certification, and published 4.8.0
+ARM64 sidecars require the prepared 4.8.1 correction.
 
 ## Choose This Path
 
@@ -63,7 +65,8 @@ Here the imports are `com.reactor.rust.config.PropertiesLoader` and
 `com.reactor.rust.app.RestApplication`; `Application` is your existing
 `@ReactorApplication` entry point. An annotation alone does not activate native
 code. The [runnable sample](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/OUTBOUND.md)
-uses `sample.edge.jwt.enabled` to decide whether to call the generated installer.
+uses `sample.edge.jwt.enabled` (default `false`) to decide whether to call the
+generated installer. This is a sample startup switch, not a core runtime property.
 
 Do not combine this route with public edge caching or `@PermitAll`. Generated
 configuration rejects those combinations. Native static/file routes cannot replace

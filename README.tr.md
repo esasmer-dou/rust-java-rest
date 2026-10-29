@@ -35,7 +35,9 @@ Bu ayrı yayımlanan isteğe bağlı Java modülü varsayılan JNI okuyucusunu, 
 
 İsteğe bağlı özellik: [Native veri görünümü ve isteğe bağlı toplu JSON yazımı](docs/native-views.tr.md).
 İsteğe bağlı özellik: [Üretilmiş switch dispatch ve derleme uyumluluğu](docs/generated-dispatch.tr.md).
-Bu eklemeler 4.8.0 ile yayımlanmıştır; mevcut endpoint'ler aynı yolu kullanır.
+Bu eklemeler 4.8.0 ile yayımlanmıştır. Native view ve SWAR açıkça seçilir.
+Üretilmiş dispatch derlemede varsayılan olarak `auto` kullanır; önceki adapter'lar
+için `legacy` seçin. HTTP sözleşmesi ve native ABI değişmez.
 
 İsteğe bağlı owned JSON yolu: cache entegrasyonu, `CacheReadSnapshot` sahibini
 `CacheResponses.ownedJson(...)` yardımcısına devredebilir. L1 hit'inde JSON, Java payload
@@ -51,8 +53,8 @@ Hessian verisini JSON'a yazar. Handler ve iş kararları Java'da kalır. Kurucu
 doğrulaması, sıralama veya alan değiştirme gerekiyorsa normal DTO yolunu seçin.
 Bu yol sınırlı buffer'a yazar; sınırsız chunked streaming değildir. Sample'daki
 `direct-json-consumer` profili tam akışı gösterir. Spring Dubbo 0.8.0 modüllerini kullanın.
-Bu API için REST `4.8.0` / cache `0.9.0` kullanın. Uyumlu
-kaynak derlemelerini kullanın. [Sample L1 rehberine](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.tr.md#isteğe-bağlı-l1-okuma-kaynak-kod) bakın.
+Bu API için eşleşen REST `4.8.0` / cache `0.9.0` paketlerini kullanın.
+[Sample L1 rehberine](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.tr.md#isteğe-bağlı-l1-okuma) bakın.
 
 **4.8.0 buffer düzeltmesi:** eşleşen Java ve native sürümleri, yanıt buffer'ı küçük
 kaldığında mevcut sonucu yeniden yazar. `RawResponse`, DTO veya `ResponseEntity` döndüren handler
