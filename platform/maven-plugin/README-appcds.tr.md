@@ -2,7 +2,7 @@
 
 [English](README-appcds.md) | [Turkish](README-appcds.tr.md)
 
-Bu özellik güncel kaynak kodda bulunur. Henüz yayımlanan Maven plugin paketinde yoktur.
+`rust-java-maven-plugin:4.8.0` ile yayımlanmıştır; açıkça seçilmedikçe kapalıdır.
 Gerçek hedef imajda arşiv üretimi ve yüklenmesi ayrıca doğrulanmalıdır.
 
 `reactor:generate-appcds`, paketleme sırasında sınıf arşivi oluşturur. Varsayılan
@@ -21,7 +21,115 @@ OpenJ9/Semeru ile açılırsa anlaşılır bir hata verir. OpenJ9 sınıf önbel
 ve [production SCC rehberi](../../docs/production-runtime.md#rom-only-openj9-shared-cache)
 bu yolu anlatır. Yeni hedef OpenJ9 davranışını değiştirmez.
 
-## Arşiv Stratejisi
+## Çalıştırılabilir Minimal Örnek
+
+Maven ve `java` için aynı tam **HotSpot JDK 21**, Maven 3.9+,
+yayımlanmış 4.8.0 paketlerine erişim ve boş 8080 portu gerekir.
+`rust-java-rest` dizininde Bash ile:
+
+```sh
+mvn -B -ntp -f examples/pom.xml -pl minimal-rest -Pappcds clean package \
+  -DskipTests -Dreactor.appcds.enabled=true
+java examples/tools/AppCdsRun.java \
+  examples/minimal-rest/target/reactor-appcds/compatible-jvm.properties \
+  com.reactor.examples.minimal.MinimalApplication
+```
+
+İkinci terminalde: `curl --fail --max-time 5 http://localhost:8080/app/health`.
+Yeni çalıştırmadan önce Ctrl+C ile durdurun. İsteğe bağlı profil, JAR paketlendikten
+sonra mevcut plugin'in `generate-appcds` hedefini çağırır. Depodaki
+[offline eğitim main'i](../../examples/minimal-rest/src/main/java/com/reactor/examples/minimal/OfflineArchiveTraining.java)
+yalnız `--offline` kabul eder; üç gerçek sınıfı initialize etmeden yükler.
+HTTP/native motor, DB, Redis, worker veya iş çağrısı başlatmaz. Bu küçük, çalışan
+başlangıç örneğidir; uygulamanızın generated route/writer kapsamının kanıtı değildir.
+Kendi sonlu harness'inizi gerçekten kullandığınız sınıflarla genişletin.
+
+JDK ile çalışan [başlatıcı](../../examples/tools/AppCdsRun.java), plugin'in UTF-8
+properties dosyasını okur; eğitim JDK/platform ve arşiv/JAR SHA-256 değerlerini
+kontrol eder. Kaydedilmiş VM argümanları ve **sıralı JAR classpath** ile seçilen
+main'i `-Xshare:on` ve CDS loglarıyla başlatır. `target/classes`, `lib/*`, Maven
+`exec:java`, taşınmış JAR veya manifest tahmini kullanmaz. Yalnız güvenilir metadata
+kullanın. JDK ve Maven repository JAR'larını eğitim konumunda tutun; aynı içerikli
+kopya/dokunulmuş JAR bile HotSpot path/mtime kontrolünü bozabilir. Bu aynı yerleşim
+için geliştirme başlatıcısıdır; taşınabilir deployment image çözümü değildir.
+Source-file derlemesi, hash okuması ve üst JVM ek maliyet getirir; bu başlatıcıyı
+production veya başlangıç-performans benchmark giriş noktası olarak kullanmayın.
+
+`examples/minimal-rest/target/reactor-appcds` altında `training.log`, `validation.log`,
+`app-cds.jsa`, `app-cds.classlist` ve `compatible-jvm.properties` dosyalarını inceleyin.
+Metadata'daki `deploymentVerified=false` korunur: üretim/doğrulama, hedef image veya
+RSS/RPS/p99 kabulü değildir. Profil ve enabled property seçilmezse normal örnek değişmez.
+
+| Hata | Yapılacak işlem |
+| --- | --- |
+| Maven OpenJ9 kullanıyor / varsayılan `classes.jsa` yok | Varsayılan CDS arşivini içeren tam HotSpot 21 seçin; SCC dosyasını yerine koymayın. |
+| Plugin/JAR yok | Maven erişimini kontrol edin; kaynak değiştiyse eşleşen paketleri install edin. |
+| Eğitim timeout / sıfır olmayan çıkış | `training.log` okuyun; sonlu offline eğitimi düzeltin, retry döngüsü veya servis başlatma eklemeyin. |
+| Hash/JDK/classpath uyuşmazlığı / `-Xshare:on` hatası | Nihai değişmeyen yerleşim/JDK ile yeniden eğitin; `-Xshare:auto` ile sessizce geçip PASS demeyin. |
+| Native başlangıç / port hatası | Eşleşen 4.8.0 native dosya ve boş portu kontrol edin; arşiv geçerliliği HTTP health değildir. |
+
+Yalnız başlatıcı kontrolleri (JDK 21; sunucu/arşiv oluşturmaz):
+
+```sh
+mkdir -p examples/minimal-rest/target/helper-checks
+javac -d examples/minimal-rest/target/helper-checks \
+  examples/tools/AppCdsRun.java examples/tools/AppCdsRunChecks.java
+java -cp examples/minimal-rest/target/helper-checks AppCdsRunChecks
+```
+
+HotSpot 21'de geçerli komut, sıralı classpath ve hash/uyumsuzluk retleri kontrol edilir.
+OpenJ9 veya desteklenmeyen VM'de tam VM ret mesajı doğrulanır; çıktı **rejection-only**
+başarıdır, tam komut/hash kontrolleri çalışmaz. İkisi de gerçek arşiv/image doğrulaması
+değildir. Profili eğitim yapmadan derlemek için
+`mvn -B -ntp -f examples/pom.xml -pl minimal-rest -Pappcds clean package -DskipTests`
+çalıştırın; `reactor.appcds.enabled` varsayılan `false` kalsın (OpenJ9'da da geçerlidir).
+
+### OpenJ9 SCC Alternatifi (AppCDS Değildir)
+
+Tam Semeru/OpenJ9 JDK 21 kullanın. `rust-java-rest` dizininden:
+
+```sh
+mvn -B -ntp -f sample/pom.xml clean package -DskipTests
+SCC_DIR=$(mktemp -d)
+SAMPLE_JAR="$PWD/sample/target/rust-java-rest-4.8.0-sample.jar"
+java "-Xshareclasses:name=rest_demo,cacheDir=$SCC_DIR,noaot" -Xscmx8m \
+  -cp "$SAMPLE_JAR" com.reactor.rust.startup.OpenJ9SharedClassCachePreloader \
+  "$SAMPLE_JAR" com.reactor.rust
+java "-Xshareclasses:name=rest_demo,cacheDir=$SCC_DIR,readonly,fatal" -Xscmx8m \
+  -jar "$SAMPLE_JAR"
+```
+
+Sonlu preloader sınıf metadata'sını yükler, loaded/skipped sayılarını verir;
+uygulamayı initialize etmez. Sıfır-allocation veya business warmup değildir.
+İkinci terminalde `/app/health` kontrol edin. Geçici SCC dizinini silmeden sunucuyu
+durdurun. Eksik/uyumsuz/okunamayan cache başlangıcı durdurmalı; salt-okunur
+production mount üzerinde sessizce yeniden oluşturulmamalıdır. JDK, UID izinleri
+ve değişmez uygulama JAR'larını eşleştirin; hedef image kabulünü ayrıca yapın.
+
+**jlink/SCC image tarifi** için mevcut plugin bu self-contained shaded compatibility
+JAR'ını kullanabilir; minimal örneğin thin JAR'ı tek başına yeterli değildir:
+
+```sh
+mvn -B -ntp -f sample/pom.xml package -DskipTests \
+  com.reactor:rust-java-maven-plugin:4.8.0:runtime-image \
+  -Dreactor.runtime.mainClass=com.reactor.rust.example.ReactorRustHyperApplication \
+  -Dreactor.runtime.openj9.scc.enabled=true \
+  -Dreactor.runtime.openj9.scc.class-prefixes=com.reactor.rust \
+  -Dreactor.runtime.modules=java.se,jdk.crypto.ec,jdk.unsupported
+```
+
+Komut `sample/target/reactor-runtime/Dockerfile` ve `jlink-modules.txt` yazar;
+jlink, container build veya deployment doğrulaması **çalıştırmaz**. Açık `java.se`
+listesi bu büyük sample için temkinli seçimdir; minimal servis ayak izi önerisi
+değildir. Tarifi/modülleri inceleyin, onaylı base-image digest'lerini sabitleyin;
+hedef mimaride `sample` context'iyle
+`docker build -f sample/target/reactor-runtime/Dockerfile -t rest-scc-demo:local sample`
+çalıştırın. Tarif SCC'yi image build sırasında üretir; UID 10001 ile
+`readonly,fatal` açar. Health, cache kullanımı, native extraction, kaynak sınırları
+ve hata davranışı hedef image üzerinde doğrulanmadan kabul vermeyin.
+OpenJ9, HotSpot `.jsa` dosyasını kullanmaz.
+
+## Strateji Ayrıntıları
 
 Hedef varsayılan olarak **kapalı kalır**. Açıkça etkinleştirildiğinde yeni varsayılan
 `reactor.appcds.strategy=dynamic` olur. `ArchiveClassesAtExit`, JDK'nın mevcut CDS
@@ -54,8 +162,6 @@ Parametrelerdeki boşluklar korunur; ayrıca tırnak karakteri eklemeyin.
     <trainingMainClass>example.OfflineArchiveTraining</trainingMainClass>
     <trainingArgs>
       <arg>--offline</arg>
-      <arg>--fixtures</arg>
-      <arg>fixtures with spaces/input.json</arg>
     </trainingArgs>
     <timeoutSeconds>60</timeoutSeconds>
     <maxHeapMb>256</maxHeapMb>
@@ -188,8 +294,9 @@ imajının varsayılanlarını değiştirmez.
 
 ## Yalnız EmaTech'te Kabul
 
-Mock birim testleri dahil bütün testler EmaTech'te çalışır. Yerelde
-`mvn -f platform/maven-plugin/pom.xml -DskipTests test-compile` yalnız derler.
+Bu bölüm projenin EmaTech kabul harness'ini anlatır; ürün kullanımı veya kendi
+testleriniz için ortam kısıtı değildir.
+`mvn -f platform/maven-plugin/pom.xml -DskipTests test-compile` test kaynaklarını çalıştırmadan derler.
 Yeni test sınıfları plugin veya uygulama dağıtımına eklenmez.
 `AppCdsArchiveIntegrationTest` için `REACTOR_TEST_CLUSTER=EmaTech` ve imaja uygun
 `-Dreactor.appcds.integration.vm=hotspot|openj9` gerekir. Atlanan test PASS değildir.

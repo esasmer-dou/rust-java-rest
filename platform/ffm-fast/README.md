@@ -30,12 +30,15 @@ are NOT zero allocation. Four ABI values remain29/7/6/6.17 additive C exports an
 four JNI slab exports were checked; all112 previous JNI exports remain. Maximum
 GLIBC requirement is2.14. The OpenJ9 HTTP A/B uses JNI vs JNI shared slab, not FFM.
 
-Current Linux JNI slab (ordinary abort) SHA256:
+Historical 26 October 2026 focused-test JNI slab (ordinary abort) SHA256:
 `0c68e2e417e3be7949904f783e9db4948f120ab06c6851e132ee5c7c1120f8b5`.
-Separate Linux FFM (unwind) SHA256:
+Historical separate Linux FFM (unwind) SHA256:
 `9d6f7e5a648fb7519c22d74ea6e527c35357cc4dda8526eb9ea09f54f9abff56`.
-No default resource was replaced or published. Current Windows distribution is
-not verified; older distribution evidence below must not be substituted for it.
+At that checkpoint no default resource had been replaced or published and Windows
+distribution was not verified. These hashes/results are historical test artifacts,
+not the 29 October coordinated release manifest. The Java modules are now published
+in 4.8.0; that does not qualify HotSpot FFM on Windows or replace its separate unwind
+binary. Use release provenance and target-platform acceptance, not old hashes.
 
 ## Startup Choice And Lifetime
 

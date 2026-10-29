@@ -2,8 +2,8 @@
 
 [English](native-views.md) | [Turkish](native-views.tr.md)
 
-Bu API güncel kaynak kodda bulunur. Yayımlanmış `4.8.0` paketinde bulunmaz.
-Yayın öncesinde container RSS, RPS ve p99 kontrolleri tamamlanmalıdır.
+Bu API `4.8.0` ile yayımlanmıştır. Hedef iş yükünüzde container RSS, RPS ve p99
+kabulü ayrıca gerekir; yayım bu kabul kapısını kapatmaz.
 
 Tahsisat testleri önce küçük ve bellekte tutulan nesnelerle sayacı kontrol eder.
 Sayaç bu nesneleri gecikmeli toplu değerlerle gösteriyorsa ölçüm atlanır. Başarılı
@@ -13,7 +13,7 @@ de doğrulanır. Production için OpenJ9 seçimi değişmez. Bu kontrol RSS kabu
 Çalışan Rust request-buffer örneği için sample reader'ın ayrı
 [`native-view` profilini](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/NATIVE_VIEW.tr.md)
 inceleyin. Üretilmiş binary yazıcıyı, senkron okuma ömrünü ve kapasite tekrarını gösterir.
-Normal Redis örneği ayrı kalır. Bu eklemeler henüz kaynak kod deposundadır.
+Normal Redis örneği ayrı kalır; bu izole profil açıkça seçilir.
 
 ## Hangi Modeli Seçmeliyim?
 

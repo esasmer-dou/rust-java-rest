@@ -2,9 +2,10 @@
 
 [English](NATIVE-INTEGRATION.md) | [Turkish](NATIVE-INTEGRATION.tr.md)
 
-The native outbound transport is an unreleased source-checkout feature. Do not
-assume that a published starter or packaged native library contains it. Build the
-Java starter and native library from a matching source checkout. The default
+The native outbound transport is an opt-in 4.8.0 feature. Resolve the released
+Java starter and use a matching library with `outbound-http` capability; an ABI
+number alone does not prove the capability. If absent, build the selected feature
+from matching sources. The default
 transport is still `jdk`; native outbound resources are not created unless selected.
 
 ## Build The Native Library

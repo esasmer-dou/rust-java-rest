@@ -20,12 +20,14 @@ Do not add this sample JAR as an application dependency.
 
 ## Build And Run
 
-Run from the `rust-java-rest` directory:
+Run from the `rust-java-rest` directory, using Java 21, Maven 3.9+,
+authenticated GitHub Packages access and matching 4.8.0 native artifacts.
+The commands below are setup instructions, not workload acceptance evidence.
 
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.6.3-sample.jar
+java -jar sample/target/rust-java-rest-4.8.0-sample.jar
 ```
 
 Verify the process after startup:
@@ -44,12 +46,15 @@ The application reads `server.port` and the remaining runtime limits from
 
 | Need | Artifact |
 | --- | --- |
-| Production dependency | `com.reactor:rust-java-rest:4.6.3` |
-| Full compatibility application | `sample/target/rust-java-rest-4.6.3-sample.jar` |
-| Self-contained lean runtime classpath | `target/rust-java-rest-4.6.3-core-runtime.jar` |
-| Build-only processors | `rust-java-rest-4.6.3-codegen.jar` |
+| Production dependency | `com.reactor:rust-java-rest:4.8.0` |
+| Full compatibility application | `sample/target/rust-java-rest-4.8.0-sample.jar` |
+| Self-contained lean runtime classpath | `target/rust-java-rest-4.8.0-core-runtime.jar` |
+| Build-only processors | `rust-java-rest-4.8.0-codegen.jar` |
 
 The codegen JAR belongs on the annotation-processor path. It is not a runtime dependency.
+
+See the [feature/consumer map](../docs/feature-examples.md) before enabling optional
+profiles. This core compatibility application is not any of the four sibling sample apps.
 
 ## Runtime Safety
 

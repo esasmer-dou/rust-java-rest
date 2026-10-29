@@ -2,8 +2,8 @@
 
 [English](native-views.md) | [Turkish](native-views.tr.md)
 
-This API is in the current source checkout. It is not part of the published `4.8.0`
-package. Container RSS, RPS and p99 qualification is still required before release.
+This API is published in `4.8.0`. Container RSS, RPS and p99 qualification remains
+required for your target workload; publication does not close that acceptance gate.
 
 Allocation tests first check repeated small, retained allocations. A JVM that
 reports only delayed allocation chunks skips that measurement; it is not counted
@@ -13,7 +13,7 @@ This does not change the supported OpenJ9 production runtime or certify containe
 For an executable Rust request-buffer example, see the sample reader's separate
 [`native-view` profile](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/NATIVE_VIEW.md).
 It shows generated binary production, synchronous borrow lifetime and capacity retry.
-The normal Redis sample stays separate. These are source-checkout additions.
+The normal Redis sample stays separate; select the isolated profile explicitly.
 
 ## Choose The Right Model
 

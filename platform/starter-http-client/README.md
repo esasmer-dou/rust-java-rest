@@ -2,8 +2,8 @@
 
 [English](README.md) | [Turkish](README.tr.md)
 
-Circuit breakers and the opt-in native outbound transport are unreleased
-source-checkout features. The default transport remains `jdk`. The native artifact
+Circuit breakers and the opt-in native outbound transport are published in 4.8.0.
+The default transport remains `jdk`. The native artifact
 is **HTTP/1-only: HTTPS is unsupported and rejected**, not silently downgraded.
 
 ## Protect A Slow Dependency

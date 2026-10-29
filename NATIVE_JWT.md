@@ -2,8 +2,10 @@
 
 [English](NATIVE_JWT.md) | [Turkish](NATIVE_JWT.tr.md)
 
-This is a source-checkout feature. It is not in the published 4.8.0 native package.
-Use a library built with `--features edge-jwt`. REST ABI 29 stays unchanged.
+This opt-in feature is included in the coordinated 4.8.0 source/release set.
+The selected native library must have `edge-jwt` capability; build it with
+`--features edge-jwt` if your artifact lacks it. Unchanged REST ABI 29
+alone does not establish that additive feature's availability on every platform.
 
 ## Choose This Path
 

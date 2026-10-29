@@ -30,12 +30,15 @@ akışının bütünü sıfır allocation değildir. ABI29/7/6/6 aynı.17 C semb
 JNI slab girişi doğrulandı; eski112 JNI sembolü korundu. GLIBC üst gereksinimi
 2.14'tür. OpenJ9 HTTP A/B, JNI ile JNI slab'ı karşılaştırır; FFM ölçümü değildir.
 
-Güncel Linux JNI slab (normal abort) dosyasının SHA256 değeri:
+26 Ekim 2026 tarihli odak testinin Linux JNI slab (normal abort) SHA256 değeri:
 `0c68e2e417e3be7949904f783e9db4948f120ab06c6851e132ee5c7c1120f8b5`.
-Ayrı Linux FFM (unwind) dosyası:
+O tarihli ayrı Linux FFM (unwind) dosyası:
 `9d6f7e5a648fb7519c22d74ea6e527c35357cc4dda8526eb9ea09f54f9abff56`.
-Varsayılan native kaynak değiştirilmedi ve paket yayımlanmadı. Güncel Windows
-dağıtımı doğrulanmadı. Aşağıdaki eski snapshot kanıtı onun yerine geçmez.
+O aşamada varsayılan native kaynak değiştirilmemiş, paket yayımlanmamış ve Windows
+dağıtımı doğrulanmamıştı. Bu hash/sonuçlar tarihsel test dosyalarıdır; 29 Ekim
+koordineli yayım manifesti değildir. Java modülleri artık 4.8.0 ile yayımlanmıştır;
+bu, Windows HotSpot FFM kabulü veya ayrı unwind binary'nin yerini alma anlamına
+gelmez. Eski hash yerine yayım provenance'ını ve hedef platform kabulünü kullanın.
 
 ## Açık Etkinleştirme
 

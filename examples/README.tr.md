@@ -12,11 +12,18 @@ module kullanır.
 ## Gereksinimler
 
 - Java 21 ve Maven 3.9+.
-- Uyumlu `rust-java-rest:4.6.3` paketi ve onunla gelen DLL/SO.
+- Uyumlu `rust-java-rest:4.8.0`, `codegen` classifier ve eşleşen DLL/SO.
+- Kimliği doğrulanmış GitHub Packages Maven erişimi; [repository kurulumu](../platform/README.tr.md).
 - Seçtiğiniz modül için boş bir lokal port.
 
 Her modül examples reactor tarafından derlenir. README örneği ile source ayrışırsa source modülü ve
 testleri doğrudur; aynı değişiklik içinde README'yi de düzeltin.
+
+Önce yayımlanmış paketleri çözümleyin; checkout Maven bağımlılıklarını kurmaz. Kaynak
+değişiklikleri için kendi geliştirme ortamınızda bu reactor'dan önce eşleşen kök
+projeyi install edin.
+Eski native dosyayı 4.8.0 Java paketiyle karıştırmayın. [Özellik haritası](../docs/feature-examples.tr.md)
+ve [çalışan HotSpot AppCDS tarifi](../platform/maven-plugin/README-appcds.tr.md#çalıştırılabilir-minimal-örnek).
 
 ## Örneği Seçin
 

@@ -116,4 +116,5 @@ yapıldı; ardından primitive invoker için iki modda da 100.000 çağrıda 0 b
 HTTP isteğinin sıfır tahsisat yaptığı anlamına gelmez. Önceki FAIL kayıtları
 korunur. Bu sınırlı sonuçlar evrensel hızlanma, consumer performansı, public ağ,
 uzun süreli kararlılık, diğer platformlar veya tam üretim/yayım kabulü değildir.
-Özellik henüz yayımlanmadı.
+Bu ölçüm kaydı kaynak-önizleme dönemine aittir. Özellik artık 4.8.0 ile
+yayımlanmıştır; yayım yukarıdaki sınırlı ölçümü tam üretim veya kullanıcı kabulüne çevirmez.

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.8.0] - 2026-10-29
 
+Publication: `v4.8.0` includes the platform, plugin and optional Java modules as
+well as the coordinated runtime artifacts. See the [release notes](docs/release-notes/v4.8.0.md)
+for the shipped set and evidence boundaries. Publication is not a new performance
+PASS: the implementation-time limitations below remain workload acceptance limits.
+
 - Publish coordinated Linux x64/ARM64, Windows x64 and macOS ARM64 native artifacts
   without changing ABI values. Linux OpenJ9 functional evidence and other-platform
   compile/provenance evidence are distinct. Ordinary JNI remains panic=abort;
@@ -29,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Enforce bounded UTF-8 input, 64 KiB response limits, lease epochs and no post-GET
   JNI replay. Optional Java 21 preview modules do not enter core/default dependencies.
   Linux GLIBC<=2.17 and live OpenJ9 tests are separate from Windows release distribution.
-  Existing ABI values stay unchanged. No published artifacts are replaced.
+  Existing ABI values stay unchanged; earlier release artifacts are not replaced.
   Block OpenJ9 Java21 FFM before linker initialization after reproducing retained
   VM downcall-scope stacks. Offer explicit JNI shared slab over the same Rust owner;
   do not patch JDK internals or replay failed reads. HotSpot FFM remains separate.
@@ -68,10 +73,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Negotiate optional ABI-29 buffered-result continuations so response-capacity growth does not
   repeat materialized handler results, guards or exception mappers. Clear retained references on
   success and native abort; keep integer direct-writer retries and older Java/native pairings
-  compatible. No ABI number, queue size or worker default changes. Full performance gate remains open.
+  compatible. No ABI number, queue size or worker default changes. At implementation
+  time the full performance gate remained open; release publication does not close
+  unmeasured workload or user-acceptance gates.
 
 - Resolve generated project versions from a filtered build resource instead of a stale literal.
-- Align the platform's Dubbo dependency and annotation processor to `0.8.1`.
+- Align the released platform's Dubbo dependency and processor to `0.9.0`
+  (superseding the implementation-time `0.8.1` alignment). The independently
+  published Spring annotation contract remains `java-rust-dubbo-annotations:0.8.0`;
+  the BOM does not manage that artifact.
 - Add opt-in generated `@NativeView` readers and binary/JSON writers with checked layout,
   UTF-8 validation, thread confinement and explicit borrowed-buffer lifetimes.
 - Add generated per-method HTTP circuit breakers with bounded outcome windows,
@@ -92,7 +102,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add an explicitly configured HotSpot Java 21 AppCDS build goal. It is disabled by default
   and rejects OpenJ9 in favor of its existing shared classes cache.
 - Safely replace the plugin-owned read-only Windows AppCDS archive on repeated generation.
-- These source additions have not completed the full paired-container RSS/RPS/p99 release gate.
+- Historical qualification limit: these additions did not complete the full
+  paired-container RSS/RPS/p99 matrix at implementation time. Focused results in
+  the release notes qualify only their stated configurations. The additions are
+  now published in `v4.8.0`; that does not establish universal performance,
+  production readiness or user acceptance for other workloads/platforms.
 
 ## [4.7.1] - 2026-10-19
 

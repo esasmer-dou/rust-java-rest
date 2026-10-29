@@ -5,8 +5,8 @@
 Bu modül, her Redis okumasında Java tarafında payload `byte[]` dizisi oluşturmayı
 kaldırır. Handler ve iş kararları Java'da kalır. Rust, GET işlemini yapar ve yanıtı
 HTTP yazımı bitene kadar sınırlı native bellekte tutar. Varsayılan cache API'si
-değişmez. Bu ekleme henüz yayımlanmadı; kaynak koddan derleme gerekir.
-Yayımlanmış 4.8.0 paketinde bu yeni API yoktur.
+değişmez. Java modülü 4.8.0 ile yayımlanmıştır; isteğe bağlıdır.
+Java paketinin bulunması her native binary'nin FFM yeteneği taşıdığı anlamına gelmez.
 
 ## Hangi Okumayı Seçmeliyim?
 
@@ -46,8 +46,9 @@ REST29/Dubbo7/SpringDubbo3/Redis6/Glowroot6 sözleşmeleri değişmez.
 </dependency>
 ```
 
-Yeni sürüm yayımlanana kadar bu tanım yerel kaynak derlemesini gerektirir.
-Eski yayımlanmış native dosyayla birlikte kullanmayın.
+Bu bağımlılığı 4.8.0 yayımından çözümleyin. Native paketiniz istenen yeteneği
+taşımıyorsa seçilen native feature'ı derleyin; normal JNI release binary,
+ayrı FFM unwind binary değildir. Farklı sürümleri karıştırmayın.
 
 ```text
 java --enable-preview --enable-native-access=ALL-UNNAMED \

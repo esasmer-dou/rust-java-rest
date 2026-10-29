@@ -2,10 +2,10 @@
 
 [English](README.md) | [Turkish](README.tr.md)
 
-The asymmetric verifier and token cache below are source-checkout features. They are
-not yet in a published package. Focused EmaTech security, HTTP and paired-container
+The asymmetric verifier and token cache below are published in 4.8.0 and remain opt-in.
+Focused EmaTech security, HTTP and paired-container
 RSS/RPS/p99 checks passed for the bounded configuration shown in the sample. This
-does not qualify every workload or the full unreleased framework feature set.
+does not qualify every workload or all released framework features.
 
 ## Choose A Path
 
@@ -85,14 +85,14 @@ allow the old and new public keys during the agreed overlap, then remove the old
 
 ## Optional Native HS256 Guard
 
-For fixed-key HS256 routes, the source-checkout
+For fixed-key HS256 routes, the optional
 [`@RustEdgeJwt` guide](../../NATIVE_JWT.md) moves signature checking to Rust.
 Use its generated installer and matching native artifact. The built-in Java guard
 then reuses the native request proof instead of repeating HMAC. It still checks
 the current time, identity and roles. A token that expires in the JNI queue fails.
 Missing security SPI or mismatched policies fail startup. Custom verifiers keep
 their full checks. This is separate from the Java claims cache described below;
-it is not included in the published 4.8.0 native package.
+it requires the matching native `edge-jwt` capability, not merely REST ABI 29.
 
 ## Cache And Resource Limits
 
@@ -146,7 +146,8 @@ For mostly unique tokens, compare cache off/on before spending a larger byte bud
 
 The isolated [JWT sample](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/JWT_SECURITY.md)
 shows `@Authenticated`, trusted key files, optional cache properties and Kubernetes
-environment settings. Its `jwt-security` profile does not alter the Redis reader.
+environment settings, plus JDK-only token issuance and error checks. Its checkout
+`jwt-security` profile does not alter the Redis reader.
 
 Allocation profiling also checks small retained-object controls. If the JVM reports
 only delayed allocation chunks, the profiling test skips instead of claiming zero.

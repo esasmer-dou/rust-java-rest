@@ -1,3 +1,11 @@
+# Current Release: 4.8.0
+
+[English release notes](docs/release-notes/v4.8.0.md) |
+[Türkçe sürüm notları](docs/release-notes/v4.8.0.tr.md) |
+[Runnable feature map](docs/feature-examples.md).
+Publication and workload qualification are separate. The older release below is
+historical; its measurements and open acceptance limits are not new 4.8.0 PASS claims.
+
 # Rust-Java REST Framework v4.7.1
 
 Java handlers, services, records and annotations stay unchanged. Align your platform parent/BOM

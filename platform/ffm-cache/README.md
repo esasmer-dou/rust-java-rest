@@ -5,8 +5,8 @@
 Read raw Redis values without creating a Java payload `byte[]` for every hit.
 Java still owns the handler and business decisions. Rust performs the Redis GET
 and holds its result in bounded native storage until HTTP serialization finishes.
-This is a source-only opt-in module, not a replacement for the default cache API.
-Published 4.8.0 artifacts do not yet include these additions.
+This is a published 4.8.0 opt-in Java module, not a replacement for the default cache API.
+Its Java artifact does not make every packaged native binary FFM-capable.
 
 ## Choose The Right Read
 
@@ -45,8 +45,9 @@ REST29/Dubbo7/SpringDubbo3/Redis6/Glowroot6 contracts are unchanged.
 </dependency>
 ```
 
-This dependency snippet requires a local source build until a new release is
-published. Do not combine it with an older published native file.
+Resolve this dependency from the 4.8.0 release. Build the explicitly selected native
+feature when its capability is absent from your native artifact; the
+ordinary release JNI binary is not the separate FFM unwind binary. Do not mix versions.
 
 ```text
 java --enable-preview --enable-native-access=ALL-UNNAMED \

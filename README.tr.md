@@ -8,27 +8,30 @@
 
 [Kullanım rehberi](docs/explicit-operations.md) · [Sürüm notları](docs/release-notes/v4.8.0.md)
 
+[Somut özellik/sample haritası ve okuma maliyetleri](docs/feature-examples.tr.md).
+
 
 Yeni kullanım rehberi: [Açık ve sınırlı işlemler](docs/explicit-operations.tr.md).
 
-Yayımlanmamış kaynak hazırlığı: [Native platformlar ve başlangıç uyumluluğu](docs/native-availability.tr.md).
-Güncel x64 tam özellikli dosyalar ile korunan eski ARM temel dosyalarının kaynak bilgisi farklıdır.
+Native uyumluluk: [Native platformlar ve başlangıç uyumluluğu](docs/native-availability.tr.md).
+4.8.0 koordineli yayımında Linux OpenJ9 işlev kanıtı ile diğer platformların
+derleme/kaynak kanıtı ayrıdır; bağlı rehberlerdeki eski snapshot'lar tarihseldir.
 
-Kaynak kod özelliği: [Geçersiz HS256 token'ını Rust'ta reddetme; Java yetki kontrolünü koruma](NATIVE_JWT.tr.md).
+İsteğe bağlı 4.8.0 özelliği: [Geçersiz HS256 token'ını Rust'ta reddetme; Java yetki kontrolünü koruma](NATIVE_JWT.tr.md).
 Açık anahtarla JWT ve sınırlı token önbelleği: [RS256, ES256 ve Ed25519 rehberi](platform/starter-security/README.tr.md).
 Bu JCA yolu native HS256'dan ayrıdır. Mevcut kimlik doğrulama varsayılanları değişmez.
 Dış HTTP çağrıları ve üretilmiş circuit breaker için [sınırlı istemci rehberini](platform/starter-http-client/README.tr.md) kullanın.
 W3C izleme ve retry başlık koruması için [isteğe bağlı tracing rehberini](platform/starter-tracing/README.tr.md) kullanın.
-Yeni buffer codec'i ve parent ID değişiklikleri yayımlanana kadar kaynak kod özelliğidir.
+Yeni buffer codec'i ve parent ID değişiklikleri 4.8.0 yayımına dahildir.
 
 İsteğe bağlı Java 21 FFM: [Ham Redis JSON verisini shared slab ile okuma](platform/ffm-cache/README.tr.md).
-Bu ayrı kaynak modülü varsayılan JNI okuyucusunu, sürümlü snapshot'ı veya Java handler'ını değiştirmez.
+Bu ayrı yayımlanan isteğe bağlı Java modülü varsayılan JNI okuyucusunu, sürümlü snapshot'ı veya Java handler'ını değiştirmez.
 
-Henüz yayımlanmayan kaynak kod: [Native veri görünümü ve isteğe bağlı toplu JSON yazımı](docs/native-views.tr.md).
-Kaynak kod özelliği: [Üretilmiş switch dispatch ve derleme uyumluluğu](docs/generated-dispatch.tr.md).
-Bu eklemeler henüz dağıtılan pakette bulunmaz. Mevcut endpoint'ler aynı yolu kullanır.
+İsteğe bağlı özellik: [Native veri görünümü ve isteğe bağlı toplu JSON yazımı](docs/native-views.tr.md).
+İsteğe bağlı özellik: [Üretilmiş switch dispatch ve derleme uyumluluğu](docs/generated-dispatch.tr.md).
+Bu eklemeler 4.8.0 ile yayımlanmıştır; mevcut endpoint'ler aynı yolu kullanır.
 
-Henüz yayımlanmayan owned JSON yolu: cache entegrasyonu, `CacheReadSnapshot` sahibini
+İsteğe bağlı owned JSON yolu: cache entegrasyonu, `CacheReadSnapshot` sahibini
 `CacheResponses.ownedJson(...)` yardımcısına devredebilir. L1 hit'inde JSON, Java payload
 dizisi oluşmadan sabit alandan native yanıt buffer'ına yazılır. Buffer küçükse aynı
 sahip korunur. Yazım bitince, hata oluşunca veya işlem iptal edilince kaynak bırakılır.

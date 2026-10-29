@@ -2,9 +2,9 @@
 
 [English](NATIVE-INTEGRATION.md) | [Turkish](NATIVE-INTEGRATION.tr.md)
 
-Native outbound taşıması henüz yayımlanmayan kaynak kodda bulunur. Yayımlanmış bir
-starter veya paketlenmiş native kütüphanenin bu özelliği içerdiğini varsaymayın.
-Java starter ve native kütüphaneyi eşleşen kaynak koddan derleyin. Varsayılan taşıma
+Native outbound taşıması isteğe bağlı 4.8.0 özelliğidir. Yayımlanmış Java starter'ı
+ve `outbound-http` yeteneği olan eşleşen native dosyayı kullanın; yalnız ABI numarası
+bu yeteneği kanıtlamaz. Yoksa ilgili feature'ı eşleşen kaynaklardan derleyin. Varsayılan taşıma
 `jdk` olarak kalır; native seçilmedikçe native outbound kaynakları oluşturulmaz.
 
 ## Native Kütüphaneyi Derleyin

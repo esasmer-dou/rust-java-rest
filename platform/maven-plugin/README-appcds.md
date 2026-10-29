@@ -2,7 +2,7 @@
 
 [English](README-appcds.md) | [Turkish](README-appcds.tr.md)
 
-Source-checkout feature: not yet included in a published Maven plugin package.
+Published in `rust-java-maven-plugin:4.8.0`; disabled unless explicitly enabled.
 Real target-image archive generation/loading remains a separate acceptance step.
 
 `reactor:generate-appcds` is an opt-in `package`-phase goal with runtime dependency
@@ -20,7 +20,115 @@ is not a HotSpot `.jsa` archive. Use the existing `runtime-image` goal with
 [production SCC](../../docs/production-runtime.md#rom-only-openj9-shared-cache) recipes.
 No OpenJ9 options or recipes are changed by this goal.
 
-## Archive Strategy
+## Runnable Minimal Example
+
+Use a full **HotSpot JDK 21** running both Maven and `java`,
+Maven 3.9+, authenticated access to the released 4.8.0 artifacts, and port 8080 free.
+From `rust-java-rest`, in Bash:
+
+```sh
+mvn -B -ntp -f examples/pom.xml -pl minimal-rest -Pappcds clean package \
+  -DskipTests -Dreactor.appcds.enabled=true
+java examples/tools/AppCdsRun.java \
+  examples/minimal-rest/target/reactor-appcds/compatible-jvm.properties \
+  com.reactor.examples.minimal.MinimalApplication
+```
+
+From a second terminal: `curl --fail --max-time 5 http://localhost:8080/app/health`.
+Stop with Ctrl+C before another run. The opt-in profile invokes this existing
+plugin's `generate-appcds` goal after JAR packaging. Its checked-in
+[offline training main](../../examples/minimal-rest/src/main/java/com/reactor/examples/minimal/OfflineArchiveTraining.java)
+accepts only `--offline` and loads three real classes without initialization.
+It starts no HTTP/native engine, DB, Redis, workers or business calls. It is a
+small runnable baseline, **not** representative coverage of your application's
+generated routes/writers. Extend your own finite harness for those classes.
+
+The JDK-only [launcher](../../examples/tools/AppCdsRun.java) reads the plugin's
+UTF-8 properties, checks the training JDK/platform and archive/JAR SHA-256 values,
+replays recorded VM arguments and the exact **ordered JAR classpath**, then starts
+the selected main with `-Xshare:on` and CDS logs. It does not use `target/classes`,
+`lib/*`, Maven `exec:java`, a relocated JAR, or an application-manifest guess.
+Only use trusted metadata. Keep the JDK and Maven-repository JARs at their training
+paths; even an identical copied/touched JAR can invalidate HotSpot's path/mtime
+checks. This is a same-layout development launcher, not a portable deployment image.
+Source-file compilation, hashing and its parent JVM add overhead; do not use this
+launcher as a production or startup-performance benchmark entrypoint.
+
+Inspect `training.log`, `validation.log`, `app-cds.jsa`, `app-cds.classlist` and
+`compatible-jvm.properties` under `examples/minimal-rest/target/reactor-appcds`.
+Metadata still says `deploymentVerified=false`: archive generation/validation is
+not target-image or RSS/RPS/p99 acceptance. Without the profile and enabled
+property the ordinary example build/startup remains unchanged.
+
+| Failure | Action |
+| --- | --- |
+| Maven uses OpenJ9 / no default `classes.jsa` | Select full HotSpot 21 with its default CDS archive; do not substitute an SCC file. |
+| Missing plugin/JAR | Check Maven repository credentials; install changed matching source artifacts if needed. |
+| Training timeout/nonzero exit | Read `training.log`; fix finite offline training, not a retry loop or service startup. |
+| Hash/JDK/classpath mismatch or `-Xshare:on` failure | Retrain in the final unchanged layout/JDK; never silently change to `-Xshare:auto` and call it PASS. |
+| Native startup/port error | Check matching 4.8.0 native artifact and free port; archive validity is not HTTP health. |
+
+Launcher-only checks (JDK 21; no server/archive creation):
+
+```sh
+mkdir -p examples/minimal-rest/target/helper-checks
+javac -d examples/minimal-rest/target/helper-checks \
+  examples/tools/AppCdsRun.java examples/tools/AppCdsRunChecks.java
+java -cp examples/minimal-rest/target/helper-checks AppCdsRunChecks
+```
+
+On HotSpot 21 these check valid commands, ordered classpaths and hash/mismatch
+rejection. On OpenJ9 or another unsupported VM they assert the exact VM rejection
+and print **rejection-only** success: full command/hash checks are not run.
+Neither result validates a real archive or image. To compile the profile without
+training, run `mvn -B -ntp -f examples/pom.xml -pl minimal-rest -Pappcds clean package -DskipTests`;
+leave `reactor.appcds.enabled` at its default `false` (also valid on OpenJ9).
+
+### OpenJ9 SCC Alternative (Not AppCDS)
+
+Use a full Semeru/OpenJ9 JDK 21 instead. From `rust-java-rest`:
+
+```sh
+mvn -B -ntp -f sample/pom.xml clean package -DskipTests
+SCC_DIR=$(mktemp -d)
+SAMPLE_JAR="$PWD/sample/target/rust-java-rest-4.8.0-sample.jar"
+java "-Xshareclasses:name=rest_demo,cacheDir=$SCC_DIR,noaot" -Xscmx8m \
+  -cp "$SAMPLE_JAR" com.reactor.rust.startup.OpenJ9SharedClassCachePreloader \
+  "$SAMPLE_JAR" com.reactor.rust
+java "-Xshareclasses:name=rest_demo,cacheDir=$SCC_DIR,readonly,fatal" -Xscmx8m \
+  -jar "$SAMPLE_JAR"
+```
+
+The finite preloader loads class metadata, reports loaded/skipped counts, and
+does not initialize the application. It is not a zero-allocation/business warmup.
+Check `/app/health` in a second terminal; stop the server before removing the
+disposable SCC directory. A missing/incompatible/read-protected cache must fail,
+not silently regenerate on a read-only production mount. Keep matching JDK, UID
+permissions and immutable application JARs; qualify the resulting image separately.
+
+For a **jlink/SCC image recipe**, the existing plugin can generate one from this
+self-contained shaded compatibility JAR (the minimal example's thin JAR is not sufficient):
+
+```sh
+mvn -B -ntp -f sample/pom.xml package -DskipTests \
+  com.reactor:rust-java-maven-plugin:4.8.0:runtime-image \
+  -Dreactor.runtime.mainClass=com.reactor.rust.example.ReactorRustHyperApplication \
+  -Dreactor.runtime.openj9.scc.enabled=true \
+  -Dreactor.runtime.openj9.scc.class-prefixes=com.reactor.rust \
+  -Dreactor.runtime.modules=java.se,jdk.crypto.ec,jdk.unsupported
+```
+
+This writes `sample/target/reactor-runtime/Dockerfile` and `jlink-modules.txt`;
+it **does not** run jlink, build a container, or verify a deployment. The explicit
+`java.se` module set is conservative for this large sample, not a minimal-service
+footprint recommendation. Inspect the recipe/modules, pin approved base-image
+digests, then build on the target architecture from the `sample` context using
+`docker build -f sample/target/reactor-runtime/Dockerfile -t rest-scc-demo:local sample`.
+The recipe creates SCC at image build time and opens it `readonly,fatal` as UID
+10001. Verify health, archive use, native extraction, resource budgets and startup
+errors in that target image before acceptance. OpenJ9 never consumes HotSpot `.jsa`.
+
+## Strategy Details
 
 The goal remains **disabled by default**. When explicitly enabled,
 `reactor.appcds.strategy=dynamic` is now the default strategy: finite training uses
@@ -54,8 +162,6 @@ startup is used. Arguments preserve spaces literally; do not add shell quote cha
     <trainingMainClass>example.OfflineArchiveTraining</trainingMainClass>
     <trainingArgs>
       <arg>--offline</arg>
-      <arg>--fixtures</arg>
-      <arg>fixtures with spaces/input.json</arg>
     </trainingArgs>
     <timeoutSeconds>60</timeoutSeconds>
     <maxHeapMb>256</maxHeapMb>
@@ -208,8 +314,9 @@ allocator environment variables and does not change any runtime image defaults.
 
 ## EmaTech-Only Acceptance Harness
 
-All tests, including mocked unit tests, run on EmaTech. Locally,
-`mvn -f platform/maven-plugin/pom.xml -DskipTests test-compile` only compiles.
+This section describes the project's EmaTech acceptance harness, not a restriction
+on product use or your own tests. `mvn -f platform/maven-plugin/pom.xml -DskipTests test-compile`
+compiles its dedicated test sources without executing them.
 Dedicated test classes are never added to a plugin/application runtime artifact.
 `AppCdsArchiveIntegrationTest` requires `REACTOR_TEST_CLUSTER=EmaTech` and the
 matching `-Dreactor.appcds.integration.vm=hotspot|openj9`; skipped tests are not passes.

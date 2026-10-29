@@ -8,13 +8,16 @@ Optional native edge policies, JWT security, W3C propagation, generated dispatch
 
 [Usage guide](docs/explicit-operations.md) · [Release notes](docs/release-notes/v4.8.0.md)
 
+[Concrete feature/sample map and read costs](docs/feature-examples.md).
+
 
 New usage guide: [Explicit, bounded operations](docs/explicit-operations.md).
 
 Native package compatibility: [Native availability and startup compatibility](docs/native-availability.md).
-Current x64 full-feature artifacts and retained historical ARM base artifacts have different provenance.
+The coordinated 4.8.0 release distinguishes Linux OpenJ9 functional evidence from
+other-platform compile/provenance evidence; older snapshots in linked guides are historical.
 
-Source-only security: [Reject invalid HS256 tokens in Rust; keep Java authorization](NATIVE_JWT.md).
+Optional 4.8.0 security: [Reject invalid HS256 tokens in Rust; keep Java authorization](NATIVE_JWT.md).
 Public-key JWT and an explicit bounded token cache: [RS256, ES256 and Ed25519 guide](platform/starter-security/README.md).
 This JCA path is separate from native HS256; existing authentication defaults stay unchanged.
 Outbound HTTP and generated circuit breakers: [bounded client guide](platform/starter-http-client/README.md).
@@ -22,13 +25,13 @@ W3C propagation and retry-safe headers: [optional tracing guide](platform/starte
 The caller-buffer codec and parent-ID changes are included in this release.
 
 Optional Java 21 FFM: [raw Redis JSON with shared slab storage](platform/ffm-cache/README.md).
-This isolated source module leaves the default JNI reader, versioned snapshots and Java handlers unchanged.
+This separately published opt-in Java module leaves the default JNI reader, versioned snapshots and Java handlers unchanged.
 
 Optional integration: [Borrowed native views and optional prebaked JSON writes](docs/native-views.md).
 Optional integration: [Generated switch dispatch, compatibility and build-time rollback](docs/generated-dispatch.md).
 These additions are opt-in; existing routes keep their current path.
 
-Source-only owned JSON bodies: the cache integration can transfer a `CacheReadSnapshot`
+Optional owned JSON bodies: the cache integration can transfer a `CacheReadSnapshot`
 to `CacheResponses.ownedJson(...)`. On an L1 hit, payload bytes go directly from the
 off-heap slab to the native response buffer, without a Java payload array. Buffer
 retry keeps the same owner; success, failure or abort releases it. Existing DTO,
@@ -1155,7 +1158,7 @@ increase queueing, retained buffers, and p99.
 
 Async completion buffers are heap-backed and process-wide by default for low RSS:
 
-In the unreleased source checkout, Rust is the single owner of the HTTP async
+In 4.8.0, Rust is the single owner of the HTTP async
 deadline and pending-request registry. Java only forwards the future's result;
 it does not add another timer or request table. A late result still reaches
 native cleanup and returns its Java response buffer, even after HTTP timeout.
@@ -1164,7 +1167,7 @@ That timeout ends the HTTP request; it does not interrupt your business task.
 Give database and RPC calls their own bounded timeouts. This lifecycle fix is
 not a published performance claim.
 
-In that same source checkout, an async route returns its work-admission slot
+In 4.8.0, an async route returns its work-admission slot
 when Java has finished and its encoded response has reserved the existing
 `reactor.rust.http.max-inflight-response-bytes` budget. It no longer waits for
 the HTTP executor to poll an already-ready response. If the byte reservation

@@ -2,8 +2,8 @@
 
 [English](README.md) | [Turkish](README.tr.md)
 
-Devre kesici ve isteğe bağlı native HTTP taşıması henüz yayımlanmayan kaynak kodda
-bulunur. Varsayılan taşıma `jdk` olarak kalır. Native artifact **yalnız HTTP/1
+Devre kesici ve isteğe bağlı native HTTP taşıması 4.8.0 ile yayımlanmıştır.
+Varsayılan taşıma `jdk` olarak kalır. Native artifact **yalnız HTTP/1
 destekler; HTTPS desteklenmez ve açıkça reddedilir**, sessizce HTTP'ye düşürülmez.
 
 ## Yavaşlayan Bağımlılığı Sınırlayın

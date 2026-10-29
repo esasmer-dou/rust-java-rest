@@ -20,12 +20,14 @@ Bu sample JAR'ını uygulama dependency'si olarak eklemeyin.
 
 ## Derleme ve Çalıştırma
 
-`rust-java-rest` dizininde çalıştırın:
+`rust-java-rest` dizininde; Java 21, Maven 3.9+,
+kimliği doğrulanmış GitHub Packages erişimi ve eşleşen 4.8.0 native paketleriyle
+çalıştırın. Aşağıdaki komutlar kurulum tarifidir; iş yükü kabul kanıtı değildir.
 
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.6.3-sample.jar
+java -jar sample/target/rust-java-rest-4.8.0-sample.jar
 ```
 
 Uygulama başladıktan sonra process'i doğrulayın:
@@ -44,12 +46,15 @@ Uygulama `server.port` ve diğer runtime limitlerini
 
 | İhtiyaç | Artefact |
 | --- | --- |
-| Production dependency | `com.reactor:rust-java-rest:4.6.3` |
-| Full compatibility uygulaması | `sample/target/rust-java-rest-4.6.3-sample.jar` |
-| Tek parça yalın runtime classpath | `target/rust-java-rest-4.6.3-core-runtime.jar` |
-| Build-only processor'lar | `rust-java-rest-4.6.3-codegen.jar` |
+| Production dependency | `com.reactor:rust-java-rest:4.8.0` |
+| Full compatibility uygulaması | `sample/target/rust-java-rest-4.8.0-sample.jar` |
+| Tek parça yalın runtime classpath | `target/rust-java-rest-4.8.0-core-runtime.jar` |
+| Build-only processor'lar | `rust-java-rest-4.8.0-codegen.jar` |
 
 Codegen JAR annotation-processor path üzerinde bulunur. Runtime dependency değildir.
+
+İsteğe bağlı profilleri açmadan [özellik/tüketici haritasını](../docs/feature-examples.tr.md)
+okuyun. Bu core uyumluluk uygulaması dört kardeş sample uygulamasından biri değildir.
 
 ## Runtime Güvenliği
 

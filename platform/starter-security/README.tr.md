@@ -2,10 +2,10 @@
 
 [English](README.md) | [Turkish](README.tr.md)
 
-Aşağıdaki asimetrik doğrulama ve token önbelleği güncel kaynak kodda bulunur.
-Henüz yayımlanan pakette yoktur. Örnekteki sınırlı yapılandırma için EmaTech güvenlik,
+Aşağıdaki asimetrik doğrulama ve token önbelleği 4.8.0 ile yayımlanmıştır; isteğe bağlıdır.
+Örnekteki sınırlı yapılandırma için EmaTech güvenlik,
 HTTP ve eşlenmiş container RSS/RPS/p99 kontrolleri geçti. Bu sonuç her iş yükünün veya
-yayımlanmamış framework özelliklerinin tümünün kabul edildiği anlamına gelmez.
+yayımlanmış framework özelliklerinin tümünün kabul edildiği anlamına gelmez.
 
 ## Hangi Yolu Seçmeliyim?
 
@@ -92,8 +92,8 @@ eşleşen native artifact gerekir. Yerleşik Java guard, aynı HMAC'ı tekrar he
 yerine o isteğe ait native kanıtı kullanır. Güncel süre, kimlik ve rol Java'da
 kontrol edilir. JNI kuyruğunda süresi dolan token reddedilir. Güvenlik SPI kaydı
 yoksa veya ayarlar farklıysa uygulama başlamaz. Özel verifier tam kontrol yolunda
-kalır. Bu özellik aşağıdaki Java claim önbelleğinden ayrıdır. Yayımlanmış 4.8.0
-native paketinde henüz bulunmaz.
+kalır. Bu özellik aşağıdaki Java claim önbelleğinden ayrıdır. Native dosyanın
+eşleşen `edge-jwt` yeteneği gerekir; yalnız REST ABI 29 yeterli değildir.
 
 ## Önbellek ve Kaynak Sınırları
 
@@ -148,7 +148,8 @@ olmaz. Bellek bütçesini büyütmeden önce cache açık/kapalı ölçün.
 
 Ayrı [JWT örneği](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/JWT_SECURITY.tr.md),
 `@Authenticated`, güvenilir anahtar dosyası, cache property'leri ve Kubernetes
-ortam değişkenlerini gösterir. `jwt-security` profili Redis reader'ı değiştirmez.
+ortam değişkenleriyle birlikte JDK-only token üretimini ve hata kontrollerini gösterir.
+Checkout'taki `jwt-security` profili Redis reader'ı değiştirmez.
 
 Tahsisat ölçümü, küçük ve bellekte tutulan nesnelerle de doğrulanır. JVM sayacı
 gecikmeli toplu değer veriyorsa bu ölçüm atlanır. Yanlış bir sıfır değeri başarı

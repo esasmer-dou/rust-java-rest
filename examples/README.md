@@ -12,11 +12,18 @@ keep each isolated demo in a few files.
 ## Prerequisites
 
 - Java 21 and Maven 3.9+.
-- The aligned `rust-java-rest:4.6.3` package and its packaged DLL/SO.
+- The aligned `rust-java-rest:4.8.0` package, `codegen` classifier and matching DLL/SO.
+- Authenticated GitHub Packages Maven access; see [repository setup](../platform/README.md).
 - One free local port for the selected module.
 
 Every module is compiled by the examples reactor. If a README snippet and source diverge, the source
 module and its tests are authoritative; fix the README in the same change.
+
+Resolve the released artifacts first; a source checkout alone does not install Maven
+dependencies. For source changes, install the matching root project before building
+this reactor in your development environment. Do not mix
+older native files with 4.8.0 Java artifacts. See the [feature map](../docs/feature-examples.md)
+and the runnable [HotSpot AppCDS recipe](../platform/maven-plugin/README-appcds.md#runnable-minimal-example).
 
 ## Pick One Example
 

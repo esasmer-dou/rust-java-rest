@@ -8,13 +8,15 @@ platform parent to align versions, then add only the starters required by the pr
 Use the parent for a new service. Use the BOM only when an existing corporate parent cannot be
 replaced. Use direct dependencies only for embedding or framework development.
 
-Platform `4.8.0` aligns both cache starters to cache `0.9.0`. Its source tag is
-`platform-v4.8.0`; the unchanged core/native runtime remains tagged `v4.8.0`.
+Platform `4.8.0` aligns both cache starters and Dubbo to `0.9.0`. Its source tag is
+`v4.8.0`, shared with the coordinated core/native release (not `platform-v4.8.0`).
 The platform bundle includes the source revision. Maven coordinates do not change.
 
-Source-checkout additions, not yet published: [JWT algorithms and bounded token caching](starter-security/README.md),
+Published opt-in 4.8.0 features: [JWT algorithms and bounded token caching](starter-security/README.md),
 [HTTP circuit breakers and trace propagation](starter-http-client/README.md), and
 [optional HotSpot AppCDS](maven-plugin/README-appcds.md). Existing defaults remain unchanged.
+See [feature selection and real sample consumers](../docs/feature-examples.md).
+Publication is separate from target-workload performance and user acceptance.
 
 ## Contents
 

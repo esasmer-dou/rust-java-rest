@@ -7,8 +7,10 @@ Security starter runtime classpath içinde kalmalıdır. JAR'ları birleştirirk
 token'ın 401 aldığını değil, reader kullanıcısının admin rotasında 403 aldığını
 da kontrol edin. Böylece Java rol kontrolünün de kurulduğunu doğrularsınız.
 
-Bu özellik kaynak kod deposundadır. Yayımlanmış 4.8.0 native paketinde henüz yoktur.
-Native kütüphaneyi `--features edge-jwt` ile derleyin. REST ABI 29 değişmez.
+Bu isteğe bağlı özellik koordineli 4.8.0 kaynak/yayım setine dahildir.
+Seçilen native dosya `edge-jwt` yeteneği taşımalıdır; yoksa
+`--features edge-jwt` ile derleyin. REST ABI 29'un değişmemesi tek başına bu ek
+yeteneğin her platformda bulunduğu anlamına gelmez.
 
 ## Ne Zaman Kullanılır?
 
