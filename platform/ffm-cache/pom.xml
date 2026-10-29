@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.reactor</groupId><artifactId>rust-java-ffm-cache</artifactId><version>4.8.0</version>
+    <name>Optional Shared Slab Cache Reader</name>
+    <properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
+    <dependencies>
+        <dependency><groupId>com.reactor</groupId><artifactId>rust-java-ffm-fast</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>com.reactor</groupId><artifactId>java-rust-cache</artifactId><version>0.9.0</version></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency>
+    </dependencies>
+    <build><plugins>
+        <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version><configuration><release>21</release><proc>none</proc></configuration></plugin>
+        <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin>
+    </plugins></build>
+</project>

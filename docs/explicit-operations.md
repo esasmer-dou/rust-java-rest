@@ -2,7 +2,7 @@
 
 [English](explicit-operations.md) | [Turkish](explicit-operations.tr.md)
 
-Available in the aligned 4.7.0 platform. Add only the modules your service uses.
+Available in the aligned 4.8.0 platform. Add only the modules your service uses.
 Java owns business decisions. Native ABI versions and existing successful response bodies are unchanged.
 
 ## Choose The Tool
@@ -126,8 +126,8 @@ Use a clean build so deleted sources cannot leave a stale manifest behind.
 ## Complete Example Pair
 
 ```powershell
-java -cp rust-java-rest-4.7.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
-java -cp rust-java-rest-4.7.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
+java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
+java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
 ```
 
 Use the codegen JAR from the matching platform version. Each new directory contains

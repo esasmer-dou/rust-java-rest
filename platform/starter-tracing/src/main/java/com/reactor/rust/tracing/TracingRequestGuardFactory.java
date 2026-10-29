@@ -20,6 +20,7 @@ import com.reactor.rust.metrics.Metrics;
 
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.concurrent.ThreadLocalRandom;
@@ -111,16 +112,16 @@ public final class TracingRequestGuardFactory implements RequestGuardFactory {
 
         @Override
         public void before(com.reactor.rust.bridge.RequestGuardContext request) {
-            Parent parent = Parent.parse(request.header("traceparent"));
+            TraceContext parent = W3cTraceparent.parse(request.header("traceparent"));
             boolean sampled = parent == null
                     ? ThreadLocalRandom.current().nextDouble() < sampleRatio
-                    : parent.sampled;
+                    : parent.sampled();
             TraceContext context = new TraceContext(
-                    parent == null ? Hex.traceId() : parent.traceId,
+                    parent == null ? Hex.traceId() : parent.traceId(),
                     Hex.spanId(),
                     sampled);
             TraceContext.set(context);
-            current.set(new Invocation(context, System.nanoTime()));
+            current.set(new Invocation(context, System.nanoTime(), parent == null ? null : parent.spanId()));
         }
 
         @Override
@@ -155,7 +156,8 @@ public final class TracingRequestGuardFactory implements RequestGuardFactory {
                     Math.max(0L, System.nanoTime() - invocation.startedNanos),
                     true,
                     failure == null,
-                    failure == null ? "" : failure.getClass().getName()));
+                    failure == null ? "" : failure.getClass().getName(),
+                    invocation.parentSpanId));
         }
 
         private static Throwable unwrap(Throwable failure) {
@@ -165,28 +167,10 @@ public final class TracingRequestGuardFactory implements RequestGuardFactory {
         }
     }
 
-    private record Invocation(TraceContext context, long startedNanos) {}
-
-    private record Parent(String traceId, boolean sampled) {
-        private static Parent parse(String header) {
-            if (header == null || header.length() != 55
-                    || header.charAt(2) != '-' || header.charAt(35) != '-' || header.charAt(52) != '-') return null;
-            String version = header.substring(0, 2);
-            String traceId = header.substring(3, 35);
-            String parentId = header.substring(36, 52);
-            String flags = header.substring(53, 55);
-            if ("ff".equalsIgnoreCase(version)
-                    || !Hex.valid(traceId, 32)
-                    || !Hex.valid(parentId, 16)
-                    || !Hex.valid(flags, 2)
-                    || Hex.zero(traceId)
-                    || Hex.zero(parentId)) return null;
-            return new Parent(traceId.toLowerCase(java.util.Locale.ROOT), (Integer.parseInt(flags, 16) & 1) == 1);
-        }
-    }
+    private record Invocation(TraceContext context, long startedNanos, String parentSpanId) {}
 
     private static final class Hex {
-        private static final char[] DIGITS = "0123456789abcdef".toCharArray();
+        private static final byte[] DIGITS = "0123456789abcdef".getBytes(StandardCharsets.US_ASCII);
 
         private static String traceId() {
             long high;
@@ -195,43 +179,25 @@ public final class TracingRequestGuardFactory implements RequestGuardFactory {
                 high = ThreadLocalRandom.current().nextLong();
                 low = ThreadLocalRandom.current().nextLong();
             } while (high == 0L && low == 0L);
-            char[] output = new char[32];
+            byte[] output = new byte[32];
             write(output, 0, high);
             write(output, 16, low);
-            return new String(output);
+            return new String(output, StandardCharsets.US_ASCII);
         }
 
         private static String spanId() {
             long value;
             do value = ThreadLocalRandom.current().nextLong(); while (value == 0L);
-            char[] output = new char[16];
+            byte[] output = new byte[16];
             write(output, 0, value);
-            return new String(output);
+            return new String(output, StandardCharsets.US_ASCII);
         }
 
-        private static void write(char[] output, int offset, long value) {
+        private static void write(byte[] output, int offset, long value) {
             for (int index = 15; index >= 0; index--) {
                 output[offset + index] = DIGITS[(int) (value & 0xfL)];
                 value >>>= 4;
             }
-        }
-
-        private static boolean valid(String value, int length) {
-            if (value.length() != length) return false;
-            for (int index = 0; index < length; index++) {
-                char current = value.charAt(index);
-                if (!((current >= '0' && current <= '9')
-                        || (current >= 'a' && current <= 'f')
-                        || (current >= 'A' && current <= 'F'))) return false;
-            }
-            return true;
-        }
-
-        private static boolean zero(String value) {
-            for (int index = 0; index < value.length(); index++) {
-                if (value.charAt(index) != '0') return false;
-            }
-            return true;
         }
     }
 

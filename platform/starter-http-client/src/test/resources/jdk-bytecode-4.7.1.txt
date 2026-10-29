@@ -1,0 +1,398 @@
+// Generated javap of pre-change rust-java-rest HEAD fb8129a with Java 21.
+// Source: isolated git archive, never the mutable Maven cache.
+
+  private java.net.http.HttpRequest build();
+    Code:
+       0: aload_0
+       1: getfield      #40                 // Field path:Ljava/lang/String;
+       4: bipush        123
+       6: invokevirtual #240                // Method java/lang/String.indexOf:(I)I
+       9: ifge          24
+      12: aload_0
+      13: getfield      #40                 // Field path:Ljava/lang/String;
+      16: bipush        125
+      18: invokevirtual #240                // Method java/lang/String.indexOf:(I)I
+      21: iflt          41
+      24: new           #79                 // class java/lang/IllegalArgumentException
+      27: dup
+      28: aload_0
+      29: getfield      #40                 // Field path:Ljava/lang/String;
+      32: invokedynamic #244,  0            // InvokeDynamic #11:makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
+      37: invokespecial #84                 // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+      40: athrow
+      41: new           #245                // class java/lang/StringBuilder
+      44: dup
+      45: aload_0
+      46: getfield      #7                  // Field owner:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime$Client;
+      49: getfield      #247                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime$Client.baseUri:Ljava/net/URI;
+      52: invokevirtual #251                // Method java/net/URI.toString:()Ljava/lang/String;
+      55: invokevirtual #257                // Method java/lang/String.length:()I
+      58: aload_0
+      59: getfield      #40                 // Field path:Ljava/lang/String;
+      62: invokevirtual #257                // Method java/lang/String.length:()I
+      65: iadd
+      66: bipush        32
+      68: iadd
+      69: invokespecial #260                // Method java/lang/StringBuilder."<init>":(I)V
+      72: aload_0
+      73: getfield      #7                  // Field owner:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime$Client;
+      76: getfield      #247                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime$Client.baseUri:Ljava/net/URI;
+      79: invokevirtual #261                // Method java/lang/StringBuilder.append:(Ljava/lang/Object;)Ljava/lang/StringBuilder;
+      82: aload_0
+      83: getfield      #40                 // Field path:Ljava/lang/String;
+      86: invokevirtual #265                // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+      89: astore_1
+      90: aload_0
+      91: getfield      #120                // Field query:Ljava/util/ArrayList;
+      94: ifnull        181
+      97: aload_0
+      98: getfield      #120                // Field query:Ljava/util/ArrayList;
+     101: invokevirtual #268                // Method java/util/ArrayList.isEmpty:()Z
+     104: ifne          181
+     107: aload_1
+     108: bipush        63
+     110: invokevirtual #271                // Method java/lang/StringBuilder.append:(C)Ljava/lang/StringBuilder;
+     113: pop
+     114: iconst_0
+     115: istore_2
+     116: iload_2
+     117: aload_0
+     118: getfield      #120                // Field query:Ljava/util/ArrayList;
+     121: invokevirtual #135                // Method java/util/ArrayList.size:()I
+     124: if_icmpge     181
+     127: iload_2
+     128: ifle          138
+     131: aload_1
+     132: bipush        38
+     134: invokevirtual #271                // Method java/lang/StringBuilder.append:(C)Ljava/lang/StringBuilder;
+     137: pop
+     138: aload_1
+     139: aload_0
+     140: getfield      #120                // Field query:Ljava/util/ArrayList;
+     143: iload_2
+     144: invokevirtual #274                // Method java/util/ArrayList.get:(I)Ljava/lang/Object;
+     147: checkcast     #21                 // class java/lang/String
+     150: invokevirtual #265                // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+     153: bipush        61
+     155: invokevirtual #271                // Method java/lang/StringBuilder.append:(C)Ljava/lang/StringBuilder;
+     158: aload_0
+     159: getfield      #120                // Field query:Ljava/util/ArrayList;
+     162: iload_2
+     163: iconst_1
+     164: iadd
+     165: invokevirtual #274                // Method java/util/ArrayList.get:(I)Ljava/lang/Object;
+     168: checkcast     #21                 // class java/lang/String
+     171: invokevirtual #265                // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+     174: pop
+     175: iinc          2, 2
+     178: goto          116
+     181: aload_0
+     182: getfield      #156                // Field body:Ljava/lang/Object;
+     185: invokestatic  #278                // Method encodeBody:(Ljava/lang/Object;)[B
+     188: astore_2
+     189: aload_2
+     190: ifnull        234
+     193: aload_2
+     194: arraylength
+     195: aload_0
+     196: getfield      #7                  // Field owner:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime$Client;
+     199: getfield      #139                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime$Client.runtime:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime;
+     202: getfield      #282                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime.maxRequestBytes:I
+     205: if_icmple     234
+     208: new           #202                // class com/reactor/rust/http/client/HttpClientException
+     211: dup
+     212: aload_0
+     213: getfield      #7                  // Field owner:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime$Client;
+     216: getfield      #139                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime$Client.runtime:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime;
+     219: getfield      #282                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime.maxRequestBytes:I
+     222: invokedynamic #285,  0            // InvokeDynamic #12:makeConcatWithConstants:(I)Ljava/lang/String;
+     227: sipush        413
+     230: invokespecial #206                // Method com/reactor/rust/http/client/HttpClientException."<init>":(Ljava/lang/String;I)V
+     233: athrow
+     234: aload_2
+     235: ifnonnull     244
+     238: invokestatic  #286                // Method java/net/http/HttpRequest$BodyPublishers.noBody:()Ljava/net/http/HttpRequest$BodyPublisher;
+     241: goto          248
+     244: aload_2
+     245: invokestatic  #292                // Method java/net/http/HttpRequest$BodyPublishers.ofByteArray:([B)Ljava/net/http/HttpRequest$BodyPublisher;
+     248: astore_3
+     249: aload_0
+     250: getfield      #57                 // Field timeoutMs:J
+     253: lconst_0
+     254: lcmp
+     255: ifle          265
+     258: aload_0
+     259: getfield      #57                 // Field timeoutMs:J
+     262: goto          275
+     265: aload_0
+     266: getfield      #7                  // Field owner:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime$Client;
+     269: getfield      #139                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime$Client.runtime:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime;
+     272: getfield      #296                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime.defaultTimeoutMs:J
+     275: lstore        4
+     277: aload_1
+     278: invokevirtual #299                // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+     281: invokestatic  #300                // Method java/net/URI.create:(Ljava/lang/String;)Ljava/net/URI;
+     284: invokestatic  #304                // Method java/net/http/HttpRequest.newBuilder:(Ljava/net/URI;)Ljava/net/http/HttpRequest$Builder;
+     287: lload         4
+     289: invokestatic  #310                // Method java/time/Duration.ofMillis:(J)Ljava/time/Duration;
+     292: invokeinterface #316,  2          // InterfaceMethod java/net/http/HttpRequest$Builder.timeout:(Ljava/time/Duration;)Ljava/net/http/HttpRequest$Builder;
+     297: aload_0
+     298: getfield      #33                 // Field method:Ljava/lang/String;
+     301: aload_3
+     302: invokeinterface #322,  3          // InterfaceMethod java/net/http/HttpRequest$Builder.method:(Ljava/lang/String;Ljava/net/http/HttpRequest$BodyPublisher;)Ljava/net/http/HttpRequest$Builder;
+     307: ldc_w         #325                // String Accept
+     310: aload_0
+     311: getfield      #54                 // Field accept:Ljava/lang/String;
+     314: invokeinterface #327,  3          // InterfaceMethod java/net/http/HttpRequest$Builder.header:(Ljava/lang/String;Ljava/lang/String;)Ljava/net/http/HttpRequest$Builder;
+     319: astore        6
+     321: aload_2
+     322: ifnull        340
+     325: aload         6
+     327: ldc_w         #331                // String Content-Type
+     330: aload_0
+     331: getfield      #45                 // Field contentType:Ljava/lang/String;
+     334: invokeinterface #327,  3          // InterfaceMethod java/net/http/HttpRequest$Builder.header:(Ljava/lang/String;Ljava/lang/String;)Ljava/net/http/HttpRequest$Builder;
+     339: pop
+     340: aload_0
+     341: getfield      #132                // Field headers:Ljava/util/ArrayList;
+     344: ifnull        402
+     347: iconst_0
+     348: istore        7
+     350: iload         7
+     352: aload_0
+     353: getfield      #132                // Field headers:Ljava/util/ArrayList;
+     356: invokevirtual #135                // Method java/util/ArrayList.size:()I
+     359: if_icmpge     402
+     362: aload         6
+     364: aload_0
+     365: getfield      #132                // Field headers:Ljava/util/ArrayList;
+     368: iload         7
+     370: invokevirtual #274                // Method java/util/ArrayList.get:(I)Ljava/lang/Object;
+     373: checkcast     #21                 // class java/lang/String
+     376: aload_0
+     377: getfield      #132                // Field headers:Ljava/util/ArrayList;
+     380: iload         7
+     382: iconst_1
+     383: iadd
+     384: invokevirtual #274                // Method java/util/ArrayList.get:(I)Ljava/lang/Object;
+     387: checkcast     #21                 // class java/lang/String
+     390: invokeinterface #327,  3          // InterfaceMethod java/net/http/HttpRequest$Builder.header:(Ljava/lang/String;Ljava/lang/String;)Ljava/net/http/HttpRequest$Builder;
+     395: pop
+     396: iinc          7, 2
+     399: goto          350
+     402: aload_0
+     403: getfield      #7                  // Field owner:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime$Client;
+     406: getfield      #139                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime$Client.runtime:Lcom/reactor/rust/http/client/ReactorHttpClientRuntime;
+     409: getfield      #333                // Field com/reactor/rust/http/client/ReactorHttpClientRuntime.headerProviders:Ljava/util/List;
+     412: invokeinterface #337,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+     417: astore        7
+     419: aload         7
+     421: invokeinterface #107,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+     426: ifeq          463
+     429: aload         7
+     431: invokeinterface #112,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+     436: checkcast     #340                // class com/reactor/rust/http/client/OutboundHeaderProvider
+     439: astore        8
+     441: aload         8
+     443: aload         6
+     445: dup
+     446: invokestatic  #342                // Method java/util/Objects.requireNonNull:(Ljava/lang/Object;)Ljava/lang/Object;
+     449: pop
+     450: invokedynamic #345,  0            // InvokeDynamic #13:accept:(Ljava/net/http/HttpRequest$Builder;)Ljava/util/function/BiConsumer;
+     455: invokeinterface #348,  2          // InterfaceMethod com/reactor/rust/http/client/OutboundHeaderProvider.contribute:(Ljava/util/function/BiConsumer;)V
+     460: goto          419
+     463: aload         6
+     465: invokeinterface #352,  1          // InterfaceMethod java/net/http/HttpRequest$Builder.build:()Ljava/net/http/HttpRequest;
+     470: areturn
+
+  private static byte[] encodeBody(java.lang.Object);
+    Code:
+       0: aload_0
+       1: ifnonnull     6
+       4: aconst_null
+       5: areturn
+       6: aload_0
+       7: instanceof    #448                // class "[B"
+      10: ifeq          20
+      13: aload_0
+      14: checkcast     #448                // class "[B"
+      17: astore_1
+      18: aload_1
+      19: areturn
+      20: aload_0
+      21: instanceof    #21                 // class java/lang/String
+      24: ifeq          40
+      27: aload_0
+      28: checkcast     #21                 // class java/lang/String
+      31: astore_1
+      32: aload_1
+      33: getstatic     #450                // Field java/nio/charset/StandardCharsets.UTF_8:Ljava/nio/charset/Charset;
+      36: invokevirtual #511                // Method java/lang/String.getBytes:(Ljava/nio/charset/Charset;)[B
+      39: areturn
+      40: aload_0
+      41: invokestatic  #515                // Method com/reactor/rust/json/DslJsonService.toBytes:(Ljava/lang/Object;)[B
+      44: areturn
+
+  public void close();
+    Code:
+       0: aload_0
+       1: getfield      #7                  // Field executor:Ljava/util/concurrent/ExecutorService;
+       4: invokeinterface #250,  1          // InterfaceMethod java/util/concurrent/ExecutorService.shutdown:()V
+       9: aload_0
+      10: getfield      #7                  // Field executor:Ljava/util/concurrent/ExecutorService;
+      13: aload_0
+      14: getfield      #41                 // Field shutdownTimeoutMs:J
+      17: getstatic     #255                // Field java/util/concurrent/TimeUnit.MILLISECONDS:Ljava/util/concurrent/TimeUnit;
+      20: invokeinterface #258,  4          // InterfaceMethod java/util/concurrent/ExecutorService.awaitTermination:(JLjava/util/concurrent/TimeUnit;)Z
+      25: ifne          38
+      28: aload_0
+      29: getfield      #7                  // Field executor:Ljava/util/concurrent/ExecutorService;
+      32: invokeinterface #262,  1          // InterfaceMethod java/util/concurrent/ExecutorService.shutdownNow:()Ljava/util/List;
+      37: pop
+      38: goto          58
+      41: astore_1
+      42: invokestatic  #267                // Method java/lang/Thread.currentThread:()Ljava/lang/Thread;
+      45: invokevirtual #273                // Method java/lang/Thread.interrupt:()V
+      48: aload_0
+      49: getfield      #7                  // Field executor:Ljava/util/concurrent/ExecutorService;
+      52: invokeinterface #262,  1          // InterfaceMethod java/util/concurrent/ExecutorService.shutdownNow:()Ljava/util/List;
+      57: pop
+      58: return
+    Exception table:
+       from    to  target type
+           9    38    41   Class java/lang/InterruptedException
+
+  public void onNext(java.util.List<java.nio.ByteBuffer>);
+    Code:
+       0: iconst_0
+       1: istore_2
+       2: aload_1
+       3: invokeinterface #63,  1           // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+       8: astore_3
+       9: aload_3
+      10: invokeinterface #69,  1           // InterfaceMethod java/util/Iterator.hasNext:()Z
+      15: ifeq          42
+      18: aload_3
+      19: invokeinterface #75,  1           // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      24: checkcast     #79                 // class java/nio/ByteBuffer
+      27: astore        4
+      29: iload_2
+      30: aload         4
+      32: invokevirtual #81                 // Method java/nio/ByteBuffer.remaining:()I
+      35: invokestatic  #85                 // Method java/lang/Math.addExact:(II)I
+      38: istore_2
+      39: goto          9
+      42: aload_0
+      43: getfield      #88                 // Field size:I
+      46: iload_2
+      47: invokestatic  #85                 // Method java/lang/Math.addExact:(II)I
+      50: istore_3
+      51: iload_3
+      52: aload_0
+      53: getfield      #16                 // Field maximum:I
+      56: if_icmple     96
+      59: aload_0
+      60: getfield      #50                 // Field subscription:Ljava/util/concurrent/Flow$Subscription;
+      63: invokeinterface #54,  1           // InterfaceMethod java/util/concurrent/Flow$Subscription.cancel:()V
+      68: aload_0
+      69: getfield      #10                 // Field body:Ljava/util/concurrent/CompletableFuture;
+      72: new           #37                 // class com/reactor/rust/http/client/HttpClientException
+      75: dup
+      76: aload_0
+      77: getfield      #16                 // Field maximum:I
+      80: invokedynamic #39,  0             // InvokeDynamic #0:makeConcatWithConstants:(I)Ljava/lang/String;
+      85: sipush        502
+      88: invokespecial #43                 // Method com/reactor/rust/http/client/HttpClientException."<init>":(Ljava/lang/String;I)V
+      91: invokevirtual #46                 // Method java/util/concurrent/CompletableFuture.completeExceptionally:(Ljava/lang/Throwable;)Z
+      94: pop
+      95: return
+      96: aload_0
+      97: iload_3
+      98: invokevirtual #91                 // Method ensureCapacity:(I)V
+     101: aload_1
+     102: invokeinterface #63,  1           // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+     107: astore        4
+     109: aload         4
+     111: invokeinterface #69,  1           // InterfaceMethod java/util/Iterator.hasNext:()Z
+     116: ifeq          168
+     119: aload         4
+     121: invokeinterface #75,  1           // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+     126: checkcast     #79                 // class java/nio/ByteBuffer
+     129: astore        5
+     131: aload         5
+     133: invokevirtual #81                 // Method java/nio/ByteBuffer.remaining:()I
+     136: istore        6
+     138: aload         5
+     140: aload_0
+     141: getfield      #33                 // Field bytes:[B
+     144: aload_0
+     145: getfield      #88                 // Field size:I
+     148: iload         6
+     150: invokevirtual #95                 // Method java/nio/ByteBuffer.get:([BII)Ljava/nio/ByteBuffer;
+     153: pop
+     154: aload_0
+     155: dup
+     156: getfield      #88                 // Field size:I
+     159: iload         6
+     161: iadd
+     162: putfield      #88                 // Field size:I
+     165: goto          109
+     168: aload_0
+     169: getfield      #50                 // Field subscription:Ljava/util/concurrent/Flow$Subscription;
+     172: lconst_1
+     173: invokeinterface #59,  3           // InterfaceMethod java/util/concurrent/Flow$Subscription.request:(J)V
+     178: goto          200
+     181: astore_2
+     182: aload_0
+     183: getfield      #50                 // Field subscription:Ljava/util/concurrent/Flow$Subscription;
+     186: invokeinterface #54,  1           // InterfaceMethod java/util/concurrent/Flow$Subscription.cancel:()V
+     191: aload_0
+     192: getfield      #10                 // Field body:Ljava/util/concurrent/CompletableFuture;
+     195: aload_2
+     196: invokevirtual #46                 // Method java/util/concurrent/CompletableFuture.completeExceptionally:(Ljava/lang/Throwable;)Z
+     199: pop
+     200: return
+    Exception table:
+       from    to  target type
+           0    95   181   Class java/lang/Throwable
+          96   178   181   Class java/lang/Throwable
+
+  private void ensureCapacity(int);
+    Code:
+       0: iload_1
+       1: aload_0
+       2: getfield      #33                 // Field bytes:[B
+       5: arraylength
+       6: if_icmpgt     10
+       9: return
+      10: lconst_1
+      11: aload_0
+      12: getfield      #33                 // Field bytes:[B
+      15: arraylength
+      16: i2l
+      17: ldc2_w        #111                // long 2l
+      20: lmul
+      21: invokestatic  #113                // Method java/lang/Math.max:(JJ)J
+      24: lstore_2
+      25: aload_0
+      26: getfield      #16                 // Field maximum:I
+      29: i2l
+      30: iload_1
+      31: i2l
+      32: aload_0
+      33: getfield      #16                 // Field maximum:I
+      36: i2l
+      37: lload_2
+      38: invokestatic  #116                // Method java/lang/Math.min:(JJ)J
+      41: invokestatic  #113                // Method java/lang/Math.max:(JJ)J
+      44: invokestatic  #116                // Method java/lang/Math.min:(JJ)J
+      47: l2i
+      48: istore        4
+      50: aload_0
+      51: aload_0
+      52: getfield      #33                 // Field bytes:[B
+      55: iload         4
+      57: invokestatic  #101                // Method java/util/Arrays.copyOf:([BI)[B
+      60: putfield      #33                 // Field bytes:[B
+      63: return
+

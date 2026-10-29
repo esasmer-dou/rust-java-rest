@@ -103,7 +103,7 @@ function Read-SourceRevision([string]$Repository) {
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($revision)) {
         throw "Cannot read native source revision from $Repository"
     }
-    $dirty = & git -C $Repository status --porcelain --untracked-files=no
+    $dirty = & git -C $Repository status --porcelain
     if ($LASTEXITCODE -ne 0) {
         throw "Cannot inspect native source worktree state in $Repository"
     }
@@ -123,6 +123,17 @@ $macosArm64Source = if ($hasMacosArm64) { Resolve-RequiredFile $MacosArm64Binary
 $linuxArm64Source = if ($hasLinuxArm64) { Resolve-RequiredFile $LinuxArm64Binary } else { $null }
 $sourceRepository = (Resolve-Path -LiteralPath $NativeSourceDirectory).Path
 $sourceRevision = Read-SourceRevision $sourceRepository
+$resourcesRoot = Join-Path $PSScriptRoot "..\src\main\resources\native"
+foreach ($platform in @("macos-arm64", "linux-arm64")) {
+    $provided = if ($platform -eq "macos-arm64") { $hasMacosArm64 } else { $hasLinuxArm64 }
+    foreach ($resourceRoot in @($resourcesRoot, $CacheResourcesDirectory)) {
+        $existingPlatform = Join-Path $resourceRoot $platform
+        if (-not $provided -and (Test-Path -LiteralPath $existingPlatform) -and
+                @(Get-ChildItem -LiteralPath $existingPlatform -File).Count -gt 0) {
+            throw "Cannot stamp a new global source revision while retaining unverified $platform artifacts. Supply that platform's complete artifact set or use an isolated x64 resource overlay."
+        }
+    }
+}
 $sourceRevisionFull = $sourceRevision
 $windowsMeta = Read-BuildMetadata $WindowsMetadata "windows-x64-rust_hyper"
 $linuxMeta = Read-BuildMetadata $LinuxMetadata "linux-x64-librust_hyper"

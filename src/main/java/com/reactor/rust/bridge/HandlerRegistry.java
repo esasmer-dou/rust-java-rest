@@ -26,6 +26,7 @@ import com.reactor.rust.json.DslJsonService;
 import com.reactor.rust.json.DirectJsonWriter;
 import com.reactor.rust.json.DirectJsonWriterRegistry;
 import com.reactor.rust.json.JsonBodyProducer;
+import com.reactor.rust.json.ManagedJsonBodyProducer;
 import com.reactor.rust.logging.FrameworkLogger;
 import com.reactor.rust.util.RequestValueMap;
 import com.reactor.rust.util.UrlCodec;
@@ -57,6 +58,94 @@ import java.util.concurrent.atomic.LongAdder;
 public class HandlerRegistry {
 
     private static volatile HandlerRegistry active;
+    private volatile boolean bufferedResultRetryEnabled;
+    private static final int BUFFERED_RESULT_RETRY_FLAG = 1 << 30;
+    private static final ThreadLocal<BufferedResultRetry> BUFFERED_RESULT_RETRY = new ThreadLocal<>();
+
+    private static final class BufferedResultRetry {
+        HandlerRegistry registry;
+        HandlerDescriptor descriptor;
+        Object result;
+        int kind;
+
+        void clear() {
+            registry = null;
+            descriptor = null;
+            result = null;
+        }
+    }
+
+    boolean enableBufferedResultRetry(int protocol) {
+        if (protocol != 1) {
+            return false;
+        }
+        bufferedResultRetryEnabled = true;
+        return true;
+    }
+
+    // Only an insufficient-buffer response allocates a slot. It holds the existing
+    // result, not another body copy, until the same attached JNI worker resumes it.
+    private int retainBufferedResult(
+            int written, HandlerDescriptor descriptor, Object result, int kind) {
+        if (written >= 0 || !bufferedResultRetryEnabled || written <= -BUFFERED_RESULT_RETRY_FLAG
+                || result instanceof Integer
+                || result instanceof Optional<?> optional && optional.orElse(null) instanceof Integer) {
+            if (written < 0 && closeManagedBody(result) && !bufferedResultRetryEnabled) {
+                throw new IllegalStateException("Owned JSON body overflow requires native buffered-result retry protocol 1");
+            }
+            return written;
+        }
+        BufferedResultRetry retry = BUFFERED_RESULT_RETRY.get();
+        if (retry == null) {
+            retry = new BufferedResultRetry();
+            BUFFERED_RESULT_RETRY.set(retry);
+        }
+        if (retry.result != null && retry.result != result) closeManagedBody(retry.result);
+        retry.registry = this;
+        retry.descriptor = descriptor;
+        retry.result = result;
+        retry.kind = kind;
+        return -(-written | BUFFERED_RESULT_RETRY_FLAG);
+    }
+
+    int retryBufferedResult(int handlerId, ByteBuffer out, int offset) {
+        BufferedResultRetry retry = BUFFERED_RESULT_RETRY.get();
+        if (retry == null) {
+            throw new IllegalStateException("No pending buffered response");
+        }
+        HandlerRegistry registry = retry.registry;
+        HandlerDescriptor descriptor = retry.descriptor;
+        Object result = retry.result;
+        int kind = retry.kind;
+        retry.clear();
+        if (out == null) {
+            closeManagedBody(result);
+            return 0; // Native abort: release every application object reference.
+        }
+        if (registry != this || kind != 2 && descriptor != descriptor(handlerId)) {
+            closeManagedBody(result);
+            throw new IllegalStateException("Buffered response does not belong to this handler");
+        }
+        try {
+            return switch (kind) {
+                case 0 -> processDirectResult(descriptor, result, out, offset);
+                case 1 -> writeAnnotatedResult(descriptor, result, out, offset);
+                case 2 -> writeExceptionHandlerResult(result, out, offset);
+                default -> throw new IllegalStateException("Unknown buffered response kind");
+            };
+        } catch (RuntimeException | Error failure) {
+            closeManagedBody(result);
+            throw failure;
+        }
+    }
+
+    private static boolean closeManagedBody(Object result) {
+        if (result instanceof Optional<?> optional) result = optional.orElse(null);
+        if (result instanceof ResponseEntity<?> entity) result = entity.getBody();
+        if (result instanceof JsonProducerResponse response) result = response.producer();
+        if (result instanceof ManagedJsonBodyProducer producer) { producer.close(); return true; }
+        return false;
+    }
 
     private static final class CompatibilityHolder {
         private static final HandlerRegistry INSTANCE =
@@ -286,13 +375,28 @@ public class HandlerRegistry {
     public static final class AsyncResponseFrame {
         private final ByteBuffer buffer;
         private final int length;
+        private final int nativeId;
+        private final int nativeStatus;
 
         private AsyncResponseFrame(ByteBuffer buffer, int length) {
             this.buffer = buffer;
             this.length = length;
+            this.nativeId = 0;
+            this.nativeStatus = 0;
         }
 
+        private AsyncResponseFrame(int nativeId, int status) {
+            this.buffer = null;
+            this.length = RESPONSE_FRAME_HEADER_SIZE;
+            this.nativeId = nativeId;
+            this.nativeStatus = status;
+        }
+
+        int nativeId() { return nativeId; }
+        int nativeStatus() { return nativeStatus; }
+
         public ByteBuffer buffer() {
+            if (buffer == null) return ByteBuffer.wrap(toByteArray());
             ByteBuffer duplicate = buffer.duplicate();
             duplicate.position(0);
             duplicate.limit(length);
@@ -304,6 +408,12 @@ public class HandlerRegistry {
         }
 
         public byte[] toByteArray() {
+            if (buffer == null) {
+                ByteBuffer encoded = ByteBuffer.allocate(RESPONSE_FRAME_HEADER_SIZE);
+                encoded.put(STATIC_RESPONSE_FRAME_MAGIC).putShort((short) nativeStatus)
+                        .putInt(0).putInt(nativeId);
+                return encoded.array();
+            }
             ByteBuffer duplicate = buffer();
             byte[] response = new byte[length];
             duplicate.get(response, 0, length);
@@ -1153,6 +1263,16 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
+        try {
+            return retainBufferedResult(processDirectResultOnce(desc, result, out, offset), desc, result, 0);
+        } catch (RuntimeException | Error failure) {
+            closeManagedBody(result);
+            throw failure;
+        }
+    }
+
+    private int processDirectResultOnce(
+            HandlerDescriptor desc, Object result, ByteBuffer out, int offset) {
         if (result instanceof Optional<?> optional) {
             if (optional.isEmpty()) {
                 return writeOptionalNotFound(out, offset);
@@ -1309,6 +1429,16 @@ public class HandlerRegistry {
             ByteBuffer out,
             int offset
     ) {
+        try {
+            return retainBufferedResult(writeAnnotatedResultOnce(desc, result, out, offset), desc, result, 1);
+        } catch (RuntimeException | Error failure) {
+            closeManagedBody(result);
+            throw failure;
+        }
+    }
+
+    private int writeAnnotatedResultOnce(
+            HandlerDescriptor desc, Object result, ByteBuffer out, int offset) {
         if (result instanceof Optional<?> optional) {
             if (optional.isEmpty()) {
                 return writeOptionalNotFound(out, offset);
@@ -1830,6 +1960,12 @@ public class HandlerRegistry {
     }
 
     private int writeError(ByteBuffer out, int offset, Throwable error) {
+        BufferedResultRetry pending = BUFFERED_RESULT_RETRY.get();
+        if (pending != null && pending.registry == this) {
+            Object abandoned = pending.result;
+            pending.clear();
+            closeManagedBody(abandoned);
+        }
         NativeBridge.captureGlowrootError(error);
         Object handled = exceptionHandlers.handleException(error);
         if (handled != null) {
@@ -1846,6 +1982,15 @@ public class HandlerRegistry {
     }
 
     private int writeExceptionHandlerResult(Object result, ByteBuffer out, int offset) {
+        try {
+            return retainBufferedResult(writeExceptionHandlerResultOnce(result, out, offset), null, result, 2);
+        } catch (RuntimeException | Error failure) {
+            closeManagedBody(result);
+            throw failure;
+        }
+    }
+
+    private int writeExceptionHandlerResultOnce(Object result, ByteBuffer out, int offset) {
         if (result instanceof ResponseEntity<?> responseEntity) {
             return writeResponseEntity(responseEntity, DEFAULT_JSON_CONTENT_TYPE_HEADER, out, offset);
         }
@@ -2406,8 +2551,24 @@ public class HandlerRegistry {
     }
 
     private AsyncResponseFrame encodeAsyncResultFrame(HandlerDescriptor desc, Object result) {
-        ByteBuffer buffer = asyncFramePool.acquire(initialAsyncFrameBytes);
+        ByteBuffer buffer = null;
         try {
+            // A native body already owns its headers and bytes. Do not build a
+            // Java byte frame unless an older runtime needs the ABI-29 fallback.
+            if (result instanceof ResponseEntity<?> entity
+                    && entity.getBody() instanceof RawResponse raw
+                    && raw.getNativeId() > 0 && raw.getEncodedHeaders().length == 0
+                    && entity.readOnlyHeaders().isEmpty()) {
+                return new AsyncResponseFrame(raw.getNativeId(),
+                        entity.getStatus() == null ? 200 : entity.getStatus().getCode());
+            }
+            if (result instanceof RawResponse raw && raw.getNativeId() > 0
+                    && raw.getEncodedHeaders().length == 0) {
+                // Match processAsyncResult: bare async RawResponse uses 200;
+                // explicit status remains the ResponseEntity contract.
+                return new AsyncResponseFrame(raw.getNativeId(), 200);
+            }
+            buffer = asyncFramePool.acquire(initialAsyncFrameBytes);
             if (result instanceof Integer written) {
                 if (written < 0) {
                     throw new IllegalStateException("async direct response returned required size without retry: " + -written);
@@ -2428,7 +2589,8 @@ public class HandlerRegistry {
             }
             throw new IllegalStateException("async response frame retry exceeded");
         } catch (Throwable e) {
-            asyncFramePool.release(buffer);
+            closeManagedBody(result);
+            if (buffer != null) asyncFramePool.release(buffer);
             return encodeAsyncErrorFrame(e);
         }
     }
@@ -2439,11 +2601,19 @@ public class HandlerRegistry {
                     "[HandlerRegistry] Async error: " + e.getClass().getName(),
                     e);
         }
-        ByteBuffer buffer = asyncFramePool.acquire(initialAsyncFrameBytes);
+        ByteBuffer buffer = null;
+        Object handled = null;
         try {
+            // Async growth owns this result locally; never replay the handler or touch a sync retry.
+            NativeBridge.captureGlowrootError(e);
+            handled = exceptionHandlers.handleException(e);
+            HttpErrorMapper.MappedError mapped = handled == null ? HttpErrorMapper.map(e) : null;
+            byte[] body = mapped == null ? null : HttpErrorMapper.toJsonBytes(mapped);
+            buffer = asyncFramePool.acquire(initialAsyncFrameBytes);
             for (int attempt = 0; attempt < 3; attempt++) {
                 buffer.clear();
-                int written = writeError(buffer, 0, e);
+                int written = handled != null ? writeExceptionHandlerResultOnce(handled, buffer, 0)
+                        : writeFrameWithBytes(mapped.status(), HttpErrorMapper.contentTypeHeader(), body, buffer, 0);
                 if (written >= 0) {
                     return new AsyncResponseFrame(buffer, written);
                 }
@@ -2455,7 +2625,8 @@ public class HandlerRegistry {
             }
             throw new IllegalStateException("async error frame retry exceeded");
         } catch (Throwable encodingFailure) {
-            asyncFramePool.release(buffer);
+            closeManagedBody(handled);
+            if (buffer != null) asyncFramePool.release(buffer);
             HttpErrorMapper.MappedError mapped = HttpErrorMapper.map(encodingFailure);
             ByteBuffer fallback = asyncFramePool.acquire(initialAsyncFrameBytes);
             fallback.clear();

@@ -2,14 +2,19 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+Henüz yayımlanmayan kaynak eklemeleri: [JWT algoritmaları ve sınırlı token önbelleği](starter-security/README.tr.md),
+[HTTP devre kesici ve trace aktarımı](starter-http-client/README.tr.md),
+[isteğe bağlı HotSpot AppCDS](maven-plugin/README-appcds.tr.md).
+Mevcut varsayılanlar değişmez.
+
 Platform modülleri Rust-Java uygulamalarına tek bir Maven kullanım biçimi sağlar. Yeni projede
 platform parent kullanın. Ardından yalnız process'in gerçekten ihtiyaç duyduğu starter'ları ekleyin.
 
 Yeni servis için parent kullanın. Şirket parent POM'u değiştirilemiyorsa BOM kullanın. Doğrudan
 dependency yolunu yalnız embedding veya framework geliştirme için seçin.
 
-Platform `4.7.1`, iki cache starter'ında da cache `0.8.1` kullanır. Platform kaynağının tag'i
-`platform-v4.7.1` olur. Değişmeyen core/native runtime'ın tag'i `v4.7.1` olarak kalır.
+Platform `4.8.0`, iki cache starter'ında da cache `0.9.0` kullanır. Platform kaynağının tag'i
+`v4.8.0` olur. Değişmeyen core/native runtime'ın tag'i `v4.8.0` olarak kalır.
 Platform paketi kaynak commit bilgisini de içerir. Maven bağımlılık tanımı değişmez.
 
 ## İçindekiler
@@ -28,7 +33,7 @@ Platform paketi kaynak commit bilgisini de içerir. Maven bağımlılık tanım�
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.7.1</version>
+  <version>4.8.0</version>
 </parent>
 
 <artifactId>customer-api</artifactId>

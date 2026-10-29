@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-21",
+  "scope": "current-source-all-features-build-incomplete-not-promoted",
+  "sourceRevision": "ccf11143cea8b7513706c439c67939b7803469d0-dirty",
+  "sourceTreeSha256": "ff98fa6c354684e40f06ea79c9ef337fc23ac2579df189970a1e936a73cfdcbd",
+  "sourceFiles": 51,
+  "currentSourceValidated": false,
+  "currentAttempt": {
+    "workspaceRun": ".tmp/ffm-current-boole-20261021-v2",
+    "startedLocal": "2026-10-21T13:05:27+03:00",
+    "stoppedLocal": "2026-10-21T13:15:30+03:00",
+    "cargoJobsPerTarget": 2,
+    "aggregateCpuQuota": 2,
+    "nativeArtifactsValidated": false,
+    "abiAndExportsRechecked": false,
+    "java14TestsRerun": false,
+    "strictZeroTestsRerun": false,
+    "combinedRustUnitTestsRun": false,
+    "redisProbesRerun": false,
+    "boundedWindowsRelinkCheck": {
+      "attemptedNativeBuild": false,
+      "linuxRestarted": false,
+      "reason": "No complete SDK/CRT import-library set found in configured cargo-xwin cache; LIB unset; original temporary export definition gone. No safe two-minute path-only relink identified.",
+      "retainedCurrentLtoObjectBytes": 9815808,
+      "retainedCurrentLtoObjectSha256": "3248b9237688fc36d1778a08d4a56f9a59f374ae009913fe2c523df1e5e528b7"
+    },
+    "note": "Copied cache outputs are stale; no current artifact or current test PASS is claimed."
+  },
+  "profile": "release-ffm",
+  "features": ["default", "websocket", "dubbo", "redis", "glowroot", "ffm-fast", "edge-cache", "outbound-http"],
+  "rustVersion": "1.91.0",
+  "linux": {
+    "target": "x86_64-unknown-linux-gnu",
+    "sha256": null,
+    "status": "explicitly-stopped-at-ten-minute-task-budget",
+    "cargoExit": 137,
+    "maximumRequiredGlibc": null,
+    "builderImage": "sha256:b78898e1520b50427bb5d0699532749e858ac4fc7ab0013d5983d6b3ef35656a",
+    "runtimeImage": "sha256:8f6bdc34dbda8e69ba6a3398f658334a9439013c50bd1c31e9a0369533ce7e47",
+    "runtime": "Temurin HotSpot 21.0.12+8 JRE"
+  },
+  "windows": {
+    "target": "x86_64-pc-windows-msvc",
+    "sha256": null,
+    "status": "link-failed-missing-cached-sdk-libraries",
+    "cargoExit": 101,
+    "missingLinkLibraries": ["bcrypt.lib", "advapi32.lib", "kernel32.lib", "ntdll.lib", "userenv.lib", "ws2_32.lib", "dbghelp.lib"],
+    "cargoXwin": "0.23.0",
+    "linker": "LLD 21.1.2",
+    "runtime": "GraalVM HotSpot 21.0.6+8.1"
+  },
+  "priorSnapshot": {
+    "sourceTreeSha256": "54984470ca47f1ee3e18b575b0f33eb7f71098af211281d0a4e6244cc5be84d2",
+    "sourceFiles": 49,
+    "linuxSha256": "012c77d3afe10f0e8f3b9e897ca3132124ac8e2b4c2e9ac1c45b050cdba45445",
+    "windowsSha256": "2643c280a193cf24494202d547b5e960a2a79d99821ef8d169c6f3abca3ee39f",
+    "maximumRequiredGlibc": "2.14",
+    "excludesLaterChanges": ["edge-cache", "JNI worker daemon attach", "outbound-http"],
+    "currentSourceProof": false
+  },
+  "priorSnapshotEachBinary": {
+    "abis": {"rest": 29, "dubbo": 7, "redis": 6, "glowroot": 6},
+    "ffmCExports": 16,
+    "javaTestsPassed": 14,
+    "javaTestsSkipped": 0,
+    "javaTestsFailed": 0,
+    "fineAllocationControlsBytes": [4800, 4800, 4800, 4800, 4800, 4800, 4800, 4800],
+    "positiveAllocationControlBytes": 144000,
+    "warmedSlabCopyCycles": 100000,
+    "warmedSlabCopyTotalBytes": 384,
+    "realRedis": ["UTF-8 hit", "empty hit", "miss", "client close", "natural JVM exit"]
+  },
+  "redisImage": "sha256:5509c0097c6064aa8a3b1df58f1d950e67090fffa6678ae8f3f1dc2385f12deb",
+  "priorSnapshotLinuxAppCds": {
+    "archiveSha256": "986311a93d315bce9851aba0ebaf3b1bd673630dee1b18c8da06cd5faf8e7530",
+    "archiveBytes": 2699264,
+    "probeJarSha256": "b4597f03aef3a54ef4b1b29e3110dd75166cbc7b6cca57b5499cc1efb53bc66b",
+    "archivedClasses": 439,
+    "archivedApplicationClasses": 6,
+    "freshSharedLoadAndLiveSlabProbe": true,
+    "missingArchiveNegativeControlPassed": true
+  },
+  "priorGlibc234NegativeControlPassed": true,
+  "priorSnapshotStrictZeroLeaves": {
+    "test": "FfmStrictZeroLeafTest",
+    "platforms": ["Windows HotSpot 21.0.6+8.1", "Linux HotSpot 21.0.12+8"],
+    "sameFrozenNativeBinaries": true,
+    "productionSourcesUnchanged": true,
+    "focusedTestsPassedEachPlatform": 1,
+    "skipsAbortsFailuresEachPlatform": 0,
+    "warmupIterationsPerLeaf": 200000,
+    "consecutiveMeasuredBatches": 3,
+    "iterationsPerBatch": 100000,
+    "metadataGettersPerIteration": 3,
+    "eachPlatformBytes": {
+      "nativeMetadata": [0, 0, 0],
+      "slabRead": [0, 0, 0],
+      "disabledNativeRecordOpFast": [0, 0, 0]
+    },
+    "fineControlsBeforeAndAfterBytesEachPlatform": [4800, 4800, 4800, 4800, 4800, 4800, 4800, 4800],
+    "retriesOrSelectedWindows": false,
+    "scope": "Java thread heap only; not native heap or RSS",
+    "fullLeaseCopyResultUnchangedBytes": 384
+  },
+  "defaultArtifactsReplaced": false,
+  "outstanding": ["cached Windows SDK linker layout repair without Visual Studio", "complete current-source native builds", "current ABI/exports/GLIBC verification", "current 14 Java tests per OS", "current strict zero batches", "combined-feature Rust unit tests", "current real Redis probes", "whole-process RSS", "paired JNI/FFM A/B", "live OpenJ9 FFM", "Cluster/Sentinel failover", "release packaging"]
+}

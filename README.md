@@ -2,20 +2,64 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## Start With 4.8.0
+
+Optional native edge policies, JWT security, W3C propagation, generated dispatch and bounded native JSON views. Java handlers and business rules remain in Java. OpenJ9 uses JNI; FFM remains a separate opt-in.
+
+[Usage guide](docs/explicit-operations.md) · [Release notes](docs/release-notes/v4.8.0.md)
+
+
 New usage guide: [Explicit, bounded operations](docs/explicit-operations.md).
 
-Release line: `4.7.1`, coordinated with optional agent `0.7.0`. Publication requires the matching
+Native package compatibility: [Native availability and startup compatibility](docs/native-availability.md).
+Current x64 full-feature artifacts and retained historical ARM base artifacts have different provenance.
+
+Source-only security: [Reject invalid HS256 tokens in Rust; keep Java authorization](NATIVE_JWT.md).
+Public-key JWT and an explicit bounded token cache: [RS256, ES256 and Ed25519 guide](platform/starter-security/README.md).
+This JCA path is separate from native HS256; existing authentication defaults stay unchanged.
+Outbound HTTP and generated circuit breakers: [bounded client guide](platform/starter-http-client/README.md).
+W3C propagation and retry-safe headers: [optional tracing guide](platform/starter-tracing/README.md).
+The caller-buffer codec and parent-ID changes are included in this release.
+
+Optional Java 21 FFM: [raw Redis JSON with shared slab storage](platform/ffm-cache/README.md).
+This isolated source module leaves the default JNI reader, versioned snapshots and Java handlers unchanged.
+
+Optional integration: [Borrowed native views and optional prebaked JSON writes](docs/native-views.md).
+Optional integration: [Generated switch dispatch, compatibility and build-time rollback](docs/generated-dispatch.md).
+These additions are opt-in; existing routes keep their current path.
+
+Source-only owned JSON bodies: the cache integration can transfer a `CacheReadSnapshot`
+to `CacheResponses.ownedJson(...)`. On an L1 hit, payload bytes go directly from the
+off-heap slab to the native response buffer, without a Java payload array. Buffer
+retry keeps the same owner; success, failure or abort releases it. Existing DTO,
+`RawResponse` and ordinary `JsonBodyProducer` APIs do not change. The infrastructure
+marker is `ManagedJsonBodyProducer`; applications normally use the cache helper.
+
+For typed Dubbo lists that an endpoint forwards unchanged, the optional source
+module `java-rust-dubbo-rest-adapter` offers `DubboJsonResponses.body(result)`.
+It writes native Hessian data as JSON without constructing consumer row DTOs.
+Java still owns the handler and business decisions. Use ordinary DTOs when Java
+must validate constructors, sort or change rows. This is bounded buffer writing,
+not unlimited chunked streaming. The sample's `direct-json-consumer` profile
+shows the complete flow; use the matching 0.8.0 modules.
+Use the matching REST `4.8.0` / cache `0.9.0` packages for
+this new API. See the [sample L1 guide](https://github.com/esasmer-dou/rest-sample-cache-reader#optional-l1-reads-source-checkout).
+
+Explicit opt-in: [Public GET edge cache and bounded rate limits](NATIVE_EDGE.md).
+Native hits bypass Java guards, so installation requires explicit public-route consent.
+
+Release line: `4.8.0`, coordinated with optional agent `0.7.1`. Publication requires the matching
 production gate. Use a version listed in [published releases](https://github.com/esasmer-dou/rust-java-rest/releases).
 The release assets carry the final validation reports; a source branch is not a published package.
 
-Platform source builds for this release use tag `platform-v4.7.1`. Core/native source stays at
-`v4.7.1`. Both Maven versions remain `4.7.1`; the platform tag fixes the cache-writer dependency
+Core and platform source builds for this release use tag `v4.8.0`. Native source uses
+`v4.8.0`. Both Maven versions are `4.8.0`; the coordinated release aligns the cache-writer dependency
 before its first publication. See the [platform guide](platform/README.md).
 
-[![Version](https://img.shields.io/badge/version-4.7.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
+[![Version](https://img.shields.io/badge/version-4.8.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.0)
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -62,8 +106,8 @@ discovery, or libraries that require a Spring application context.
 
 ## Current Stable Line
 
-`4.7.1` is the stable declarative runtime line. It packages clean `rust-spring v4.7.1` native
-artifacts from source `b98f791d9889c67dc10e537757fc3c0927ed0bbe`, matching the Maven provenance manifest. It uses REST ABI
+`4.8.0` is the stable declarative runtime line. It packages clean `rust-spring v4.8.0` native
+artifacts from source `3418671b5010afb5dc049897f2a7287dc6a58daf`, matching the Maven provenance manifest. It uses REST ABI
 `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `6`. Always use the native file carried by the
 same coordinated Maven artifact.
 
@@ -79,23 +123,23 @@ unchanged. If your application combines the published libraries, keep the versio
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.7.1</version>
+  <version>4.8.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-cache</artifactId>
-  <version>0.8.0</version>
+  <version>0.9.0</version>
 </dependency>
 
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>java-rust-dubbo</artifactId>
-  <version>0.8.0</version>
+  <version>0.9.0</version>
 </dependency>
 ```
 
-Do not mix `java-rust-cache:0.8.0` or `java-rust-dubbo:0.8.0` native mode with a DLL/SO copied from
+Do not mix `java-rust-cache:0.9.0` or `java-rust-dubbo:0.9.0` native mode with a DLL/SO copied from
 an older release. Startup verifies all four ABI values, source revision, platform, and SHA-256
 provenance before serving traffic. An incompatible binary fails at startup instead of producing
 delayed JNI errors.
@@ -110,7 +154,7 @@ the build-time AOT gates without adding runtime reflection.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.7.1</version>
+  <version>4.8.0</version>
 </parent>
 
 <dependencies>
@@ -234,13 +278,13 @@ final class ApiErrors {
 Exception handlers are indexed and invoked through generated code. Do not catch every exception in
 every route or expose dependency exception text to clients.
 
-## v4.7.1 At A Glance
+## v4.8.0 At A Glance
 
 This patch aligns the platform parent, BOM, starters and sample dependencies. Packaged native
 libraries now include Windows x64, Linux x64, Linux ARM64 and macOS ARM64. The Linux GLIBC floor
 stays at `2.17`; macOS ARM64 targets `11.0`. The ABI numbers and Java handler API are unchanged.
 Use the bundled native library rather than copying one from another release.
-See [4.7.1 release notes](docs/release-notes/v4.7.1.md) for the complete upgrade set.
+See [4.8.0 release notes](docs/release-notes/v4.8.0.md) for the complete upgrade set.
 
 ### Telemetry Fixes Retained From v4.6.2
 
@@ -283,11 +327,11 @@ isolated in Rust.
 - Startup validates REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, Glowroot ABI `6`, source revision,
   platform, and SHA-256 before serving traffic.
 - Native release artifacts must come from a clean CI build of the exact recorded Rust commit.
-- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.7.0` and standalone
+- Spring Boot services use the separate `java-rust-glowroot-spring-boot-starter:0.7.1` and standalone
   `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
 Existing REST annotations, handler signatures, response types, services, validation, and business
-logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.7.1`
+logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.8.0`
 artifact.
 
 ## How Startup And Configuration Work
@@ -513,6 +557,16 @@ keeps queue burst memory bounded without serializing buffer rental on one worker
 `reactor_native_response_pool_staging_*` metrics when diagnosing warm-state RSS; do not tune it by
 growing global JNI queues.
 
+**4.8.0 buffer-retry fix:** matching Java/native builds can grow the response buffer without
+calling a materialized-result handler again. This applies to results such as `RawResponse`, DTOs,
+and `ResponseEntity`. It is not a response cache. The existing result is released after writing or
+cancellation; no extra payload copy or larger global queue is introduced. Old Java/native pairings
+remain compatible but keep their previous retry behavior until both sides are updated.
+
+An `int` direct-buffer handler still follows its existing negative-required-size contract and may
+be called again. Keep that writer replayable. The same applies to `JsonBodyProducer.write`: do
+database/RPC calls in the handler, not in the writer. A producer writes the previously obtained data.
+
 Choose profiles from your own workload shape, pod budget, latency target, and overload policy. Raw
 benchmark tools and machine-specific evidence are intentionally kept outside the public repository.
 
@@ -524,7 +578,7 @@ benchmark tools and machine-specific evidence are intentionally kept outside the
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.7.1</version>
+  <version>4.8.0</version>
 </dependency>
 ```
 
@@ -606,17 +660,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.7.1.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.7.1-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.7.1-core-runtime.jar`: single lean runtime jar for container
+- `rust-java-rest-4.8.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.8.0-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.8.0-core-runtime.jar`: single lean runtime jar for container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.7.1-sample.jar`: runnable full-feature demo application built by
+- `sample/target/rust-java-rest-4.8.0-sample.jar`: runnable full-feature demo application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.7.1`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.8.0`, it does not receive the
   framework's demo handlers, sample DTOs, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -638,7 +692,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.7.1-sample.jar
+java -jar sample/target/rust-java-rest-4.8.0-sample.jar
 ```
 
 ## Copy/Paste REST Cookbook
@@ -1101,6 +1155,33 @@ increase queueing, retained buffers, and p99.
 
 Async completion buffers are heap-backed and process-wide by default for low RSS:
 
+In the unreleased source checkout, Rust is the single owner of the HTTP async
+deadline and pending-request registry. Java only forwards the future's result;
+it does not add another timer or request table. A late result still reaches
+native cleanup and returns its Java response buffer, even after HTTP timeout.
+You keep your handler and `reactor.rust.async.response-timeout-ms` setting.
+That timeout ends the HTTP request; it does not interrupt your business task.
+Give database and RPC calls their own bounded timeouts. This lifecycle fix is
+not a published performance claim.
+
+In that same source checkout, an async route returns its work-admission slot
+when Java has finished and its encoded response has reserved the existing
+`reactor.rust.http.max-inflight-response-bytes` budget. It no longer waits for
+the HTTP executor to poll an already-ready response. If the byte reservation
+is unavailable, the original slot lifetime is kept. Cancellation and rejected
+native responses release their ownership as well. This does not increase route
+concurrency, queue capacity or timeouts. Keep separate RPC and response-byte
+limits; a slow client must not become an unbounded ready-response queue.
+
+The source checkout also hands a headerless `RawResponse.nativeResponse(id)`
+async result to Rust as an ID and status. Java still runs your handler and
+future transformations. It does not build a byte-array control frame for this
+case. Rust keeps the response-byte limit and owns late-result cleanup.
+Custom headers use the existing framed path. An older ABI-29 library is detected
+once and uses compatible frame bytes instead. This optional capability needs
+matching native artifacts for the allocation-saving path; no performance gain
+is implied for an older binary.
+
 ```properties
 reactor.rust.async.direct-buffer.enabled=false
 reactor.rust.async.frame-initial-bytes=8192
@@ -1514,7 +1595,7 @@ Use:
 - `GET /diagnostics/routes` for route strategy/fallback visibility.
 - `NativeBridge.nativeMemoryDiagnosticsJson()` for native memory diagnostics.
 
-The stable `4.7.1` line can use `java-rust-glowroot-agent:0.7.0`. It sends bounded
+The stable `4.8.0` line can use `java-rust-glowroot-agent:0.7.1`. It sends bounded
 HTTP route, native Dubbo, native Redis, process RSS, thread, exporter health, and sampled slow/error
 trace data to Glowroot Central. The Java agent does not weave bytecode and adds no runtime
 dependencies. Protobuf and plaintext HTTP/2 export run on the isolated Rust exporter, not the
@@ -1579,7 +1660,7 @@ The collector is never on the HTTP request critical path. Collector failure uses
 backoff and drops an expired rollup instead of retaining data indefinitely. The application remains
 available. The source-enforced agent-owned ceiling is `1 MiB`. Earlier `4.4.1` evidence used the
 shared-runtime path and observed resident maxima of `+1.742 MiB`, `+1.817 MiB`, and `+1.754 MiB`
-with no telemetry thread. Version `4.7.1` isolates export and profile reclamation on one `256 KiB`
+with no telemetry thread. Version `4.8.0` isolates export and profile reclamation on one `256 KiB`
 Rust thread; it does not consume Hyper workers. Embedded REST closes the startup collector probe
 and reconnects only for a bounded export window. The coordinated release gate measures the
 disabled/enabled `+3 MiB`, RPS, p99, and `503` contract before publishing the companion agent.
@@ -1700,7 +1781,7 @@ together. Do not publish one workstation run as a universal framework claim.
 Public operational guidance:
 
 - [docs/production-runtime.md](docs/production-runtime.md)
-- [docs/release-notes/v4.7.1.md](docs/release-notes/v4.7.1.md)
+- [docs/release-notes/v4.8.0.md](docs/release-notes/v4.8.0.md)
 - [docs/release-notes/v4.6.2.md](docs/release-notes/v4.6.2.md)
 - [docs/release-notes/v4.6.0.md](docs/release-notes/v4.6.0.md)
 - [docs/release-notes/v4.4.1.md](docs/release-notes/v4.4.1.md)
@@ -1722,7 +1803,7 @@ raw/read-model, or native serialization.
 
 ## Native Binaries
 
-The published `4.7.1` Maven package includes:
+The published `4.8.0` Maven package includes:
 
 - `native/windows-x64/rust_hyper.dll`
 - `native/linux-x64/librust_hyper.so`
@@ -1750,7 +1831,7 @@ The loader and native build workflow now support these resource paths:
 
 Use an ARM64 Java 21 runtime. macOS builds target macOS `11.0`; Linux builds keep the GLIBC `2.17`
 floor. The artifact must be built for the target CPU and included with its SHA-256 provenance.
-The `4.7.1` package includes all four platforms and their SHA-256 provenance.
+The `4.8.0` package includes all four platforms and their SHA-256 provenance.
 Native ARM64 builds pass CI; application smoke tests in this release were run on x64.
 See the [native packaging steps](https://github.com/esasmer-dou/rust-spring#package-the-native-artifacts).
 
@@ -1793,7 +1874,7 @@ Before shipping a service:
 | Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
 | Small projects that compile in the build | [Examples](examples/README.md) |
 | Runtime sizing and performance decisions | [Production runtime guide](docs/production-runtime.md) |
-| Changes in this release | [4.7.1 release notes](docs/release-notes/v4.7.1.md) |
+| Changes in this release | [4.8.0 release notes](docs/release-notes/v4.8.0.md) |
 
 ## License
 

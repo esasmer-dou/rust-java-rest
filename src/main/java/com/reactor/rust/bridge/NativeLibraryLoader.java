@@ -166,18 +166,23 @@ public final class NativeLibraryLoader {
             String resourcePath,
             String libraryFileName,
             Platform platform) {
-        try (InputStream is = NativeLibraryLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
-            if (is == null) {
-                throw new UnsatisfiedLinkError(
+        java.net.URL selected = NativeLibraryLoader.class.getClassLoader().getResource(resourcePath);
+        if (selected == null) {
+            throw new UnsatisfiedLinkError(
                     "Native library not found in JAR resources: " + resourcePath + "\n" +
                     "Supported platforms: linux-x64, linux-arm64, windows-x64, macos-arm64\n\n" +
                     "Alternative: set -Drust.lib.path=/path/to/library"
-                );
+            );
+        }
+        try {
+            var connection = selected.openConnection();
+            connection.setUseCaches(false);
+            byte[] bytes;
+            try (InputStream is = connection.getInputStream()) {
+                bytes = is.readAllBytes();
             }
-
-            byte[] bytes = is.readAllBytes();
             NativeProvenance.Manifest manifest = NativeProvenance.verifyPackagedBinary(
-                    NativeLibraryLoader.class.getClassLoader(),
+                    selected,
                     platform.toString(),
                     bytes,
                     NativeBridge.EXPECTED_NATIVE_ABI_VERSION
@@ -343,6 +348,11 @@ public final class NativeLibraryLoader {
     static NativeProvenance.BuildInfo validateRuntimeProvenance(
             String nativeBuildInfo,
             int expectedRestAbi) {
+        return validateRuntimeProvenance(nativeBuildInfo, expectedRestAbi, loadedArtifact.manifest());
+    }
+
+    static NativeProvenance.BuildInfo validateRuntimeProvenance(
+            String nativeBuildInfo, int expectedRestAbi, NativeProvenance.Manifest manifest) {
         NativeProvenance.BuildInfo buildInfo = NativeProvenance.parseBuildInfo(nativeBuildInfo);
         if (buildInfo.restAbi() != expectedRestAbi) {
             throw new IllegalStateException(
@@ -372,7 +382,6 @@ public final class NativeLibraryLoader {
             );
         }
 
-        NativeProvenance.Manifest manifest = loadedArtifact.manifest();
         if (manifest != null) {
             if (!manifest.sourceRevision().equals(buildInfo.sourceRevision())) {
                 throw new IllegalStateException(

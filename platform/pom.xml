@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-platform-build</artifactId>
-    <version>4.7.1</version>
+    <version>4.8.0</version>
     <packaging>pom</packaging>
 
     <modules>
@@ -27,4 +27,11 @@
         <module>maven-plugin</module>
         <module>integration-smoke</module>
     </modules>
+
+    <profiles>
+        <profile>
+            <id>ffm-fast</id>
+            <modules><module>ffm-fast</module><module>ffm-cache</module></modules>
+        </profile>
+    </profiles>
 </project>

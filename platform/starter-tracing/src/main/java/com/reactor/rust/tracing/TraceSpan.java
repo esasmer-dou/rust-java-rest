@@ -8,4 +8,10 @@ public record TraceSpan(
         long durationNanos,
         boolean sampled,
         boolean success,
-        String errorType) {}
+        String errorType,
+        String parentSpanId) {
+    public TraceSpan(String name, String traceId, String spanId, long durationNanos,
+                     boolean sampled, boolean success, String errorType) {
+        this(name, traceId, spanId, durationNanos, sampled, success, errorType, null);
+    }
+}

@@ -7,7 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [4.8.0] - 2026-10-29
+
+- Publish coordinated Linux x64/ARM64, Windows x64 and macOS ARM64 native artifacts
+  without changing ABI values. Linux OpenJ9 functional evidence and other-platform
+  compile/provenance evidence are distinct. Ordinary JNI remains panic=abort;
+  HotSpot FFM stays a separate opt-in artifact.
+
+- Add an optional owned-body bridge for generated direct Dubbo JSON lists. Keep
+  the public handler API, bounded response limits and one RPC per handler call;
+  a capacity retry reuses the native response rather than replaying business work.
+  Cancellation defers native cleanup until an active atomic writer has exited.
+  Direct projection does not invoke consumer record constructors or custom serializers.
+- Add opt-in, build-time SWAR literal generation with strict options, preserved
+  buffer position/order/limit and exact capacity retry accounting. Existing
+  generated writers remain the default.
+
+- Add an explicit shared-slab cache adapter and isolated raw-Redis HTTP example.
+  Batch slab acquisition and GET in one ordinary FFM downcall; retain JNI startup
+  selection, existing managed snapshot ownership and buffer-capacity continuation.
+  Enforce bounded UTF-8 input, 64 KiB response limits, lease epochs and no post-GET
+  JNI replay. Optional Java 21 preview modules do not enter core/default dependencies.
+  Linux GLIBC<=2.17 and live OpenJ9 tests are separate from Windows release distribution.
+  Existing ABI values stay unchanged. No published artifacts are replaced.
+  Block OpenJ9 Java21 FFM before linker initialization after reproducing retained
+  VM downcall-scope stacks. Offer explicit JNI shared slab over the same Rust owner;
+  do not patch JDK internals or replay failed reads. HotSpot FFM remains separate.
+  Keep JNI shared slab in the existing abort engine through its explicit
+  `shared-slab` feature; do not impose the FFM unwind profile on OpenJ9 REST traffic.
+  Read standalone batched GET replies directly into the guarded slot, avoiding
+  the temporary native payload Vec while retaining small-RESP transport reads.
+  Pass JNI String keys to bounded native UTF-16/UTF-8 conversion, removing Java
+  key buffers/wrappers and hot encoding loops. Preflight the additive entry before
+  I/O. Keep Sentinel/Cluster recovery, Java reader API and snapshot ownership unchanged.
+  Reuse the canonical UTF-8 JSON header without reparsing or allocating its value
+  on each response. Avoid lowercase String allocation for charset checks and the
+  temporary header Vec for large framed responses. Preserve custom/duplicate
+  header behavior, body ownership and response-byte metrics. This is header
+  preparation only, not response caching; no application setting is required.
+
+- Add the W3C caller-buffer codec and remote parent span ID while preserving the
+  seven-argument TraceSpan constructor. Validate versions, lowercase/nonzero IDs
+  and output boundaries; reduce temporary ASCII-ID storage without shared buffers.
+- Protect retry header snapshots with caller-thread and asynchronous I/O-failure
+  regression tests. Keep the existing HTTP retry algorithm unchanged. Add a separate
+  trace-propagation sample profile and bilingual usage guides.
+
+- Add optional generated HS256 edge policies that reject invalid tokens before JNI while
+  preserving Java authentication and roles for valid requests. Use the explicit `edge-jwt`
+  native feature and shared security policy; unsupported configuration fails startup.
+- Replace native outbound registry/pool hot-path locks with generation-tagged fixed slots
+  and bounded idle queues. Charge origin metadata to the native byte budget.
+- Complete circuit-breaker futures exceptionally on decoder RuntimeException/Error;
+  release half-open probes and preserve final-outcome/retry semantics.
+- Respect startup conditions on generated HTTP client factories. Add a separate outbound
+  sample with explicit completion headroom; the ordinary cache-reader JAR stays unchanged.
+- Keep the Glowroot ABI constant behind a compile-time feature gate so minimal native builds
+  do not reference the disabled module. Existing all-features ABI values remain unchanged.
+
+- Negotiate optional ABI-29 buffered-result continuations so response-capacity growth does not
+  repeat materialized handler results, guards or exception mappers. Clear retained references on
+  success and native abort; keep integer direct-writer retries and older Java/native pairings
+  compatible. No ABI number, queue size or worker default changes. Full performance gate remains open.
+
+- Resolve generated project versions from a filtered build resource instead of a stale literal.
+- Align the platform's Dubbo dependency and annotation processor to `0.8.1`.
+- Add opt-in generated `@NativeView` readers and binary/JSON writers with checked layout,
+  UTF-8 validation, thread confinement and explicit borrowed-buffer lifetimes.
+- Add generated per-method HTTP circuit breakers with bounded outcome windows,
+  generation-safe probes and unchanged retry rules. Unannotated methods retain their path.
+- Add caller-buffer W3C traceparent writing and retain the remote parent span ID.
+- Check canonical JWT Base64URL tail bits without re-encoding decoded segments.
+- Add bounded asymmetric JWT verification and an explicitly selected verified-token cache.
+- Reuse initialized JCA engines for the same pinned key. Reinitialize after partial input,
+  failed key setup or a key change; preserve per-request verification when uncached.
+  Bound signature/hash scratch to 256 bytes per worker and bypass cache hash/slot state
+  entirely at a zero entry-byte budget. Legacy HS256 defaults and native ABI stay unchanged.
+- Add an isolated `jwt-security` sample profile with trusted public-key files, real
+  authentication/role examples and bounded-cache settings. Its common sample-model
+  dependency is compile-only for this profile; the default reader keeps its runtime model.
+- Keep the experimental Java 21 FFM bridge in a separate, explicitly selected module;
+  the core dependency graph and ordinary JNI binary remain unchanged.
+- Add opt-in compile-time prebaked JSON literal writes with exact capacity-retry accounting.
+- Add an explicitly configured HotSpot Java 21 AppCDS build goal. It is disabled by default
+  and rejects OpenJ9 in favor of its existing shared classes cache.
+- Safely replace the plugin-owned read-only Windows AppCDS archive on repeated generation.
+- These source additions have not completed the full paired-container RSS/RPS/p99 release gate.
 
 ## [4.7.1] - 2026-10-19
 
@@ -19,6 +104,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Align the cache starter to java-rust-cache 0.8.1 so standalone cache telemetry receives the same fix.
 - Preserve all ABI numbers, Java handlers, annotations, profiles and memory/concurrency defaults.
 - Coordinate optional telemetry qualification with agent 0.7.0; production publication requires the new REST/Spring performance gate.
+
+## [4.7.0]
+
+- Introduce the coordinated framework, cache, Dubbo, shared-contract and sample release line.
+- Preserve the Java business API and native ABI contracts.
+- Document workload-specific results and explicitly accepted deviations instead of universal
+  performance claims. See [4.7.0 release notes](docs/release-notes/v4.7.0.md).
 
 ## [4.6.3] - 2026-10-16
 

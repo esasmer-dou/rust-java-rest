@@ -18,6 +18,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Run in a dedicated JVM against the freshly built native artifact, not a stale packaged DLL/SO. */
 @EnabledIfSystemProperty(named = "reactor.test.native-http", matches = "true")
 class NativePrimitiveHttpTest {
+    private static final String SPARSE_JSON = "{\"payload\":\"" + "\u0130stanbul \ud83d\ude80 ".repeat(1600) + "\",\"marker\":\"A\"}";
+    private static final String ALTERNATE_JSON = SPARSE_JSON.replace("\"marker\":\"A\"", "\"marker\":\"B\"");
+
     @Test
     void primitiveCallbacksAndFailureRecoveryAcrossRealHttp() throws Exception {
         System.setProperty("reactor.rust.jni.workers", "1");
@@ -44,7 +47,9 @@ class NativePrimitiveHttpTest {
                 new RouteDef("GET", "/async/slow-start", 15, "java.lang.Void", "java.lang.String",
                         true, false, false, false, true, 0L, 4096L),
                 new RouteDef("GET", "/sync/string", 16, "java.lang.Void", "java.lang.String",
-                        true, false, true, false, false, 0L, 4096L)));
+                        true, false, true, false, false, 0L, 4096L),
+                new RouteDef("GET", "/sync/sparse", 17, "java.lang.Void", "java.lang.String",
+                        true, false, true, false, false, 0L, 32768L)));
         int port = NativeBridge.startHttpServerAndGetPort(0);
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build()) {
             if (expectedHttp1 != null) {
@@ -74,6 +79,18 @@ class NativePrimitiveHttpTest {
                     HttpResponse.BodyHandlers.ofString());
             assertEquals(200, generic.statusCode(), generic.body());
             assertEquals("{\"message\":\"generic-sync\"}", generic.body());
+            var largeReplies = new java.util.ArrayList<java.util.concurrent.CompletableFuture<HttpResponse<String>>>();
+            for (int i = 0; i < 16; i++) {
+                var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port
+                        + "/sync/sparse?alternate=" + (i % 2))).timeout(Duration.ofSeconds(10)).GET().build();
+                largeReplies.add(client.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)));
+            }
+            for (int i = 0; i < largeReplies.size(); i++) {
+                var reply = largeReplies.get(i).get(15, java.util.concurrent.TimeUnit.SECONDS);
+                assertEquals(201, reply.statusCode());
+                assertEquals("sparse", reply.headers().firstValue("X-Frame-Test").orElseThrow());
+                assertEquals(i % 2 == 0 ? SPARSE_JSON : ALTERNATE_JSON, reply.body());
+            }
             for (String type : List.of("early", "rejected", "deferred", "throwing", "slow-start", "early", "never")) {
                 var response = client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port
                                 + "/async/" + type)).timeout(Duration.ofSeconds(5)).GET().build(),
@@ -110,8 +127,22 @@ class NativePrimitiveHttpTest {
     }
 
     public static final class Callbacks {
+        private static final byte[] SPARSE_BYTES = SPARSE_JSON.getBytes(StandardCharsets.UTF_8);
+        private static final byte[] ALTERNATE_BYTES = ALTERNATE_JSON.getBytes(StandardCharsets.UTF_8);
+        private static final byte[] SPARSE_HEADERS =
+                "Content-Type: application/json; charset=utf-8\nX-Frame-Test: sparse\n".getBytes(StandardCharsets.US_ASCII);
+
         public static int handleRustBodylessRequestIntoBuffer(int id, ByteBuffer out, int offset,
                                                                int capacity, String path, String query, String headers) {
+            if (id == 17) {
+                byte[] body = "alternate=1".equals(query) ? ALTERNATE_BYTES : SPARSE_BYTES;
+                int frameLength = 18 + SPARSE_HEADERS.length + body.length;
+                if (frameLength > out.capacity() - offset) return -frameLength;
+                out.position(offset);
+                out.put("RJRSPV1!".getBytes(StandardCharsets.US_ASCII)).putShort((short) 201)
+                        .putInt(SPARSE_HEADERS.length).putInt(body.length).put(SPARSE_HEADERS).put(body);
+                return frameLength;
+            }
             return write(out, offset, "{\"message\":\"generic-sync\"}");
         }
         public static boolean handleRustAsyncBodylessRequest(int handlerId, long requestId,

@@ -9,9 +9,19 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RouteScannerValidationTest {
+    @Test
+    void directBufferBodyIsNeverDiscardedBecauseTheDtoRequestTypeIsVoid() {
+        assertFalse(RouteScanner.isBodylessRequest(true, false, Void.class));
+        assertFalse(RouteScanner.isBodylessRequest(true, false, void.class));
+        assertFalse(RouteScanner.isBodylessRequest(false, true, Void.class));
+        assertFalse(RouteScanner.isBodylessRequest(false, false, byte[].class));
+        assertTrue(RouteScanner.isBodylessRequest(false, false, Void.class));
+    }
 
     @RouteWorkload(value = RouteWorkload.Type.RPC_READ, budget = "rpc-read")
     static final class WorkloadHandler {

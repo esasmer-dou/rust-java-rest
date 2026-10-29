@@ -3,10 +3,15 @@ package com.reactor.rust.json;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.ReadOnlyBufferException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JsonBufferWriterTest {
@@ -83,6 +88,90 @@ class JsonBufferWriterTest {
                 .result();
 
         assertEquals(-"{\"customerName\":\"Ada\"}".getBytes(StandardCharsets.UTF_8).length, result);
+    }
+
+    @Test
+    void scalarWritesRespectLimitAndCanRetryIntoTheSameReopenedBuffer() {
+        byte[] expected = "{\"city\":\"\u0130\ud83d\ude80\\n\\\"\\\\\",\"id\":-9223372036854775808}"
+                .getBytes(StandardCharsets.UTF_8);
+        int offset = 5;
+        for (boolean direct : new boolean[]{false, true}) {
+            for (boolean reusable : new boolean[]{false, true}) {
+                for (int available = 0; available <= expected.length; available++) {
+                    ByteBuffer out = (direct ? ByteBuffer.allocateDirect(offset + expected.length + 8)
+                            : ByteBuffer.allocate(offset + expected.length + 8)).order(ByteOrder.LITTLE_ENDIAN);
+                    for (int i = 0; i < out.capacity(); i++) out.put(i, (byte) '!');
+                    out.limit(offset + available).position(2).mark();
+
+                    JsonBufferWriter json = reusable ? JsonBufferWriter.reusable(out, offset)
+                            : JsonBufferWriter.wrap(out, offset);
+                    assertEquals(available < expected.length ? -expected.length : expected.length,
+                            writeScalarDocument(json));
+                    assertEquals(2, out.position());
+                    assertEquals(offset + available, out.limit());
+                    assertSame(ByteOrder.LITTLE_ENDIAN, out.order());
+                    out.reset();
+                    byte[] prefix = new byte[available];
+                    out.get(offset, prefix);
+                    assertArrayEquals(Arrays.copyOf(expected, available), prefix);
+                    assertUntouchedOutside(out, offset, available);
+
+                    out.limit(offset + expected.length);
+                    json = reusable ? JsonBufferWriter.reusable(out, offset)
+                            : JsonBufferWriter.wrap(out, offset);
+                    assertEquals(expected.length, writeScalarDocument(json));
+                    assertEquals(2, out.position());
+                    assertEquals(offset + expected.length, out.limit());
+                    out.reset();
+                    byte[] complete = new byte[expected.length];
+                    out.get(offset, complete);
+                    assertArrayEquals(expected, complete);
+                    assertUntouchedOutside(out, offset, expected.length);
+                }
+            }
+        }
+    }
+
+    @Test
+    void offsetAtOrBeyondLimitCountsWithoutWritingAndClearRestoresCapacity() {
+        for (int offset : new int[]{2, 5}) {
+            ByteBuffer out = ByteBuffer.allocate(32);
+            Arrays.fill(out.array(), (byte) '!');
+            out.limit(2).position(1);
+            assertEquals(-2, JsonBufferWriter.reusable(out, offset).beginObject().endObject().result());
+            assertEquals(1, out.position());
+            assertEquals(2, out.limit());
+            assertUntouchedOutside(out, 0, 0);
+            out.clear();
+            assertEquals(2, JsonBufferWriter.reusable(out, offset).beginObject().endObject().result());
+            assertEquals('{', out.get(offset));
+            assertEquals('}', out.get(offset + 1));
+        }
+    }
+
+    @Test
+    void limitedReadOnlyTargetsRejectActualScalarAndSwarWrites() {
+        for (int available = 1; available <= 8; available++) {
+            ByteBuffer out = ByteBuffer.allocateDirect(16).asReadOnlyBuffer();
+            out.limit(available);
+            assertThrows(ReadOnlyBufferException.class,
+                    () -> JsonBufferWriter.reusable(out, 0).beginObject());
+            assertThrows(ReadOnlyBufferException.class,
+                    () -> JsonBufferWriter.reusable(out, 0).writePrebakedLong(0));
+            assertEquals(0, out.position());
+            assertEquals(available, out.limit());
+        }
+    }
+
+    private static int writeScalarDocument(JsonBufferWriter json) {
+        return json.beginObject().fieldString("city", "\u0130\ud83d\ude80\n\"\\").comma()
+                .fieldLong("id", Long.MIN_VALUE).endObject().result();
+    }
+
+    private static void assertUntouchedOutside(ByteBuffer out, int offset, int length) {
+        ByteBuffer all = out.duplicate().clear();
+        for (int i = 0; i < offset; i++) assertEquals((byte) '!', all.get(i));
+        for (int i = offset + length; i < all.capacity(); i++) assertEquals((byte) '!', all.get(i));
     }
 
     private static String read(ByteBuffer buffer, int length) {

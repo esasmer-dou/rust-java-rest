@@ -88,6 +88,18 @@ class HandlerRegistryNativeFrameTest {
     }
 
     static class ModernHandler {
+        public CompletableFuture<ResponseEntity<RawResponse>> nativeCreated() {
+            return CompletableFuture.completedFuture(ResponseEntity.created(RawResponse.nativeResponse(42)));
+        }
+
+        public CompletableFuture<ResponseEntity<RawResponse>> nativeWithHeader() {
+            return CompletableFuture.completedFuture(ResponseEntity.ok(RawResponse.nativeResponse(43)).header("X-Test", "kept"));
+        }
+
+        @com.reactor.rust.annotations.ResponseStatus(700)
+        public CompletableFuture<RawResponse> nativeExtensionStatus() {
+            return CompletableFuture.completedFuture(RawResponse.nativeResponse(44));
+        }
         public ResponseEntity<String> created() {
             return ResponseEntity.created("created");
         }
@@ -690,6 +702,46 @@ class HandlerRegistryNativeFrameTest {
         int bodyLen = frame.getInt();
         String encodedBody = new String(frameBytes, 18 + headersLen, bodyLen, StandardCharsets.UTF_8);
         assertEquals("\"async-created\"", encodedBody);
+    }
+
+    @Test
+    void nativeAsyncResultKeepsAFrameFreeHandleAndCompatibleFallbackBytes() throws Exception {
+        var registry = HandlerRegistry.getInstance();
+        var handler = new ModernHandler();
+        int id = registry.registerHandler(handler, ModernHandler.class.getDeclaredMethod("nativeCreated"), Void.class, ResponseEntity.class);
+        registry.resetAsyncFramePoolMetrics();
+        var frame = registry.invokeAsyncFrame(id, new byte[0], "", "", "").join();
+        assertEquals(42, frame.nativeId());
+        assertEquals(201, frame.nativeStatus());
+        assertTrue(registry.asyncFramePoolDiagnosticsJson().contains("\"miss\":0"));
+        byte[] expected = ByteBuffer.allocate(18).put(new byte[]{'R','J','S','T','A','T','1','!'})
+                .putShort((short)201).putInt(0).putInt(42).array();
+        assertArrayEquals(expected, frame.toByteArray());
+        assertArrayEquals(expected, frame.buffer().array());
+        registry.releaseAsyncResponseFrame(frame);
+    }
+
+    @Test
+    void nativeAsyncCustomHeadersKeepTheGeneralFramePath() throws Exception {
+        var registry = HandlerRegistry.getInstance();
+        var handler = new ModernHandler();
+        int id = registry.registerHandler(handler, ModernHandler.class.getDeclaredMethod("nativeWithHeader"), Void.class, ResponseEntity.class);
+        var frame = registry.invokeAsyncFrame(id, new byte[0], "", "", "").join();
+        assertEquals(0, frame.nativeId());
+        assertTrue(new String(frame.toByteArray(), StandardCharsets.UTF_8).contains("X-Test: kept\n"));
+        registry.releaseAsyncResponseFrame(frame);
+    }
+
+    @Test
+    void nativeAsyncAnnotationKeepsTheExisting200Contract() throws Exception {
+        var registry = HandlerRegistry.getInstance();
+        var handler = new ModernHandler();
+        int id = registry.registerHandler(handler, ModernHandler.class.getDeclaredMethod("nativeExtensionStatus"), Void.class, RawResponse.class);
+        var frame = registry.invokeAsyncFrame(id, new byte[0], "", "", "").join();
+        assertEquals(44, frame.nativeId());
+        assertEquals(200, frame.nativeStatus());
+        assertEquals(200, frameStatus(frame.buffer()));
+        registry.releaseAsyncResponseFrame(frame);
     }
 
     @Test

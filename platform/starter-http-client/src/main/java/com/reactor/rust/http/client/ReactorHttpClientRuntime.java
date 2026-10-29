@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Shared bounded runtime used by generated outbound HTTP clients. */
-public final class ReactorHttpClientRuntime implements AutoCloseable {
+public sealed class ReactorHttpClientRuntime implements AutoCloseable {
     private final ExecutorService executor;
     private final HttpClient client;
     private final Semaphore inFlight;
@@ -44,7 +44,7 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
     private final long shutdownTimeoutMs;
     private final List<OutboundHeaderProvider> headerProviders;
 
-    private ReactorHttpClientRuntime(
+    ReactorHttpClientRuntime(
             ExecutorService executor,
             HttpClient client,
             Semaphore inFlight,
@@ -69,7 +69,37 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
         this.headerProviders = headerProviders;
     }
 
+    private ReactorHttpClientRuntime(NativeHttpTransport transport) {
+        this.executor = null;
+        this.client = null;
+        this.inFlight = null;
+        this.defaultRetries = bounded("reactor.http-client.retries", 1, 0, 3);
+        this.defaultTimeoutMs = positiveLong("reactor.http-client.request-timeout-ms", 2_000L);
+        this.retryBackoffMs = Math.max(0L, PropertiesLoader.getLong("reactor.http-client.retry-backoff-ms", 25L));
+        this.maxRequestBytes = transport.maxRequestBytes();
+        this.maxResponseBytes = transport.maxResponseBytes();
+        this.maxHeaders = transport.maxHeaderCount();
+        this.shutdownTimeoutMs = positiveLong("reactor.http-client.shutdown-timeout-ms", 5_000L);
+        this.headerProviders = loadHeaderProviders();
+    }
+
     public static ReactorHttpClientRuntime fromProperties() {
+        String transport = PropertiesLoader.get("reactor.http-client.transport", "jdk");
+        if ("rust-native".equals(transport)) {
+            // Validate shared configuration/providers before starting any native resources.
+            NativeHttpTransport nativeTransport = new NativeHttpTransport();
+            try {
+                ReactorHttpClientRuntime runtime = new NativeRuntime(nativeTransport);
+                nativeTransport.start();
+                return runtime;
+            } catch (RuntimeException | Error failure) {
+                nativeTransport.close();
+                throw failure;
+            }
+        }
+        if (!"jdk".equals(transport)) {
+            throw new IllegalArgumentException("reactor.http-client.transport must be jdk or rust-native");
+        }
         int threads = positive("reactor.http-client.threads", 2);
         int queueCapacity = positive("reactor.http-client.queue-capacity", 256);
         int maxInFlight = positive("reactor.http-client.max-inflight", 128);
@@ -116,6 +146,7 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
                 || baseUri.getRawFragment() != null) {
             throw new IllegalArgumentException("Property " + baseUrlProperty + " must be an absolute HTTP(S) URL");
         }
+        register(baseUri);
         return new Client(this, baseUri);
     }
 
@@ -128,6 +159,34 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
             Thread.currentThread().interrupt();
             executor.shutdownNow();
         }
+    }
+
+    void register(URI baseUri) {}
+
+    Request newRequest(Client owner, String method, String path, String contentType,
+                       String accept, long timeout, int retries, boolean idempotent) {
+        return new Request(owner, method, path, contentType, accept, timeout, retries, idempotent);
+    }
+
+    private static final class NativeRuntime extends ReactorHttpClientRuntime {
+        private final NativeHttpTransport transport;
+
+        private NativeRuntime(NativeHttpTransport transport) {
+            super(transport);
+            this.transport = transport;
+        }
+
+        @Override
+        void register(URI baseUri) { transport.register(baseUri); }
+
+        @Override
+        Request newRequest(Client owner, String method, String path, String contentType,
+                           String accept, long timeout, int retries, boolean idempotent) {
+            return new NativeRequest(transport, owner, method, path, contentType, accept, timeout, retries, idempotent);
+        }
+
+        @Override
+        public void close() { transport.close(); }
     }
 
     private static List<OutboundHeaderProvider> loadHeaderProviders() {
@@ -175,11 +234,51 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
                 long timeoutMs,
                 int retries,
                 boolean idempotent) {
-            return new Request(this, method, path, contentType, accept, timeoutMs, retries, idempotent);
+            return runtime.newRequest(this, method, path, contentType, accept, timeoutMs, retries, idempotent);
+        }
+
+        /** Fixed request metadata for generated parameterless methods; never caches a response. */
+        public PreparedRequest prepare(String method, String path, String contentType, String accept,
+                                       long timeoutMs, int retries, boolean idempotent) {
+            return new PreparedRequest(this, method, path, contentType, accept, timeoutMs, retries, idempotent);
         }
     }
 
-    public static final class Request {
+    public static final class PreparedRequest {
+        private final Client owner;
+        private final String method;
+        private final String path;
+        private final String contentType;
+        private final String accept;
+        private final long timeoutMs;
+        private final int retries;
+        private final boolean idempotent;
+        private final NativeHttpTransport.RequestMetadata nativeMetadata;
+
+        private PreparedRequest(Client owner, String method, String path, String contentType, String accept,
+                                long timeoutMs, int retries, boolean idempotent) {
+            this.owner = owner;
+            this.method = method;
+            this.path = path;
+            this.contentType = contentType;
+            this.accept = accept;
+            this.timeoutMs = timeoutMs;
+            this.retries = retries;
+            this.idempotent = idempotent;
+            Request prototype = owner.request(method, path, contentType, accept, timeoutMs, retries, idempotent);
+            // A provider may read the current request context. Never freeze its values.
+            nativeMetadata = prototype instanceof NativeRequest nativeRequest && owner.runtime.headerProviders.isEmpty()
+                    ? nativeRequest.transport.prepare(prototype.build(null), Request.normalizePath(path)) : null;
+        }
+
+        public Request request() {
+            Request request = owner.request(method, path, contentType, accept, timeoutMs, retries, idempotent);
+            if (nativeMetadata != null) ((NativeRequest) request).metadata = nativeMetadata;
+            return request;
+        }
+    }
+
+    public static sealed class Request {
         private final Client owner;
         private final String method;
         private String path;
@@ -271,7 +370,32 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
             return executeInternal(bytes -> decodeList(bytes, elementType), true);
         }
 
-        private <T> CompletableFuture<HttpClientResponse<T>> executeInternal(
+        // Only generated opt-in wrappers call these; ordinary Request has no breaker state/checks.
+        <T> CompletionStage<HttpClientResponse<T>> circuitResponse(Class<T> responseType, boolean exposeErrors) {
+            return executeInternal(bytes -> decode(bytes, responseType), exposeErrors);
+        }
+
+        <T> CompletionStage<HttpClientResponse<List<T>>> circuitListResponse(Class<T> elementType, boolean exposeErrors) {
+            return executeInternal(bytes -> decodeList(bytes, elementType), exposeErrors);
+        }
+
+        <T> CompletionStage<T> circuitExecute(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return HttpCircuitBreakerInvocation.observe(circuitResponse(type, false), breaker, lease, HttpClientResponse::body);
+        }
+
+        <T> CompletionStage<HttpClientResponse<T>> circuitExecuteResponse(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return HttpCircuitBreakerInvocation.observe(circuitResponse(type, true), breaker, lease, java.util.function.Function.identity());
+        }
+
+        <T> CompletionStage<List<T>> circuitExecuteList(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return HttpCircuitBreakerInvocation.observe(circuitListResponse(type, false), breaker, lease, HttpClientResponse::body);
+        }
+
+        <T> CompletionStage<HttpClientResponse<List<T>>> circuitExecuteListResponse(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return HttpCircuitBreakerInvocation.observe(circuitListResponse(type, true), breaker, lease, java.util.function.Function.identity());
+        }
+
+        <T> CompletableFuture<HttpClientResponse<T>> executeInternal(
                 ResponseDecoder<T> decoder,
                 boolean exposeErrorResponse) {
             ReactorHttpClientRuntime runtime = owner.runtime;
@@ -337,6 +461,69 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
             return builder.build();
         }
 
+        HttpRequest build(byte[] bytes) {
+            if (path.indexOf('{') >= 0 || path.indexOf('}') >= 0) {
+                throw new IllegalArgumentException("Not all outbound path variables were resolved: " + path);
+            }
+            StringBuilder target = new StringBuilder(owner.baseUri.toString().length() + path.length() + 32)
+                    .append(owner.baseUri).append(path);
+            if (query != null && !query.isEmpty()) {
+                target.append('?');
+                for (int index = 0; index < query.size(); index += 2) {
+                    if (index > 0) target.append('&');
+                    target.append(query.get(index)).append('=').append(query.get(index + 1));
+                }
+            }
+            if (bytes != null && bytes.length > owner.runtime.maxRequestBytes) {
+                throw new HttpClientException(
+                        "Outbound HTTP request exceeds " + owner.runtime.maxRequestBytes + " bytes", 413);
+            }
+            HttpRequest.BodyPublisher publisher = bytes == null
+                    ? HttpRequest.BodyPublishers.noBody()
+                    : HttpRequest.BodyPublishers.ofByteArray(bytes);
+            long effectiveTimeout = timeoutMs > 0L ? timeoutMs : owner.runtime.defaultTimeoutMs;
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(target.toString()))
+                    .timeout(Duration.ofMillis(effectiveTimeout))
+                    .method(method, publisher)
+                    .header("Accept", accept);
+            if (bytes != null) builder.header("Content-Type", contentType);
+            if (headers != null) {
+                for (int index = 0; index < headers.size(); index += 2) {
+                    builder.header(headers.get(index), headers.get(index + 1));
+                }
+            }
+            ((NativeRequest) this).transport.contributeHeaders(builder, owner.runtime.headerProviders);
+            return builder.build();
+        }
+
+        byte[] nativeBody() {
+            int maximum = owner.runtime.maxRequestBytes;
+            if (body instanceof byte[] raw && raw.length > maximum
+                    || body instanceof String text && text.length() > maximum) {
+                throw new HttpClientException("Outbound HTTP request exceeds " + maximum + " bytes", 413);
+            }
+            return encodeBody(body);
+        }
+
+        int nativeRetries() {
+            int configured = retries < 0 ? (idempotent ? owner.runtime.defaultRetries : 0) : retries;
+            if (configured < 0 || configured > 3) {
+                throw new IllegalArgumentException("HTTP retries must be between 0 and 3");
+            }
+            if (configured > 0 && !idempotent) {
+                throw new IllegalArgumentException("Retries require an idempotent HTTP exchange");
+            }
+            return configured;
+        }
+
+        long nativeRetryBackoffMs() { return owner.runtime.retryBackoffMs; }
+
+        NativeHttpTransport.RequestMetadata nativeMetadata() { return null; }
+
+        final boolean unchangedFor(String fixedPath) {
+            return query == null && headers == null && body == null && path.equals(fixedPath);
+        }
+
         private <T> CompletableFuture<HttpClientResponse<T>> attempt(
                 HttpRequest request,
                 ResponseDecoder<T> decoder,
@@ -367,7 +554,7 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
                         }
                         if (!exposeErrorResponse && (status < 200 || status >= 300)) {
                             return CompletableFuture.failedFuture(
-                                    new HttpClientException("Outbound HTTP response status " + status, status));
+                                    new HttpClientException.ResponseStatus(status));
                         }
                         T decoded = decoder.decode(outcome.response().body());
                         return CompletableFuture.completedFuture(new HttpClientResponse<>(
@@ -414,7 +601,7 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
         }
 
         @SuppressWarnings("unchecked")
-        private static <T> T decode(byte[] bytes, Class<T> responseType) {
+        static <T> T decode(byte[] bytes, Class<T> responseType) {
             if (responseType == Void.class || responseType == void.class) return null;
             if (responseType == byte[].class) return (T) bytes;
             if (responseType == String.class) return (T) new String(bytes, StandardCharsets.UTF_8);
@@ -425,7 +612,7 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
             }
         }
 
-        private static <T> List<T> decodeList(byte[] bytes, Class<T> elementType) {
+        static <T> List<T> decodeList(byte[] bytes, Class<T> elementType) {
             try {
                 return DslJsonService.parseList(bytes, elementType);
             } catch (RuntimeException invalidBody) {
@@ -433,11 +620,11 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
             }
         }
 
-        private static boolean transientStatus(int status) {
+        static boolean transientStatus(int status) {
             return status == 502 || status == 503 || status == 504;
         }
 
-        private static boolean retryable(Throwable failure) {
+        static boolean retryable(Throwable failure) {
             if (find(failure, HttpClientException.class) != null) return false;
             Throwable current = failure;
             while (current != null) {
@@ -482,10 +669,52 @@ public final class ReactorHttpClientRuntime implements AutoCloseable {
 
         private record Attempt(HttpResponse<byte[]> response, Throwable failure) {}
 
-        @FunctionalInterface
-        private interface ResponseDecoder<T> {
-            T decode(byte[] bytes);
+    }
+
+    private static final class NativeRequest extends Request {
+        private final NativeHttpTransport transport;
+        private NativeHttpTransport.RequestMetadata metadata;
+
+        private NativeRequest(NativeHttpTransport transport, Client owner, String method, String path,
+                              String contentType, String accept, long timeout, int retries, boolean idempotent) {
+            super(owner, method, path, contentType, accept, timeout, retries, idempotent);
+            this.transport = transport;
         }
+
+        @Override
+        NativeHttpTransport.RequestMetadata nativeMetadata() {
+            return metadata != null && unchangedFor(metadata.path()) ? metadata : null;
+        }
+
+        @Override
+        <T> CompletableFuture<HttpClientResponse<T>> executeInternal(ResponseDecoder<T> decoder, boolean exposeErrors) {
+            return transport.execute(this, decoder, exposeErrors);
+        }
+
+        @Override
+        <T> CompletionStage<T> circuitExecute(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return transport.executeProtectedBody(this, bytes -> decode(bytes, type), breaker, lease);
+        }
+
+        @Override
+        <T> CompletionStage<HttpClientResponse<T>> circuitExecuteResponse(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return transport.executeProtected(this, bytes -> decode(bytes, type), true, breaker, lease);
+        }
+
+        @Override
+        <T> CompletionStage<List<T>> circuitExecuteList(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return transport.executeProtectedBody(this, bytes -> decodeList(bytes, type), breaker, lease);
+        }
+
+        @Override
+        <T> CompletionStage<HttpClientResponse<List<T>>> circuitExecuteListResponse(Class<T> type, CircuitBreakerState breaker, long lease) {
+            return transport.executeProtected(this, bytes -> decodeList(bytes, type), true, breaker, lease);
+        }
+    }
+
+    @FunctionalInterface
+    interface ResponseDecoder<T> {
+        T decode(byte[] bytes);
     }
 
     private static final class BoundedBodySubscriber implements HttpResponse.BodySubscriber<byte[]> {

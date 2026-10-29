@@ -84,6 +84,9 @@ public final class JsonProducerResponse {
         return producer.write(out, offset);
     }
 
+    /** The owned producer, used by response cancellation cleanup. */
+    public JsonBodyProducer producer() { return producer; }
+
     private void invalidateEncodedHeaders() {
         encodedHeaders = null;
         encodedHeadersWithDefaultJson = null;

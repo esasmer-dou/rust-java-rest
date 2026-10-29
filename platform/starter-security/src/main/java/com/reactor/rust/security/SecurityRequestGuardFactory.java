@@ -49,7 +49,9 @@ public final class SecurityRequestGuardFactory implements RequestGuardFactory {
                             + owner.getName() + '#' + method.getName());
         }
         String[] requiredRoles = policy.roles().clone();
-        return new JwtGuard(verifier, requiredRoles);
+        // Select once at startup. Custom verifiers retain their own revocation/policy decisions.
+        JwtVerifier selected = verifier instanceof Hs256JwtVerifier hmac ? hmac.nativeGuardFor(owner, method) : verifier;
+        return new JwtGuard(selected, requiredRoles);
     }
 
     private static final class JwtGuard implements RequestGuard {

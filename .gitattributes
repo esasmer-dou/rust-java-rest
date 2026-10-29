@@ -1,0 +1,5 @@
+# Normalize this manifest in Git without rewriting current worktree bytes.
+/src/main/resources/native/native-provenance.properties text eol=lf
+
+# Frozen javap capture; the instruction comparison normalizes whitespace.
+/platform/starter-http-client/src/test/resources/jdk-bytecode-4.7.1.txt whitespace=-blank-at-eol,-blank-at-eof

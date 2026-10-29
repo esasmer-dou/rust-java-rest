@@ -37,7 +37,7 @@ public final class HttpErrorMapper {
         if (root instanceof ConflictException) {
             return mapped(409, "conflict", publicMessage(root, "Resource conflict"));
         }
-        if (root instanceof DependencyUnavailableException) {
+        if (root instanceof DependencyFailure) {
             return mapped(503, "dependency_unavailable", "Dependency is temporarily unavailable");
         }
         if (root instanceof UnauthorizedException) {

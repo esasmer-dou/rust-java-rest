@@ -48,7 +48,7 @@ public final class JsonBufferWriter {
         this.start = Math.max(0, offset);
         this.cursor = this.start;
         this.required = this.start;
-        this.limit = out != null ? out.capacity() : 0;
+        this.limit = out != null ? out.limit() : 0;
         return this;
     }
 
@@ -98,6 +98,63 @@ public final class JsonBufferWriter {
      */
     public JsonBufferWriter fieldPrefix(byte[] encodedFields, int offset, int length) {
         writeBytes(encodedFields, offset, length);
+        return this;
+    }
+
+    /**
+     * Eight pre-escaped literal bytes, low byte first, independent of buffer byte order.
+     * Writes only up to the buffer limit and counts all eight bytes for capacity retry.
+     * Does not change the buffer position, limit or byte order.
+     */
+    public JsonBufferWriter writePrebakedLong(long littleEndianWord) {
+        int writable = Math.min(Long.BYTES, Math.max(0, limit - cursor));
+        if (writable == Long.BYTES) {
+            ByteBuffer target = out;
+            long word = target.order() == java.nio.ByteOrder.LITTLE_ENDIAN
+                    ? littleEndianWord : Long.reverseBytes(littleEndianWord);
+            target.putLong(cursor, word);
+        } else {
+            for (int i = 0; i < writable; i++) {
+                out.put(cursor + i, (byte) (littleEndianWord >>> (i * Byte.SIZE)));
+            }
+        }
+        cursor += Long.BYTES;
+        required += Long.BYTES;
+        return this;
+    }
+
+    /**
+     * Writes a trusted, pre-escaped literal of 8 to 16 bytes using its first and last eight
+     * bytes, packed low byte first. Overlapping bytes must agree; at length 8, last is ignored.
+     * Preserves buffer position, limit and byte order, counting the full length for retry.
+     * Invalid lengths or integer accounting overflow fail before writing or counting bytes.
+     */
+    public JsonBufferWriter writePrebakedLiteral(long first, long last, int byteLength) {
+        if (byteLength < Long.BYTES || byteLength > 2 * Long.BYTES) {
+            throw new IllegalArgumentException("Literal length must be 8 to 16 bytes");
+        }
+        int nextRequired = Math.addExact(required, byteLength);
+        int nextCursor = Math.addExact(cursor, byteLength);
+        int writable = Math.min(byteLength, Math.max(0, limit - cursor));
+        if (writable == byteLength) {
+            ByteBuffer target = out;
+            if (target.order() != java.nio.ByteOrder.LITTLE_ENDIAN) {
+                first = Long.reverseBytes(first);
+                last = Long.reverseBytes(last);
+            }
+            target.putLong(cursor, first);
+            if (byteLength != Long.BYTES) {
+                target.putLong(cursor + byteLength - Long.BYTES, last);
+            }
+        } else {
+            for (int i = 0; i < writable; i++) {
+                long word = i < Long.BYTES ? first : last;
+                int lane = i < Long.BYTES ? i : i - (byteLength - Long.BYTES);
+                out.put(cursor + i, (byte) (word >>> (lane * Byte.SIZE)));
+            }
+        }
+        cursor = nextCursor;
+        required = nextRequired;
         return this;
     }
 

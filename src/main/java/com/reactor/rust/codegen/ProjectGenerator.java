@@ -1,12 +1,14 @@
 package com.reactor.rust.codegen;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import javax.lang.model.SourceVersion;
@@ -14,13 +16,28 @@ import javax.lang.model.SourceVersion;
 /** Small, dependency-free project generator for the supported production shapes. */
 public final class ProjectGenerator {
 
-    private static final String REST_VERSION = "4.7.0";
+    private static final String REST_VERSION = frameworkVersion();
     private static final String ZOOKEEPER_VERSION = "3.7.2";
     private static final Pattern MAVEN_ID = Pattern.compile("[A-Za-z0-9_.-]+");
     private static final Pattern JAVA_PACKAGE = Pattern.compile(
             "[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*");
 
     private ProjectGenerator() {}
+
+    static String frameworkVersion() {
+        try (InputStream source = ProjectGenerator.class.getResourceAsStream("generator-version.properties")) {
+            if (source == null) throw new IllegalStateException("Missing build-time generator version");
+            Properties values = new Properties();
+            values.load(source);
+            String version = values.getProperty("framework.version", "").trim();
+            if (!version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?")) {
+                throw new IllegalStateException("Invalid or unfiltered generator version: " + version);
+            }
+            return version;
+        } catch (IOException failure) {
+            throw new IllegalStateException("Cannot read build-time generator version", failure);
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         Options options = Options.parse(args);

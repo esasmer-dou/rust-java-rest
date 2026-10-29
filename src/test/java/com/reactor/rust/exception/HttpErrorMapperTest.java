@@ -23,6 +23,21 @@ class HttpErrorMapperTest {
     }
 
     @Test
+    void mapsOptionalDependencyMarkersWithoutAWrapperOrExposingTheirMessage() {
+        final class OptionalFailure extends RuntimeException implements DependencyFailure {
+            OptionalFailure() { super("private endpoint and credentials", null, false, false); }
+        }
+        var failure = new OptionalFailure();
+        var expected = new HttpErrorMapper.MappedError(
+                503, "dependency_unavailable", "Dependency is temporarily unavailable");
+        assertEquals(expected, HttpErrorMapper.map(failure));
+        assertEquals(expected, HttpErrorMapper.map(new CompletionException(failure)));
+        assertEquals(expected, HttpErrorMapper.map(new DependencyUnavailableException(failure)));
+        assertEquals(0, failure.getStackTrace().length);
+        assertEquals(500, HttpErrorMapper.map(new RuntimeException("not a dependency failure")).status());
+    }
+
+    @Test
     void hidesInternalMessagesAndEscapesControlCharacters() {
         HttpErrorMapper.MappedError internal = HttpErrorMapper.map(
                 new IllegalStateException("jdbc:postgresql://secret-host/password")

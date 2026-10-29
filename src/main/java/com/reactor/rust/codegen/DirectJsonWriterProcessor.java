@@ -1,6 +1,7 @@
 package com.reactor.rust.codegen;
 
 import javax.annotation.processing.AbstractProcessor;
+import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
@@ -38,10 +39,30 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
     private static final String PROVIDER_PREFIX = "ReactorDirectJsonWriterProvider_";
     private static final String SERVICE =
             "META-INF/services/com.reactor.rust.json.DirectJsonWriterProvider";
+    private static final String SWAR_OPTION = "reactor.json.swar";
 
     private final List<WriterModel> writers = new ArrayList<>();
     private final Set<String> generated = new HashSet<>();
     private boolean providerGenerated;
+    private boolean swarEnabled;
+
+    @Override
+    public synchronized void init(ProcessingEnvironment environment) {
+        super.init(environment);
+        if (environment.getOptions().containsKey(SWAR_OPTION)) {
+            String option = environment.getOptions().get(SWAR_OPTION);
+            if (!"true".equals(option) && !"false".equals(option)) {
+                environment.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                        "-A" + SWAR_OPTION + " must be true or false");
+            }
+            swarEnabled = "true".equals(option);
+        }
+    }
+
+    @Override
+    public Set<String> getSupportedOptions() {
+        return Set.of(SWAR_OPTION);
+    }
 
     @Override
     public Set<String> getSupportedAnnotationTypes() {
@@ -89,14 +110,16 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
         }
 
         try {
-            FieldTable fieldTable = fieldTable(components);
+            FieldTable fieldTable = fieldTable(components, swarEnabled);
             JavaFileObject source = processingEnv.getFiler().createSourceFile(generatedName, record);
             try (Writer writer = source.openWriter()) {
                 writer.write("package " + packageName + ";\n\n");
                 writer.write("public final class " + simpleName
                         + " implements com.reactor.rust.json.DirectJsonWriter<"
                         + record.getQualifiedName() + "> {\n");
-                writeFieldTable(writer, fieldTable.bytes());
+                if (!swarEnabled || fieldTable.bytes().length > 0) {
+                    writeFieldTable(writer, fieldTable.bytes());
+                }
                 writer.write("    public static final " + simpleName + " INSTANCE = new "
                         + simpleName + "();\n\n");
                 writer.write("    @Override\n");
@@ -240,9 +263,25 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
             }
             String accessor = owner + "." + component.name() + "()";
             FieldSlice field = fieldTable.fields().get(component.name());
+            writeFieldPrefix(writer, field, indent);
+            writeValue(writer, component.value(), accessor, indent, sequence, fieldTable);
+        }
+    }
+
+    private static void writeFieldPrefix(Writer writer, FieldSlice field, String indent) throws IOException {
+        if (field.literalLength() != 0) {
+            writer.write(indent + "json.writePrebakedLiteral(0x"
+                    + Long.toHexString(field.words()[0]) + "L, 0x"
+                    + Long.toHexString(field.words()[1]) + "L, " + field.literalLength() + ");\n");
+            return;
+        }
+        for (long word : field.words()) {
+            writer.write(indent + "json.writePrebakedLong(0x"
+                    + Long.toHexString(word) + "L);\n");
+        }
+        if (field.length() > 0) {
             writer.write(indent + "json.fieldPrefix(FIELD_PREFIXES, "
                     + field.offset() + ", " + field.length() + ");\n");
-            writeValue(writer, component.value(), accessor, indent, sequence, fieldTable);
         }
     }
 
@@ -359,17 +398,39 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
                 + local + ".booleanValue());\n");
     }
 
-    private static FieldTable fieldTable(List<ComponentModel> components) {
+    private static FieldTable fieldTable(List<ComponentModel> components, boolean swarEnabled) {
         LinkedHashSet<String> names = new LinkedHashSet<>();
         collectFieldNames(components, names);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         Map<String, FieldSlice> fields = new LinkedHashMap<>();
         for (String name : names) {
             byte[] encoded = ("\"" + name + "\":").getBytes(StandardCharsets.UTF_8);
-            fields.put(name, new FieldSlice(bytes.size(), encoded.length));
-            bytes.writeBytes(encoded);
+            if (swarEnabled && encoded.length >= Long.BYTES && encoded.length <= 2 * Long.BYTES) {
+                fields.put(name, new FieldSlice(bytes.size(), 0,
+                        new long[]{prebakedWord(encoded, 0), prebakedWord(encoded, encoded.length - Long.BYTES)},
+                        encoded.length));
+                continue;
+            }
+            long[] words = new long[swarEnabled ? encoded.length / Long.BYTES : 0];
+            int offset = 0;
+            for (int word = 0; word < words.length; word++) {
+                for (int lane = 0; lane < Long.BYTES; lane++) {
+                    words[word] |= (encoded[offset++] & 255L) << (lane * Byte.SIZE);
+                }
+            }
+            int tail = encoded.length - offset;
+            fields.put(name, new FieldSlice(bytes.size(), tail, words, 0));
+            bytes.write(encoded, offset, tail);
         }
         return new FieldTable(bytes.toByteArray(), Map.copyOf(fields));
+    }
+
+    private static long prebakedWord(byte[] encoded, int offset) {
+        long word = 0;
+        for (int lane = 0; lane < Long.BYTES; lane++) {
+            word |= (encoded[offset + lane] & 255L) << (lane * Byte.SIZE);
+        }
+        return word;
     }
 
     private static void collectFieldNames(List<ComponentModel> components, Set<String> names) {
@@ -489,7 +550,7 @@ public final class DirectJsonWriterProcessor extends AbstractProcessor {
 
     private record ComponentModel(String name, ValueModel value) {}
 
-    private record FieldSlice(int offset, int length) {}
+    private record FieldSlice(int offset, int length, long[] words, int literalLength) {}
 
     private record FieldTable(byte[] bytes, Map<String, FieldSlice> fields) {}
 

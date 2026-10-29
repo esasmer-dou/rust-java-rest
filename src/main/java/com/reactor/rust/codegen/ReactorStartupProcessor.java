@@ -39,6 +39,7 @@ import java.util.TreeSet;
         "reactor.codegen.descriptorPackage",
         "reactor.codegen.descriptorName",
         "reactor.codegen.handlers",
+        "reactor.codegen.dispatch",
         "reactor.codegen.excludePackages",
         "reactor.codegen.excludeClasses"
         , "reactor.application.version"
@@ -57,6 +58,7 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
     private static final String SCHEDULED = "com.reactor.rust.annotations.Scheduled";
     private static final String HTTP_CLIENT = "com.reactor.rust.http.client.ReactorHttpClient";
     private static final String HTTP_EXCHANGE = "com.reactor.rust.http.client.HttpExchange";
+    private static final String HTTP_CIRCUIT_BREAKER = "com.reactor.rust.http.client.HttpCircuitBreaker";
     private static final String RUST_PROPERTY = "com.reactor.rust.annotations.RustProperty";
     private static final String CONFIGURATION_PROPERTIES =
             "com.reactor.rust.annotations.ConfigurationProperties";
@@ -113,6 +115,12 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
     private final Map<String, OpenApiRouteModel> openApiRoutes = new TreeMap<>();
     private final Set<String> routeOwners = new TreeSet<>();
     private final Map<String, Map<String, RouteMethodModel>> routeMethods = new TreeMap<>();
+    private final Map<String, DispatchRouteModel> switchRoutes = new TreeMap<>();
+    private final Map<String, DispatchExceptionModel> switchExceptions = new TreeMap<>();
+    private boolean dispatchConfigured;
+    private boolean switchDispatch;
+    private boolean strictSwitchDispatch;
+    private boolean dispatchValid = true;
     private final Map<String, Map<String, ExceptionHandlerMethodModel>> exceptionHandlerMethods =
             new TreeMap<>();
     private final Map<String, List<ScheduledMethodModel>> scheduledMethods = new TreeMap<>();
@@ -135,6 +143,18 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+        if (!dispatchConfigured) {
+            dispatchConfigured = true;
+            String mode = processingEnv.getOptions().getOrDefault("reactor.codegen.dispatch", "auto");
+            strictSwitchDispatch = mode.equals("switch");
+            switchDispatch = strictSwitchDispatch || mode.equals("auto");
+            if (!switchDispatch && !mode.equals("legacy")) {
+                dispatchValid = false;
+                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                        "reactor.codegen.dispatch must be legacy or switch or auto: " + mode);
+            }
+        }
+        if (!dispatchValid) return false;
         if (!roundEnv.processingOver()) {
             collectExternalHandlers();
             for (Element root : roundEnv.getRootElements()) {
@@ -186,6 +206,7 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
     }
 
     private void collectType(TypeElement type) {
+        validateHttpCircuitBreakerUsage(type);
         if (excluded(type)) {
             return;
         }
@@ -273,6 +294,69 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                             + "Use a RequestGuardFactory so route selection remains build-time and allocation-free.",
                     type);
         }
+    }
+
+    private void validateHttpCircuitBreakerUsage(TypeElement type) {
+        boolean annotated = hasAnnotation(type, HTTP_CIRCUIT_BREAKER);
+        if (annotated) httpCircuitBreaker(type);
+        for (Element member : type.getEnclosedElements()) {
+            if (!hasAnnotation(member, HTTP_CIRCUIT_BREAKER)) continue;
+            annotated = true;
+            httpCircuitBreaker(member);
+            if (member.getKind() != ElementKind.METHOD || !hasAnnotation(member, HTTP_EXCHANGE)
+                    || member.getModifiers().contains(Modifier.STATIC)
+                    || member.getModifiers().contains(Modifier.PRIVATE)
+                    || member.getModifiers().contains(Modifier.DEFAULT)) {
+                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                        "@HttpCircuitBreaker requires an abstract @HttpExchange method", member);
+            }
+        }
+        if (hasAnnotation(type, HTTP_CLIENT)) {
+            for (TypeMirror parent : type.getInterfaces()) {
+                if (inheritedHttpCircuitBreaker(parent, new TreeSet<>())) annotated = true;
+            }
+        }
+        if (annotated && (!hasAnnotation(type, HTTP_CLIENT) || type.getKind() != ElementKind.INTERFACE
+                || type.getNestingKind().isNested() || !type.getTypeParameters().isEmpty()
+                || !type.getInterfaces().isEmpty())) {
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                    "@HttpCircuitBreaker requires a top-level, non-generic @ReactorHttpClient interface "
+                            + "without inherited methods", type);
+        }
+    }
+
+    private boolean inheritedHttpCircuitBreaker(TypeMirror parent, Set<String> visited) {
+        if (!(processingEnv.getTypeUtils().asElement(parent) instanceof TypeElement type)
+                || !visited.add(type.getQualifiedName().toString())) return false;
+        if (hasAnnotation(type, HTTP_CIRCUIT_BREAKER)) return true;
+        for (Element member : type.getEnclosedElements()) {
+            if (hasAnnotation(member, HTTP_CIRCUIT_BREAKER)) return true;
+        }
+        for (TypeMirror ancestor : type.getInterfaces()) {
+            if (inheritedHttpCircuitBreaker(ancestor, visited)) return true;
+        }
+        return false;
+    }
+
+    private HttpCircuitBreakerModel httpCircuitBreaker(Element element) {
+        AnnotationMirror config = annotation(element, HTTP_CIRCUIT_BREAKER);
+        if (config == null) return null;
+        int window = annotationInt(config, "windowSize", 64);
+        int minimum = annotationInt(config, "minimumCalls", 16);
+        int threshold = annotationInt(config, "failureRateThreshold", 50);
+        long duration = annotationLong(config, "openDurationMs", 10_000L);
+        int probes = annotationInt(config, "halfOpenMaxCalls", 2);
+        if (window < 1 || window > 64 || minimum < 1 || minimum > window
+                || threshold < 1 || threshold > 100 || duration < 1 || duration > Long.MAX_VALUE / 1_000_000L
+                || probes < 1 || probes > 64) {
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                    "Invalid @HttpCircuitBreaker configuration: windowSize=1..64, minimumCalls=1..windowSize, "
+                            + "failureRateThreshold=1..100, openDurationMs=1.." + Long.MAX_VALUE / 1_000_000L
+                            + ", halfOpenMaxCalls=1..64", element);
+            return null;
+        }
+        return new HttpCircuitBreakerModel(window, minimum, threshold, duration, probes,
+                annotationBoolean(config, "record5xxAsFailure", true));
     }
 
     private void collectHttpClient(TypeElement type) {
@@ -455,7 +539,8 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                 retries,
                 annotationBoolean(exchange, "idempotent", false),
                 responseWrapper,
-                List.copyOf(parameters));
+                List.copyOf(parameters),
+                httpCircuitBreaker(hasAnnotation(method, HTTP_CIRCUIT_BREAKER) ? method : owner));
     }
 
     private HttpClientParameterModel httpClientParameter(VariableElement parameter, int index) {
@@ -847,6 +932,10 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
     }
 
     private void generateArtifacts() {
+        if (switchDispatch) {
+            if (!prepareSwitchDispatch()) return;
+            generateSwitchDispatch();
+        }
         Map<String, String> generatedValidators = new TreeMap<>();
         for (TypeElement validationType : validationTypes.values()) {
             String generatedType = generateValidator(validationType);
@@ -916,8 +1005,10 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                     writer.write("        }\n");
                 }
                 for (HttpClientModel client : httpClients.values()) {
-                    writer.write("        if (prefix.isEmpty() || \"" + escape(client.type())
-                            + "\".startsWith(prefix)) {\n");
+                    String match = "(prefix.isEmpty() || \"" + escape(client.type()) + "\".startsWith(prefix))";
+                    String enabled = conditionExpression(conditions(client.origin()));
+                    if (!enabled.isEmpty()) match += " && (" + enabled + ")";
+                    writer.write("        if (" + match + ") {\n");
                     writer.write("            if (!container.hasBean(" + client.type() + ".class)) {\n");
                     writer.write("                container.registerGeneratedFactory(" + client.type()
                             + ".class, () -> new " + client.generatedType()
@@ -1054,11 +1145,36 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                 }
                 writer.write("public final class " + client.generatedName() + " implements " + client.type() + " {\n");
                 writer.write("    private final com.reactor.rust.http.client.ReactorHttpClientRuntime.Client client;\n\n");
+                for (int index = 0; index < client.methods().size(); index++) {
+                    if (client.methods().get(index).parameters().isEmpty()) {
+                        writer.write("    private final com.reactor.rust.http.client.ReactorHttpClientRuntime.PreparedRequest requestPlan"
+                                + index + ";\n");
+                    }
+                }
+                for (int index = 0; index < client.methods().size(); index++) {
+                    HttpCircuitBreakerModel breaker = client.methods().get(index).breaker();
+                    if (breaker == null) continue;
+                    writer.write("    private final com.reactor.rust.http.client.CircuitBreakerState breaker" + index
+                            + " = new com.reactor.rust.http.client.CircuitBreakerState("
+                            + breaker.window() + ", " + breaker.minimum() + ", " + breaker.threshold() + ", "
+                            + breaker.duration() + "L, " + breaker.probes() + ", " + breaker.record5xx() + ");\n");
+                }
                 writer.write("    public " + client.generatedName()
                         + "(com.reactor.rust.http.client.ReactorHttpClientRuntime runtime) {\n");
                 writer.write("        this.client = runtime.client(" + javaString(client.baseUrlProperty()) + ");\n");
+                for (int index = 0; index < client.methods().size(); index++) {
+                    HttpClientMethodModel method = client.methods().get(index);
+                    if (!method.parameters().isEmpty()) continue;
+                    writer.write("        this.requestPlan" + index + " = client.prepare("
+                            + javaString(method.httpMethod()) + ", " + javaString(method.path()) + ", "
+                            + javaString(method.contentType()) + ", " + javaString(method.accept()) + ", "
+                            + method.timeoutMs() + "L, " + method.retries() + ", " + method.idempotent() + ");\n");
+                }
                 writer.write("    }\n\n");
+                int methodIndex = 0;
                 for (HttpClientMethodModel method : client.methods()) {
+                    int indexOfMethod = methodIndex++;
+                    String breaker = "breaker" + indexOfMethod;
                     writer.write("    @Override\n");
                     writer.write("    public " + method.returnType() + " " + method.name() + "(");
                     for (int index = 0; index < method.parameters().size(); index++) {
@@ -1067,11 +1183,20 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                         writer.write(parameter.type() + " arg" + parameter.index());
                     }
                     writer.write(") {\n");
-                    writer.write("        com.reactor.rust.http.client.ReactorHttpClientRuntime.Request request = client.request("
+                    if (method.breaker() != null) {
+                        writer.write("        long lease = " + breaker + ".acquirePermission();\n");
+                        writer.write("        try {\n");
+                    }
+                    if (method.parameters().isEmpty()) {
+                        writer.write("        com.reactor.rust.http.client.ReactorHttpClientRuntime.Request request = requestPlan"
+                                + indexOfMethod + ".request();\n");
+                    } else {
+                        writer.write("        com.reactor.rust.http.client.ReactorHttpClientRuntime.Request request = client.request("
                             + javaString(method.httpMethod()) + ", " + javaString(method.path()) + ", "
                             + javaString(method.contentType()) + ", " + javaString(method.accept()) + ", "
                             + method.timeoutMs() + "L, "
                             + method.retries() + ", " + method.idempotent() + ");\n");
+                    }
                     for (HttpClientParameterModel parameter : method.parameters()) {
                         String argument = "arg" + parameter.index()
                                 + (parameter.optional() ? ".orElse(null)" : "");
@@ -1090,9 +1215,16 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                     String operation = method.responseKind().equals("LIST")
                             ? (method.responseWrapper() ? "executeListResponse" : "executeList")
                             : (method.responseWrapper() ? "executeResponse" : "execute");
-                    writer.write("        return request."
-                            + operation
-                            + "(" + method.responseType() + ".class);\n");
+                    if (method.breaker() == null) {
+                        writer.write("        return request." + operation
+                                + "(" + method.responseType() + ".class);\n");
+                    } else {
+                        writer.write("        return com.reactor.rust.http.client.HttpCircuitBreakerInvocation."
+                                + operation + "(request, " + method.responseType() + ".class, " + breaker + ", lease);\n");
+                        writer.write("        } catch (RuntimeException | Error failure) {\n");
+                        writer.write("            " + breaker + ".recordFailure(lease);\n");
+                        writer.write("            throw failure;\n        }\n");
+                    }
                     writer.write("    }\n\n");
                 }
                 writer.write("}\n");
@@ -2584,6 +2716,14 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
         for (ExceptionHandlerMethodModel method :
                 exceptionHandlerMethods.getOrDefault(ownerType, Map.of()).values()) {
             for (String exceptionType : method.exceptionTypes()) {
+                DispatchExceptionModel dispatch = switchExceptions.get(exceptionDispatchKey(ownerType, method));
+                if (dispatch != null) {
+                    writer.write(indent + "registry.registerGenerated(container.getBean(" + ownerType
+                            + ".class), " + exceptionType + ".class, new " + switchDispatchType()
+                            + ".ExceptionAdapter(" + dispatch.id() + "));\n");
+                    writer.write(indent + "registered++;\n");
+                    continue;
+                }
                 writer.write(indent + "registry.registerGenerated(container.getBean(" + ownerType
                         + ".class), " + exceptionType
                         + ".class, (bean, error) -> {\n");
@@ -2623,6 +2763,11 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                 if (index > 0) writer.write(", ");
                 writer.write(method.parameters().get(index).lookupType() + ".class");
             }
+            DispatchRouteModel dispatch = switchRoutes.get(routeDispatchKey(ownerType, method));
+            if (dispatch != null) {
+                writer.write("}, new " + switchDispatchType() + ".Route" + dispatchAdapter(method)
+                        + "(" + dispatch.id() + ")");
+            } else {
             writer.write("}, new com.reactor.rust.bridge.GeneratedRouteInvoker() {\n");
             writer.write("            @Override public int arity() { return "
                     + method.parameters().size() + "; }\n");
@@ -2654,7 +2799,10 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                 }
                 writer.write("            }\n");
             }
-            writer.write("        }, new com.reactor.rust.bridge.GeneratedRouteMetadata("
+            writer.write("        }");
+            }
+            PrimitiveBindingModel binding = method.primitiveBinding();
+            writer.write(", new com.reactor.rust.bridge.GeneratedRouteMetadata("
                     + javaString(method.httpMethod()) + ", "
                     + javaString(method.path()) + ", "
                     + method.requestType() + ".class, "
@@ -2675,6 +2823,267 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
                         + "com.reactor.rust.bridge.GeneratedPrimitiveBinding.Mode." + binding.mode() + "));\n");
             }
         }
+    }
+
+    // Switch mode changes only generated invocation objects, never the runtime binding pipeline.
+    private boolean prepareSwitchDispatch() {
+        Set<String> registeredOwners = new TreeSet<>();
+        for (ComponentModel component : components.values()) {
+            registeredOwners.add(component.type());
+            for (BeanMethodModel bean : configurationMethods.getOrDefault(component.type(), List.of())) {
+                registeredOwners.add(bean.beanType());
+            }
+        }
+        boolean valid = true;
+        int[] arities = new int[9];
+        int legacyRoutes = 0;
+        int legacyExceptions = 0;
+        for (var owner : routeMethods.entrySet()) {
+            for (var entry : owner.getValue().entrySet()) {
+                RouteMethodModel method = entry.getValue();
+                ExecutableElement origin = switchMethod(owner.getKey(), entry.getKey());
+                boolean supported = validateSwitchMethod(owner.getKey(), origin, registeredOwners);
+                boolean runtimeDirect = borrowedBufferRoute(method) || directScalarIntRoute(origin);
+                if (origin != null && !runtimeDirect) {
+                    for (VariableElement parameter : origin.getParameters()) {
+                        int bindings = 0;
+                        for (String binding : List.of(PATH_VARIABLE, REQUEST_PARAM, HEADER_PARAM, COOKIE_VALUE, REQUEST_BODY)) {
+                            if (hasAnnotation(parameter, binding)) bindings++;
+                        }
+                        if (bindings != 1) {
+                            switchDiagnostic(
+                                    "Unsupported switch dispatch parameter: requires exactly one supported request binding "
+                                            + "or an existing runtime-direct ABI", parameter);
+                            supported = false;
+                        }
+                    }
+                }
+                int arity = method.parameters().size();
+                if (arity > 8 || arities[arity] >= 256) {
+                    switchDiagnostic("switch dispatch supports arity 0..8 and at most 256 routes per arity", origin);
+                    supported = false;
+                }
+                if (origin != null && borrowedBufferRoute(method)) {
+                    if (isCompletionStage(origin.getReturnType())) {
+                        switchDiagnostic("switch dispatch rejects async routes borrowing ByteBuffer", origin);
+                        supported = false;
+                    }
+                }
+                if (!supported) {
+                    legacyRoutes++;
+                    valid &= !strictSwitchDispatch;
+                    continue;
+                }
+                if (runtimeDirect) {
+                    processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
+                            "switch dispatch retains the existing runtime direct-buffer ABI or scalar ABI for "
+                                    + owner.getKey() + "#" + method.name(), origin);
+                }
+                arities[arity]++;
+                switchRoutes.put(routeDispatchKey(owner.getKey(), method),
+                        new DispatchRouteModel(switchRoutes.size(), owner.getKey(), method));
+            }
+        }
+        for (var owner : exceptionHandlerMethods.entrySet()) {
+            for (var entry : owner.getValue().entrySet()) {
+                ExecutableElement origin = switchMethod(owner.getKey(), entry.getKey());
+                boolean supported = validateSwitchMethod(owner.getKey(), origin, registeredOwners);
+                if (switchExceptions.size() >= 256) {
+                    switchDiagnostic("switch dispatch supports at most 256 exception handler methods", origin);
+                    supported = false;
+                }
+                if (!supported) {
+                    legacyExceptions++;
+                    valid &= !strictSwitchDispatch;
+                    continue;
+                }
+                switchExceptions.put(exceptionDispatchKey(owner.getKey(), entry.getValue()),
+                        new DispatchExceptionModel(switchExceptions.size(), owner.getKey(), entry.getValue()));
+            }
+        }
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
+                "Generated dispatch mode=" + (strictSwitchDispatch ? "switch" : "auto")
+                        + ": switch routes=" + switchRoutes.size() + ", legacy routes=" + legacyRoutes
+                        + ", switch exception handlers=" + switchExceptions.size()
+                        + ", legacy exception handlers=" + legacyExceptions);
+        return valid;
+    }
+
+    private void switchDiagnostic(String message, Element origin) {
+        processingEnv.getMessager().printMessage(strictSwitchDispatch ? Diagnostic.Kind.ERROR : Diagnostic.Kind.WARNING,
+                message + (strictSwitchDispatch ? "; use -Areactor.codegen.dispatch=legacy"
+                        : "; auto retains the legacy generated direct call (no reflection fallback)"), origin);
+    }
+
+    private boolean directScalarIntRoute(ExecutableElement method) {
+        return method != null && method.getParameters().size() == 1
+                && method.getParameters().getFirst().asType().getKind() == TypeKind.INT
+                && (hasAnnotation(method, "com.reactor.rust.annotations.DirectQueryInt")
+                || hasAnnotation(method, "com.reactor.rust.annotations.DirectPathInt"));
+    }
+
+    private static boolean borrowedBufferRoute(RouteMethodModel method) {
+        List<String> types = method.parameters().stream().map(RouteParameterModel::lookupType).toList();
+        if (types.size() < 2 || !types.get(0).equals("java.nio.ByteBuffer") || !types.get(1).equals("int")) return false;
+        return types.size() == 2
+                || types.size() == 3 && List.of("int", "long", "boolean", "double", "short").contains(types.get(2))
+                || types.equals(List.of("java.nio.ByteBuffer", "int", "byte[]", "java.lang.String", "java.lang.String", "java.lang.String"))
+                || types.equals(List.of("java.nio.ByteBuffer", "int", "java.nio.ByteBuffer", "int", "java.lang.String", "java.lang.String", "java.lang.String"));
+    }
+
+    private ExecutableElement switchMethod(String owner, String signature) {
+        TypeElement type = processingEnv.getElementUtils().getTypeElement(owner);
+        if (type == null) return null;
+        for (Element element : type.getEnclosedElements()) {
+            if (element instanceof ExecutableElement method && element.getKind() == ElementKind.METHOD
+                    && methodSignature(method).equals(signature)) return method;
+        }
+        return null;
+    }
+
+    private boolean validateSwitchMethod(String owner, ExecutableElement method, Set<String> registeredOwners) {
+        TypeElement type = processingEnv.getElementUtils().getTypeElement(owner);
+        boolean valid = type != null && switchAccessibleType(type.asType()) && type.getTypeParameters().isEmpty()
+                && type.getKind().isClass() && !type.getModifiers().contains(Modifier.ABSTRACT)
+                && registeredOwners.contains(owner) && method != null
+                && method.getModifiers().contains(Modifier.PUBLIC)
+                && !method.getModifiers().contains(Modifier.STATIC) && method.getTypeParameters().isEmpty();
+        if (valid) {
+            for (VariableElement parameter : method.getParameters()) valid &= switchAccessibleType(parameter.asType());
+        }
+        if (!valid) {
+            switchDiagnostic(
+                    "Unsupported switch dispatch method in " + owner
+                            + ": requires a registered component/@Bean owner, public non-generic owner/method "
+                            + "and publicly accessible parameter types", method == null ? type : method);
+        }
+        return valid;
+    }
+
+    private boolean switchAccessibleType(TypeMirror type) {
+        if (type.getKind().isPrimitive()) return true;
+        if (type instanceof ArrayType array) return switchAccessibleType(array.getComponentType());
+        if (type instanceof javax.lang.model.type.WildcardType wildcard) {
+            return (wildcard.getExtendsBound() == null || switchAccessibleType(wildcard.getExtendsBound()))
+                    && (wildcard.getSuperBound() == null || switchAccessibleType(wildcard.getSuperBound()));
+        }
+        if (!(type instanceof DeclaredType declared)) return false;
+        Element element = declared.asElement();
+        for (Element enclosing = element; enclosing instanceof TypeElement; enclosing = enclosing.getEnclosingElement()) {
+            if (!enclosing.getModifiers().contains(Modifier.PUBLIC)) return false;
+        }
+        if (processingEnv.getElementUtils().getPackageOf(element).isUnnamed()) return false;
+        if (declared.getEnclosingType() instanceof DeclaredType enclosing
+                && !switchAccessibleType(enclosing)) return false;
+        for (TypeMirror argument : declared.getTypeArguments()) if (!switchAccessibleType(argument)) return false;
+        return true;
+    }
+
+    private String switchDispatchType() {
+        return processingEnv.getOptions().getOrDefault("reactor.codegen.descriptorPackage", "com.reactor.generated")
+                + "." + processingEnv.getOptions().getOrDefault("reactor.codegen.descriptorName", "ReactorApplicationDescriptor")
+                + "__Dispatch";
+    }
+
+    private static String routeDispatchKey(String owner, RouteMethodModel method) {
+        return owner + '#' + method.name() + '(' + method.parameters().stream()
+                .map(RouteParameterModel::lookupType).collect(java.util.stream.Collectors.joining(",")) + ')';
+    }
+
+    private static String exceptionDispatchKey(String owner, ExceptionHandlerMethodModel method) {
+        return owner + '#' + method.name() + '(' + (method.parameterType() == null ? "" : method.parameterType()) + ')';
+    }
+
+    private static String dispatchAdapter(RouteMethodModel method) {
+        return Integer.toString(method.parameters().size())
+                + (method.primitiveBinding() == null ? "" : primitiveMethod(method.primitiveBinding().kind()));
+    }
+
+    private void generateSwitchDispatch() {
+        if (switchRoutes.isEmpty() && switchExceptions.isEmpty()) return;
+        String type = switchDispatchType();
+        int separator = type.lastIndexOf('.');
+        String simple = type.substring(separator + 1);
+        try (Writer writer = processingEnv.getFiler().createSourceFile(type).openWriter()) {
+            writer.write("package " + type.substring(0, separator) + ";\n\npublic final class " + simple + " {\n");
+            writer.write("    private " + simple + "() {}\n");
+            writer.write("    private static IllegalArgumentException invalidRoute(int routeId) {\n"
+                    + "        return new IllegalArgumentException(\"Invalid generated routeId: \" + routeId);\n    }\n");
+            Map<String, List<DispatchRouteModel>> adapters = new TreeMap<>();
+            for (DispatchRouteModel route : switchRoutes.values()) {
+                adapters.computeIfAbsent(dispatchAdapter(route.method()), ignored -> new ArrayList<>()).add(route);
+            }
+            for (var adapter : adapters.entrySet()) {
+                RouteMethodModel method = adapter.getValue().getFirst().method();
+                int arity = method.parameters().size();
+                PrimitiveBindingModel binding = method.primitiveBinding();
+                writer.write("    public static final class Route" + adapter.getKey()
+                        + " implements com.reactor.rust.bridge.GeneratedRouteInvoker {\n"
+                        + "        private final int routeId;\n        public Route" + adapter.getKey() + "(int routeId) {\n");
+                writeSwitchIdValidation(writer, adapter.getValue().stream().map(DispatchRouteModel::id).toList());
+                writer.write("            this.routeId = routeId;\n        }\n"
+                        + "        @Override public int arity() { return " + arity + "; }\n"
+                        + "        @Override public Object invoke" + arity + "(Object bean" + switchArguments(arity, true)
+                        + ") throws Throwable {\n");
+                writeSwitchRouteBody(writer, null, adapter.getValue());
+                writer.write("        }\n");
+                if (binding != null) {
+                    String primitive = primitiveMethod(binding.kind());
+                    writer.write("        @Override public Object invoke" + primitive + "(Object bean, "
+                            + primitiveJavaType(binding.kind()) + " value) throws Throwable {\n");
+                    writeSwitchRouteBody(writer, binding.kind(), adapter.getValue());
+                    writer.write("        }\n");
+                }
+                writer.write("    }\n");
+            }
+            if (!switchExceptions.isEmpty()) {
+                writer.write("    public static final class ExceptionAdapter implements com.reactor.rust.exception.GeneratedExceptionHandler {\n"
+                        + "        private final int routeId;\n        public ExceptionAdapter(int routeId) {\n");
+                writeSwitchIdValidation(writer, switchExceptions.values().stream().map(DispatchExceptionModel::id).toList());
+                writer.write("            this.routeId = routeId;\n        }\n"
+                        + "        @Override public Object invoke(Object bean, Throwable error) throws Throwable {\n"
+                        + "            switch (routeId) {\n");
+                for (DispatchExceptionModel handler : switchExceptions.values()) {
+                    ExceptionHandlerMethodModel method = handler.method();
+                    String call = "((" + handler.owner() + ") bean)." + method.name() + "("
+                            + (method.parameterType() == null ? "" : "(" + method.parameterType() + ") error") + ")";
+                    writeSwitchCase(writer, handler.id(), call, method.returnsVoid());
+                }
+                writer.write("                default: throw invalidRoute(routeId);\n            }\n        }\n    }\n");
+            }
+            writer.write("}\n");
+        } catch (IOException failure) {
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                    "Failed to generate switch dispatch: " + failure.getMessage());
+        }
+    }
+
+    private void writeSwitchRouteBody(Writer writer, String primitive,
+                                      List<DispatchRouteModel> routes) throws IOException {
+        writer.write("            switch (routeId) {\n");
+        for (DispatchRouteModel route : routes) {
+            RouteMethodModel method = route.method();
+            String call = "((" + route.owner() + ") bean)." + method.name() + "("
+                    + (primitive == null ? routeArguments(method.parameters()) : "value") + ")";
+            writeSwitchCase(writer, route.id(), call, method.returnsVoid());
+        }
+        writer.write("                default: throw invalidRoute(routeId);\n            }\n");
+    }
+
+    private static void writeSwitchCase(Writer writer, int id, String call, boolean returnsVoid) throws IOException {
+        writer.write("                case " + id + ": " + (returnsVoid ? call + "; return null" : "return " + call) + ";\n");
+    }
+
+    private static void writeSwitchIdValidation(Writer writer, List<Integer> ids) throws IOException {
+        writer.write("            switch (routeId) {\n                case " + ids.stream().map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(", ")) + " -> {}\n"
+                + "                default -> throw invalidRoute(routeId);\n            }\n");
+    }
+
+    private static String switchArguments(int arity, boolean declarations) {
+        StringBuilder arguments = new StringBuilder();
+        for (int i = 0; i < arity; i++) arguments.append(declarations ? ", Object arg" : ", arg").append(i);
+        return arguments.toString();
     }
 
     private static String primitiveMethod(String kind) {
@@ -2939,6 +3348,10 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
 
     private record RouteParameterModel(String declaredType, String lookupType, TypeKind kind) {}
 
+    private record DispatchRouteModel(int id, String owner, RouteMethodModel method) {}
+
+    private record DispatchExceptionModel(int id, String owner, ExceptionHandlerMethodModel method) {}
+
     private record ExceptionHandlerMethodModel(
             String name,
             String parameterType,
@@ -2980,7 +3393,11 @@ public final class ReactorStartupProcessor extends AbstractProcessor {
             int retries,
             boolean idempotent,
             boolean responseWrapper,
-            List<HttpClientParameterModel> parameters) {}
+            List<HttpClientParameterModel> parameters,
+            HttpCircuitBreakerModel breaker) {}
+
+    private record HttpCircuitBreakerModel(int window, int minimum, int threshold,
+                                           long duration, int probes, boolean record5xx) {}
 
     private record HttpClientParameterModel(
             String type,

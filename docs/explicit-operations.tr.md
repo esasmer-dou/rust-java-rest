@@ -2,7 +2,7 @@
 
 [English](explicit-operations.md) | [Turkish](explicit-operations.tr.md)
 
-Bu API'ler 4.7.0 platformundadır. Yalnız uygulamanızın kullandığı modülleri ekleyin.
+Bu API'ler 4.8.0 platformundadır. Yalnız uygulamanızın kullandığı modülleri ekleyin.
 İş kararları Java'da kalır. Native ABI sürümleri ve mevcut başarılı yanıtların biçimi değişmez.
 
 ## Hangi Araç?
@@ -130,8 +130,8 @@ Uygulama sürümü Maven'den üretilir; annotation içinde ayrı sample sürüm�
 ## İki Uygulamalı Örnek
 
 ```powershell
-java -cp rust-java-rest-4.7.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
-java -cp rust-java-rest-4.7.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
+java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
+java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
 ```
 
 Platformla aynı sürümdeki codegen JAR'ını kullanın.

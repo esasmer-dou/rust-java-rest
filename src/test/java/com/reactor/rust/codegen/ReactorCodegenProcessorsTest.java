@@ -74,7 +74,17 @@ class ReactorCodegenProcessorsTest {
         assertTrue(factory.contains("GeneratedRouteInvokers.register"));
         assertTrue(factory.contains("new com.reactor.rust.bridge.GeneratedRouteMetadata("
                 + "\"GET\", \"/items/{id}\", java.lang.Void.class, java.lang.String.class"));
-        assertTrue(factory.contains("((generated.fixture.Handler) bean).get()"));
+        assertTrue(factory.contains("GeneratedRouteInvokers.register(generated.fixture.Handler.class"));
+        assertTrue(factory.contains("new com.reactor.generated.ReactorApplicationDescriptor__Dispatch.Route0("));
+        assertFalse(factory.contains("new com.reactor.rust.bridge.GeneratedRouteInvoker()"));
+        String dispatch = Files.readString(output.generated().resolve(
+                "com/reactor/generated/ReactorApplicationDescriptor__Dispatch.java"));
+        assertTrue(dispatch.contains("return ((generated.fixture.Handler) bean).get();"));
+        assertTrue(dispatch.contains("@Override public Object invoke0(Object bean) throws Throwable {\n"
+                + "            switch (routeId) {"));
+        assertFalse(dispatch.contains("public static Object dispatch"));
+        assertFalse(dispatch.contains("return dispatch"));
+        assertFalse(dispatch.contains("java.lang.reflect"));
         assertFalse(factory.contains("markGeneratedReflectionFree"));
     }
 
@@ -181,7 +191,19 @@ class ReactorCodegenProcessorsTest {
         String factory = Files.readString(output.generated().resolve(
                 "generated/fixture/HealthConfiguration__ReactorFactory.java"));
         assertTrue(factory.contains("registry.registerBean(container.getBean(com.reactor.rust.health.HealthEndpoint.class))"));
-        assertTrue(factory.contains("((com.reactor.rust.health.HealthEndpoint) bean).readiness()"));
+        assertTrue(factory.contains("GeneratedRouteInvokers.register(com.reactor.rust.health.HealthEndpoint.class"));
+        assertTrue(factory.contains("new com.reactor.generated.ReactorApplicationDescriptor__Dispatch.Route0("));
+        assertFalse(factory.contains("new com.reactor.rust.bridge.GeneratedRouteInvoker()"));
+        String dispatch = Files.readString(output.generated().resolve(
+                "com/reactor/generated/ReactorApplicationDescriptor__Dispatch.java"));
+        for (String name : List.of("health", "liveness", "readiness")) {
+            assertTrue(dispatch.contains("return ((com.reactor.rust.health.HealthEndpoint) bean)." + name + "();"));
+        }
+        assertTrue(dispatch.contains("@Override public Object invoke0(Object bean) throws Throwable {\n"
+                + "            switch (routeId) {"));
+        assertFalse(dispatch.contains("public static Object dispatch"));
+        assertFalse(dispatch.contains("return dispatch"));
+        assertFalse(dispatch.contains("java.lang.reflect"));
         assertFalse(factory.contains("new com.reactor.rust.health.HealthEndpoint("));
     }
 
@@ -642,6 +664,11 @@ class ReactorCodegenProcessorsTest {
                     public static final class Client {
                         public Request request(String method, String path, String contentType, String accept,
                                 long timeoutMs, int retries, boolean idempotent) { return new Request(); }
+                        public PreparedRequest prepare(String method, String path, String contentType, String accept,
+                                long timeoutMs, int retries, boolean idempotent) { return new PreparedRequest(); }
+                    }
+                    public static final class PreparedRequest {
+                        public Request request() { return new Request(); }
                     }
                     public static final class Request {
                         public Request path(String name, Object value) { return this; }
@@ -700,8 +727,124 @@ class ReactorCodegenProcessorsTest {
         assertTrue(generated.contains("request.executeList(generated.fixture.Customer.class)"));
         assertFalse(generated.contains("java.lang.reflect"));
         assertFalse(generated.contains("Proxy"));
+        assertFalse(generated.contains("CircuitBreaker"));
+        assertFalse(generated.contains("acquirePermission"));
         assertTrue(Files.readString(output.classes().resolve("META-INF/reactor/properties.idx"))
                 .contains("clients.customer.base-url"));
+    }
+
+    @Test
+    void generatesOnlyAnnotatedMethodBreakersWithFullMethodConfigurationOverride() throws Exception {
+        Path client = source("generated/fixture/AllMethods.java", """
+                package generated.fixture;
+                import com.reactor.rust.http.client.*;
+                import java.util.concurrent.CompletionStage;
+                @ReactorHttpClient(baseUrlProperty="test.http.base")
+                @HttpCircuitBreaker(windowSize=32, minimumCalls=8, failureRateThreshold=75,
+                                    openDurationMs=1234, halfOpenMaxCalls=3, record5xxAsFailure=false)
+                public interface AllMethods {
+                    @HttpExchange(path="/one") CompletionStage<String> one();
+                    @HttpExchange(path="/two") @HttpCircuitBreaker
+                    CompletionStage<HttpClientResponse<java.util.List<String>>> two();
+                    @HttpExchange(path="/overload") CompletionStage<String> one(
+                        @com.reactor.rust.annotations.RequestParam("q") String q);
+                }
+                """);
+        Path selectiveClient = source("generated/fixture/Selective.java", """
+                package generated.fixture;
+                import com.reactor.rust.http.client.*;
+                import java.util.concurrent.CompletionStage;
+                @ReactorHttpClient(baseUrlProperty="test.http.base")
+                public interface Selective {
+                    @HttpExchange(path="/plain") CompletionStage<String> plain();
+                    @HttpExchange(path="/guarded") @HttpCircuitBreaker
+                    CompletionStage<java.util.List<String>> guarded();
+                    @HttpExchange(path="/raw") @HttpCircuitBreaker
+                    CompletionStage<HttpClientResponse<String>> raw();
+                }
+                """);
+        Compilation output = compile(httpSources(client, selectiveClient), new ReactorStartupProcessor());
+        String all = Files.readString(output.generated().resolve("generated/fixture/AllMethods__ReactorHttpClient.java"));
+        assertEquals(2, all.split("CircuitBreakerState\\(32, 8, 75, 1234L, 3, false\\)", -1).length - 1);
+        assertTrue(all.contains("CircuitBreakerState(64, 16, 50, 10000L, 2, true)"));
+        assertTrue(all.contains("breaker0.acquirePermission()"));
+        assertTrue(all.contains("breaker1.acquirePermission()"));
+        assertTrue(all.contains("breaker2.acquirePermission()"));
+        assertTrue(all.contains("HttpCircuitBreakerInvocation.executeListResponse(request, java.lang.String.class, breaker1, lease)"));
+        assertTrue(all.indexOf("breaker0.acquirePermission()") < all.indexOf("client.request("));
+        assertTrue(all.indexOf("breaker0.acquirePermission()") < all.indexOf("requestPlan0.request()"));
+        assertTrue(all.contains("this.requestPlan0 = client.prepare("));
+        assertTrue(all.contains("this.requestPlan1 = client.prepare("));
+        assertFalse(all.contains("requestPlan2"), "Parameterized methods must not freeze request arguments");
+        assertTrue(all.contains("catch (RuntimeException | Error failure)"));
+        assertTrue(all.contains("breaker0.recordFailure(lease)"));
+        assertFalse(all.contains("java.lang.reflect"));
+        String selective = Files.readString(output.generated().resolve("generated/fixture/Selective__ReactorHttpClient.java"));
+        assertFalse(selective.contains("CircuitBreakerState breaker0"));
+        assertTrue(selective.contains("CircuitBreakerState breaker1"));
+        assertTrue(selective.contains("CircuitBreakerState breaker2"));
+        String plain = selective.substring(selective.indexOf(" plain()"), selective.indexOf(" guarded()"));
+        assertFalse(plain.contains("lease"));
+        assertFalse(plain.contains("try {"));
+        assertTrue(plain.contains("return request.execute(java.lang.String.class)"));
+        assertTrue(selective.contains("HttpCircuitBreakerInvocation.executeList(request, java.lang.String.class, breaker1, lease)"));
+        assertTrue(selective.contains("HttpCircuitBreakerInvocation.executeResponse(request, java.lang.String.class, breaker2, lease)"));
+    }
+
+    @Test
+    void rejectsInvalidCircuitConfigurationsAndUnsupportedAnnotationTargetsAtBuildTime() throws Exception {
+        Path client = source("generated/fixture/InvalidCircuits.java", """
+                package generated.fixture;
+                import com.reactor.rust.http.client.*;
+                import java.util.concurrent.CompletionStage;
+                @HttpCircuitBreaker class NotAClient {}
+                @ReactorHttpClient(baseUrlProperty="test") @HttpCircuitBreaker
+                interface Generic<T> { @HttpExchange(path="/") CompletionStage<String> call(); }
+                interface Parent { CompletionStage<String> inherited(); }
+                @ReactorHttpClient(baseUrlProperty="test") @HttpCircuitBreaker
+                interface Child extends Parent { @HttpExchange(path="/") CompletionStage<String> call(); }
+                @ReactorHttpClient(baseUrlProperty="test") @HttpCircuitBreaker
+                interface MarkedParent { @HttpExchange(path="/") CompletionStage<String> call(); }
+                @ReactorHttpClient(baseUrlProperty="test")
+                interface SilentChild extends MarkedParent { @HttpExchange(path="/") CompletionStage<String> call(); }
+                @ReactorHttpClient(baseUrlProperty="test") interface InvalidMethods {
+                    @HttpCircuitBreaker default CompletionStage<String> defaultCall() { return null; }
+                    @HttpCircuitBreaker static CompletionStage<String> staticCall() { return null; }
+                    @HttpCircuitBreaker private CompletionStage<String> privateCall() { return null; }
+                    @HttpCircuitBreaker CompletionStage<String> missingExchange();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(windowSize=65) CompletionStage<String> badWindow();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(windowSize=0) CompletionStage<String> zeroWindow();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(minimumCalls=0) CompletionStage<String> zeroMinimum();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(windowSize=3) CompletionStage<String> badMinimum();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(failureRateThreshold=0) CompletionStage<String> zeroRate();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(failureRateThreshold=101) CompletionStage<String> badRate();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(openDurationMs=0) CompletionStage<String> zeroDuration();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(openDurationMs=9223372036855L) CompletionStage<String> overflow();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(halfOpenMaxCalls=0) CompletionStage<String> zeroProbes();
+                    @HttpExchange(path="/") @HttpCircuitBreaker(halfOpenMaxCalls=65) CompletionStage<String> badProbes();
+                    @HttpExchange(path="/") @HttpCircuitBreaker <T> CompletionStage<String> genericCall();
+                }
+                """);
+        String diagnostics = compileFailure(httpSources(client), new ReactorStartupProcessor());
+        assertTrue(diagnostics.contains("top-level, non-generic @ReactorHttpClient"));
+        assertTrue(diagnostics.contains("without inherited methods"));
+        assertTrue(diagnostics.contains("interface SilentChild"));
+        assertTrue(diagnostics.contains("requires an abstract @HttpExchange method"));
+        assertTrue(diagnostics.contains("Invalid @HttpCircuitBreaker configuration"));
+        assertTrue(diagnostics.contains("without type parameters"));
+        for (String method : List.of("badWindow", "zeroWindow", "zeroMinimum", "badMinimum", "zeroRate", "badRate",
+                "zeroDuration", "overflow", "zeroProbes", "badProbes")) {
+            // The diagnostic includes the element location via Diagnostic.toString().
+            assertTrue(diagnostics.contains(method), diagnostics);
+        }
+    }
+
+    private List<Path> httpSources(Path... fixtures) throws Exception {
+        try (var sources = Files.walk(Path.of("platform/starter-http-client/src/main/java"))) {
+            var files = new java.util.ArrayList<>(sources.filter(path -> path.toString().endsWith(".java")).toList());
+            files.addAll(List.of(fixtures));
+            return files;
+        }
     }
 
     @Test
@@ -799,6 +942,10 @@ class ReactorCodegenProcessorsTest {
     }
 
     private String compileFailure(Path source, Processor processor) throws Exception {
+        return compileFailure(List.of(source), processor);
+    }
+
+    private String compileFailure(List<Path> sources, Processor processor) throws Exception {
         Path generated = Files.createDirectories(tempDir.resolve("failure-generated"));
         Path classes = Files.createDirectories(tempDir.resolve("failure-classes"));
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
@@ -816,12 +963,12 @@ class ReactorCodegenProcessorsTest {
                             "-d", classes.toString(),
                             "-s", generated.toString()),
                     null,
-                    files.getJavaFileObjects(source.toFile()));
+                    files.getJavaFileObjectsFromPaths(sources));
             task.setProcessors(List.of(processor));
             assertFalse(task.call());
         }
         return diagnostics.getDiagnostics().stream()
-                .map(diagnostic -> diagnostic.getMessage(java.util.Locale.ROOT))
+                .map(diagnostic -> diagnostic.toString())
                 .collect(java.util.stream.Collectors.joining("\n"));
     }
 

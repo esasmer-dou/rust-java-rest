@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -114,6 +115,80 @@ class Hs256JwtVerifierTest {
                 "{\"sub\":\"user\",\"exp\":" + expiry + ",}");
 
         assertThrows(UnauthorizedException.class, () -> Hs256JwtVerifier.fromProperties().verify(token));
+    }
+
+    @Test
+    void canonicalBase64UrlChecksUnusedBitsWithoutReencoding() {
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+        for (int length = 1; length <= 8; length++) {
+            byte[] bytes = new byte[length];
+            java.util.Arrays.fill(bytes, (byte) 0xff);
+            String canonical = encoder.encodeToString(bytes);
+            assertArrayEquals(bytes, Hs256JwtVerifier.decodeCanonical(canonical));
+            if ((canonical.length() & 3) != 0) {
+                int digit = alphabet.indexOf(canonical.charAt(canonical.length() - 1));
+                String alias = canonical.substring(0, canonical.length() - 1) + alphabet.charAt(digit + 1);
+                assertArrayEquals(bytes, Base64.getUrlDecoder().decode(alias));
+                assertThrows(UnauthorizedException.class, () -> Hs256JwtVerifier.decodeCanonical(alias));
+            }
+        }
+    }
+
+    @Test
+    void rejectsPaddingInvalidRemainderAndNonUrlAlphabet() {
+        for (String invalid : new String[]{"", "A", "AAAAA", "AA==", "A+", "AA/", "AA\n"}) {
+            assertThrows(RuntimeException.class, () -> Hs256JwtVerifier.decodeCanonical(invalid), invalid);
+        }
+    }
+
+    @Test
+    void consumesAudienceStringEvenWhenAudiencePolicyIsEmpty() throws Exception {
+        System.setProperty("reactor.security.jwt.hmac-secret", SECRET);
+        long expiry = Instant.now().getEpochSecond() + 120;
+        String signed = token("{\"alg\":\"HS256\"}",
+                "{\"sub\":\"u\",\"aud\":\"another-service\",\"exp\":" + expiry + "}");
+        assertEquals("u", Hs256JwtVerifier.fromProperties().verify(signed).subject());
+    }
+
+    @Test
+    void escapedPrefixDoesNotPermitRawControlCharactersAndUnicodeRemainsValid() throws Exception {
+        System.setProperty("reactor.security.jwt.hmac-secret", SECRET);
+        long expiry = Instant.now().getEpochSecond() + 120;
+        for (int control = 0; control < 32; control++) {
+            String signed = token("{\"alg\":\"HS256\"}",
+                    "{\"sub\":\"a\\n" + (char) control + "b\",\"exp\":" + expiry + "}");
+            assertThrows(UnauthorizedException.class, () -> Hs256JwtVerifier.fromProperties().verify(signed));
+        }
+        String good = token("{\"alg\":\"HS256\"}",
+                "{\"sub\":\"\\u0130stanbul \ud83d\ude80\",\"exp\":" + expiry + "}");
+        assertEquals("\u0130stanbul \ud83d\ude80", Hs256JwtVerifier.fromProperties().verify(good).subject());
+    }
+
+    @Test
+    void explicitMinimumLongExpirationCannotMasqueradeAsAnAbsentClaim() throws Exception {
+        System.setProperty("reactor.security.jwt.hmac-secret", SECRET);
+        System.setProperty("reactor.security.jwt.require-expiration", "false");
+        String absent = token("{\"alg\":\"HS256\"}", "{\"sub\":\"u\"}");
+        assertEquals("u", Hs256JwtVerifier.fromProperties().verify(absent).subject());
+        String expired = token("{\"alg\":\"HS256\"}", "{\"sub\":\"u\",\"exp\":-9223372036854775808}");
+        assertThrows(UnauthorizedException.class, () -> Hs256JwtVerifier.fromProperties().verify(expired));
+    }
+
+    @Test
+    void sharedHeaderParserRejectsDuplicatesAndUnsupportedJoseExtensionsWithoutRequiringHmacKid() throws Exception {
+        System.setProperty("reactor.security.jwt.hmac-secret", SECRET);
+        String payload = "{\"sub\":\"u\",\"exp\":" + (Instant.now().getEpochSecond() + 120) + "}";
+        for (String header : new String[]{
+                "{\"alg\":\"HS256\",\"crit\":[\"unknown\"]}",
+                "{\"alg\":\"HS256\",\"b64\":false}",
+                "{\"alg\":\"HS256\",\"b64\":true}",
+                "{\"alg\":\"HS256\",\"kid\":\"a\",\"kid\":\"b\"}",
+                "{\"alg\":\"HS256\",\"typ\":\"JWT\",\"typ\":\"JWT\"}",
+                "{\"alg\":\"HS256\",\"jku\":\"https://localhost/keys\"}"}) {
+            assertThrows(UnauthorizedException.class, () -> Hs256JwtVerifier.fromProperties().verify(token(header, payload)));
+        }
+        assertEquals("u", Hs256JwtVerifier.fromProperties().verify(token("{\"alg\":\"HS256\"}", payload)).subject());
     }
 
     private static String token(String header, String payload) throws Exception {

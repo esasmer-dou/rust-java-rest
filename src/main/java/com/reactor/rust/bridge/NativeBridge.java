@@ -74,7 +74,6 @@ public class NativeBridge {
             new byte[] {'R', 'J', 'R', 'S', 'P', 'V', '1', '!'};
     private static final int RESPONSE_FRAME_HEADER_SIZE = 18;
     private static final byte[] EMPTY_REQUEST_BODY = new byte[0];
-    private static volatile int asyncResponseTimeoutMs = DEFAULT_ASYNC_RESPONSE_TIMEOUT_MS;
     private static volatile boolean glowrootConfigured;
     private static volatile int activeGlowrootFeatureMask;
     private static volatile int configuredGlowrootFeatureMask;
@@ -258,6 +257,22 @@ public class NativeBridge {
 
     public static native void completeAsyncResponseBuffer(long requestId, ByteBuffer responseFrame, int length);
 
+    private static native int nativeAsyncHandleCompletionVersion();
+
+    private static native void completeAsyncNativeHandle(long requestId, int nativeId, int status);
+
+    private static final class NativeHandleCompletion {
+        static final boolean SUPPORTED = supported();
+
+        private static boolean supported() {
+            try {
+                return nativeAsyncHandleCompletionVersion() == 1;
+            } catch (UnsatisfiedLinkError olderAbi29) {
+                return false;
+            }
+        }
+    }
+
     public static native int registerStaticResponse(byte[] body, String encodedHeaders, int statusCode);
 
     public static native int registerStaticFileResponse(
@@ -315,6 +330,19 @@ public class NativeBridge {
     // RUST → JAVA register
     // ======================
     public static native void passNativeBridgeClass(Class<?> clazz);
+
+    /** Optional ABI-29 capability; old native runtimes never enable tagged retries. */
+    public static boolean enableRustBufferedResultRetry(int protocol) {
+        return HandlerRegistry.getInstance().enableBufferedResultRetry(protocol);
+    }
+
+    /** Reserializes a pending result without repeating business logic or request guards. */
+    public static int retryRustResponseIntoBuffer(int handlerId, ByteBuffer out, int offset, int capacity) {
+        if (out != null && (offset < 0 || capacity != out.capacity() || offset > capacity)) {
+            throw new IllegalArgumentException("Invalid retry buffer bounds");
+        }
+        return HandlerRegistry.getInstance().retryBufferedResult(handlerId, out, offset);
+    }
 
     // ======================
     // JAVA → RUST
@@ -548,11 +576,10 @@ public class NativeBridge {
                 "reactor.rust.log.level",
                 "error"
         ));
-        asyncResponseTimeoutMs = Math.max(1, PropertiesLoader.getInt(
+        int asyncResponseTimeoutMs = Math.max(1, PropertiesLoader.getInt(
                 "reactor.rust.async.response-timeout-ms",
                 DEFAULT_ASYNC_RESPONSE_TIMEOUT_MS
         ));
-        NativeBridge.asyncResponseTimeoutMs = asyncResponseTimeoutMs;
 
         try {
             int nativeAbi = nativeAbiVersion();
@@ -675,15 +702,7 @@ public class NativeBridge {
     private static void validateNativeCapabilities(
             NativeCapabilityPlan plan,
             String buildFeatures) {
-        java.util.Set<String> features = java.util.Arrays.stream(buildFeatures.split(","))
-                .map(String::trim)
-                .map(value -> value.toLowerCase(java.util.Locale.ROOT))
-                .filter(value -> !value.isEmpty())
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
-        requireNativeFeature(plan, NativeCapabilityPlan.Capability.WEBSOCKET, "websocket", features);
-        requireNativeFeature(plan, NativeCapabilityPlan.Capability.DUBBO, "dubbo", features);
-        requireNativeFeature(plan, NativeCapabilityPlan.Capability.REDIS, "redis", features);
-        requireNativeFeature(plan, NativeCapabilityPlan.Capability.GLOWROOT, "glowroot", features);
+        plan.validateBuildFeatures(buildFeatures);
     }
 
     private static void configureGlowrootFromProperties(NativeCapabilityPlan capabilityPlan) {
@@ -835,18 +854,6 @@ public class NativeBridge {
         return value == null || value.isBlank() ? fallback.trim() : value.trim();
     }
 
-    private static void requireNativeFeature(
-            NativeCapabilityPlan plan,
-            NativeCapabilityPlan.Capability capability,
-            String feature,
-            java.util.Set<String> buildFeatures) {
-        if (plan.enabled(capability) && !buildFeatures.contains(feature)) {
-            throw new IllegalStateException(
-                    "Native capability " + capability + " is enabled but the loaded binary was built without "
-                            + feature + ". Select the matching starter/native classifier.");
-        }
-    }
-
     private static int positiveServerTimeout(String key, int defaultValue) {
         int value = PropertiesLoader.getInt(key, defaultValue);
         if (value < 100 || value > 300_000) {
@@ -995,10 +1002,8 @@ public class NativeBridge {
             String headers
     ) {
         try {
-            HandlerRegistry.getInstance()
-                    .invokeAsyncFrame(handlerId, inBytes, pathParams, queryString, headers)
-                    .orTimeout(asyncResponseTimeoutMs, TimeUnit.MILLISECONDS)
-                    .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
+            AsyncCompletionHolder.COMPLETIONS.observe(requestId, HandlerRegistry.getInstance()
+                    .invokeAsyncFrame(handlerId, inBytes, pathParams, queryString, headers));
             return true;
         } catch (Throwable e) {
             throwIfFatal(e);
@@ -1013,16 +1018,19 @@ public class NativeBridge {
             int queryInt
     ) {
         try {
-            HandlerRegistry.getInstance()
-                    .invokeAsyncFrameQueryInt(handlerId, queryInt)
-                    .orTimeout(asyncResponseTimeoutMs, TimeUnit.MILLISECONDS)
-                    .whenComplete((frame, error) -> completeAsyncHandler(requestId, frame, error));
+            AsyncCompletionHolder.COMPLETIONS.observe(requestId, HandlerRegistry.getInstance()
+                    .invokeAsyncFrameQueryInt(handlerId, queryInt));
             return true;
         } catch (Throwable e) {
             throwIfFatal(e);
             completeAsyncHandler(requestId, (HandlerRegistry.AsyncResponseFrame) null, e);
             return true;
         }
+    }
+
+    private static final class AsyncCompletionHolder {
+        static final AsyncResponseCompletions<HandlerRegistry.AsyncResponseFrame> COMPLETIONS =
+                new AsyncResponseCompletions<>(NativeBridge::completeAsyncHandler);
     }
 
     private static void completeAsyncHandler(long requestId, HandlerRegistry.AsyncResponseFrame frame, Throwable error) {
@@ -1035,6 +1043,10 @@ public class NativeBridge {
             return;
         }
         try {
+            if (frame.nativeId() > 0 && NativeHandleCompletion.SUPPORTED) {
+                completeAsyncNativeHandle(requestId, frame.nativeId(), frame.nativeStatus());
+                return;
+            }
             ByteBuffer responseFrame = frame.buffer();
             if (responseFrame.isDirect()) {
                 completeAsyncResponseBuffer(requestId, responseFrame, frame.length());

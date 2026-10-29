@@ -16,6 +16,14 @@ class ProjectGeneratorTest {
     Path tempDir;
 
     @Test
+    void generatedParentUsesTheFilteredBuildVersion() throws Exception {
+        Path output = generate(ProjectGenerator.Mode.REST, "versioned-rest");
+        String pom = Files.readString(output.resolve("pom.xml"));
+        assertTrue(pom.contains("<version>" + ProjectGenerator.frameworkVersion() + "</version>"));
+        assertTrue(!ProjectGenerator.frameworkVersion().contains("${"));
+    }
+
+    @Test
     void generatesAllSupportedProjectShapes() throws Exception {
         for (ProjectGenerator.Mode mode : ProjectGenerator.Mode.values()) {
             Path output = tempDir.resolve(mode.name().toLowerCase());

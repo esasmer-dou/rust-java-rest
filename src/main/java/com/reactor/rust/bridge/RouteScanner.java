@@ -496,7 +496,7 @@ public final class RouteScanner {
                 throw new IllegalArgumentException("@DirectPathShort min must be <= max: " + method);
             }
             RawRequestData rawRequestData = method.getAnnotation(RawRequestData.class);
-            boolean bodyless = !metadata.needsBody && isVoidRequestType(routeInfo.requestType);
+            boolean bodyless = isBodylessRequest(directV5, metadata.needsBody, routeInfo.requestType);
             boolean implicitRawMetadata = directV5 && rawRequestData == null;
             boolean directNeedsPathParams = directV5 && (implicitRawMetadata || rawRequestData.pathParams());
             boolean directNeedsQueryParams = directV5 && (implicitRawMetadata || rawRequestData.query());
@@ -1090,6 +1090,11 @@ public final class RouteScanner {
         if (type == float.class) return Float.class;
         if (type == char.class) return Character.class;
         return Void.class;
+    }
+
+    static boolean isBodylessRequest(boolean directBodyBuffer, boolean annotatedBody, Class<?> requestType) {
+        // A V5 ByteBuffer parameter consumes the native body even without @RequestBody metadata.
+        return !directBodyBuffer && !annotatedBody && isVoidRequestType(requestType);
     }
 
     private static boolean isVoidRequestType(Class<?> requestType) {

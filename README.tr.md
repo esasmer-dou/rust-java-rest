@@ -2,20 +2,100 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## 4.8.0 İle Başlayın
+
+İsteğe bağlı native edge politikaları, JWT güvenliği, W3C izleme başlıkları, üretilmiş çağrı kodu ve sınırlı native JSON görünümleri eklendi. Handler ve iş kuralları Java'da kalır. OpenJ9 JNI kullanır. FFM ayrı bir seçenektir.
+
+[Kullanım rehberi](docs/explicit-operations.md) · [Sürüm notları](docs/release-notes/v4.8.0.md)
+
+
 Yeni kullanım rehberi: [Açık ve sınırlı işlemler](docs/explicit-operations.tr.md).
 
-Bu doküman `4.7.1` ve isteğe bağlı agent `0.7.0` hattını anlatır. Yayın için eşleşen performans
+Yayımlanmamış kaynak hazırlığı: [Native platformlar ve başlangıç uyumluluğu](docs/native-availability.tr.md).
+Güncel x64 tam özellikli dosyalar ile korunan eski ARM temel dosyalarının kaynak bilgisi farklıdır.
+
+Kaynak kod özelliği: [Geçersiz HS256 token'ını Rust'ta reddetme; Java yetki kontrolünü koruma](NATIVE_JWT.tr.md).
+Açık anahtarla JWT ve sınırlı token önbelleği: [RS256, ES256 ve Ed25519 rehberi](platform/starter-security/README.tr.md).
+Bu JCA yolu native HS256'dan ayrıdır. Mevcut kimlik doğrulama varsayılanları değişmez.
+Dış HTTP çağrıları ve üretilmiş circuit breaker için [sınırlı istemci rehberini](platform/starter-http-client/README.tr.md) kullanın.
+W3C izleme ve retry başlık koruması için [isteğe bağlı tracing rehberini](platform/starter-tracing/README.tr.md) kullanın.
+Yeni buffer codec'i ve parent ID değişiklikleri yayımlanana kadar kaynak kod özelliğidir.
+
+İsteğe bağlı Java 21 FFM: [Ham Redis JSON verisini shared slab ile okuma](platform/ffm-cache/README.tr.md).
+Bu ayrı kaynak modülü varsayılan JNI okuyucusunu, sürümlü snapshot'ı veya Java handler'ını değiştirmez.
+
+Henüz yayımlanmayan kaynak kod: [Native veri görünümü ve isteğe bağlı toplu JSON yazımı](docs/native-views.tr.md).
+Kaynak kod özelliği: [Üretilmiş switch dispatch ve derleme uyumluluğu](docs/generated-dispatch.tr.md).
+Bu eklemeler henüz dağıtılan pakette bulunmaz. Mevcut endpoint'ler aynı yolu kullanır.
+
+Henüz yayımlanmayan owned JSON yolu: cache entegrasyonu, `CacheReadSnapshot` sahibini
+`CacheResponses.ownedJson(...)` yardımcısına devredebilir. L1 hit'inde JSON, Java payload
+dizisi oluşmadan sabit alandan native yanıt buffer'ına yazılır. Buffer küçükse aynı
+sahip korunur. Yazım bitince, hata oluşunca veya işlem iptal edilince kaynak bırakılır.
+Mevcut DTO, `RawResponse` ve normal `JsonBodyProducer` API'leri değişmez. Alt katmandaki
+işaretleyici `ManagedJsonBodyProducer` olur; uygulama genelde cache yardımcısını kullanır.
+
+Tipli Dubbo listesini değiştirmeden HTTP JSON yanıtı olarak iletecekseniz isteğe
+bağlı `java-rust-dubbo-rest-adapter` kaynak modülünü kullanabilirsiniz.
+`DubboJsonResponses.body(result)`, consumer satır DTO'larını oluşturmadan native
+Hessian verisini JSON'a yazar. Handler ve iş kararları Java'da kalır. Kurucu
+doğrulaması, sıralama veya alan değiştirme gerekiyorsa normal DTO yolunu seçin.
+Bu yol sınırlı buffer'a yazar; sınırsız chunked streaming değildir. Sample'daki
+`direct-json-consumer` profili tam akışı gösterir. Spring Dubbo 0.8.0 modüllerini kullanın.
+Bu API için REST `4.8.0` / cache `0.9.0` kullanın. Uyumlu
+kaynak derlemelerini kullanın. [Sample L1 rehberine](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.tr.md#isteğe-bağlı-l1-okuma-kaynak-kod) bakın.
+
+**4.8.0 buffer düzeltmesi:** eşleşen Java ve native sürümleri, yanıt buffer'ı küçük
+kaldığında mevcut sonucu yeniden yazar. `RawResponse`, DTO veya `ResponseEntity` döndüren handler
+yeniden çağrılmaz. Bu bir yanıt cache'i değildir. Sonuç, yazım bitince veya işlem iptal edilince
+bırakılır. Ek payload kopyası veya daha büyük bir global kuyruk oluşturulmaz. Eski Java/native
+eşleşmeleri çalışmaya devam eder. Düzeltmeden yararlanmak için iki taraf da güncellenmelidir.
+
+Buffer'a yazıp `int` döndüren doğrudan handler, mevcut boyut bildirme kuralını kullanır ve yeniden
+çağrılabilir. `JsonBodyProducer.write` da daha büyük buffer ile yeniden çalışabilir. Bu yazım
+metotları aynı veriyi tekrar yazabilmelidir. Veri tabanı veya RPC çağrısını handler'da yapın.
+Writer yalnız daha önce alınan veriyi yazsın.
+
+**4.8.0 async kaynak yönetimi:** HTTP zaman aşımının ve bekleyen
+istek kaydının tek sahibi Rust olur. Java yalnız future sonucunu iletir. İkinci
+bir zamanlayıcı veya istek tablosu kurmaz. HTTP zaman aşımından sonra gelen
+sonuç da native temizleme yoluna ulaşır; Java yanıt buffer'ı havuza döner.
+Handler'ınızı veya `reactor.rust.async.response-timeout-ms` ayarını değiştirmeniz
+gerekmez. Bu süre HTTP isteğini bitirir; iş kodunuzu kesmez. Veri tabanı ve RPC
+çağrılarına ayrıca sınırlı timeout verin. Bu düzeltme tek başına ölçülmüş bir
+performans kazancı anlamına gelmez.
+
+Aynı kaynakta async rota, Java işi bitip hazır yanıt mevcut
+`reactor.rust.http.max-inflight-response-bytes` bütçesinden pay aldığında çalışma
+kotasını bırakır. Hazır yanıt için HTTP motorunun yeniden çalışmasını beklemez.
+Byte bütçesi alınamazsa eski kota süresi korunur. İptal edilen veya reddedilen
+native yanıtın kaynakları da bırakılır. Eşzamanlı iş sınırı, kuyruk kapasitesi ve
+timeout büyütülmez. RPC sınırını ve yanıt byte bütçesini ayrı tutun. Yavaş bir
+istemci, sınırsız hazır yanıt kuyruğu oluşturmamalıdır.
+
+Güncel kaynakta, ek header içermeyen `RawResponse.nativeResponse(id)` async
+sonucu Rust'a yalnız ID ve durum koduyla geçer. Handler ve future dönüşümleri
+yine Java'da çalışır. Bu yol için Java'da byte-array kontrol frame'i hazırlanmaz.
+Yanıt byte sınırı ve geç gelen sonucun temizliği Rust'ta korunur. Ek header varsa
+mevcut frame yolu kullanılır. Eski ABI-29 native dosya bir kez algılanır ve uyumlu
+frame yoluna döner. Tahsisatı azaltan yoldan yararlanmak için güncel native dosya
+gerekir; eski binary için aynı performans kazancı vaat edilmez.
+
+İsteğe bağlı kaynak kod: [Herkese açık GET rotalarında edge cache ve hız limiti](NATIVE_EDGE.tr.md).
+Native isabette Java guard çalışmaz. Bu nedenle kurulumda açık rota onayı gerekir.
+
+Bu doküman `4.8.0` ve isteğe bağlı agent `0.7.1` hattını anlatır. Yayın için eşleşen performans
 kontrolü geçmelidir. [Yayımlanan sürümlerden](https://github.com/esasmer-dou/rust-java-rest/releases)
 birini kullanın. Son doğrulama raporları yayına eklenir. Kaynak branch'i yayımlanmış paket değildir.
 
-Bu sürümün platform modüllerini kaynaktan derlemek için `platform-v4.7.1` tag'ini kullanın.
-Core/native kaynak tag'i `v4.7.1` olarak kalır. İki Maven sürümü de `4.7.1` olur. Platform tag'i,
+Bu sürümün platform modüllerini kaynaktan derlemek için `v4.8.0` tag'ini kullanın.
+Core/native kaynak tag'i `v4.8.0` olarak kalır. İki Maven sürümü de `4.8.0` olur. Platform tag'i,
 ilk yayından önce cache-writer bağımlılığını düzeltir. [Platform rehberine](platform/README.tr.md) bakın.
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.7.1-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.8.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.0)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.7.1)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.0)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -51,19 +131,19 @@ kütüphaneler gerektiriyorsa bu framework doğru başlangıç değildir.
 | Bir property'nin anlamını bulmak | [Konfigürasyon referansı](docs/configuration.tr.md) |
 | Startup, fallback, native yükleme veya `503` sorununu çözmek | [Sorun giderme](docs/troubleshooting.tr.md) |
 
-## 4.7.1 ile Neler Değişti?
+## 4.8.0 ile Neler Değişti?
 
 Bu patch; platform parent, BOM, starter ve sample sürümlerini hizalar. Pakette Windows x64,
 Linux x64, Linux ARM64 ve macOS ARM64 native dosyaları bulunur. Linux GLIBC alt sınırı `2.17`,
 macOS ARM64 hedefi `11.0` olarak korunur. ABI numaraları ve Java handler kullanımı değişmez.
-Başka sürümden native dosya kopyalamayın. Ayrıntılar [sürüm notlarındadır](docs/release-notes/v4.7.1.tr.md).
+Başka sürümden native dosya kopyalamayın. Ayrıntılar [sürüm notlarındadır](docs/release-notes/v4.8.0.tr.md).
 
 ### 4.6.2 ile Gelen ve Korunan Telemetri Düzeltmeleri
 
 4.6.2, collector bağlantı yenilemesi sırasında oluşabilen veri kaybını düzeltir. Exporter CPU
 izolasyonu korunur. Java iş mantığı ve endpoint davranışı değişmez.
 
-- Windows ve Linux native dosyaları temiz `rust-spring v4.7.1` build'inden alınır.
+- Windows ve Linux native dosyaları temiz `rust-spring v4.8.0` build'inden alınır.
 - Embedded REST telemetrisi başlangıçta collector erişimini doğrular ve bu bağlantıyı kapatır.
   Sınırlı h2 bağlantısını yalnız export penceresinde açar. Hyper data plane yanında idle collector
   bağlantısı tutmaz.
@@ -92,7 +172,7 @@ izolasyonu korunur. Java iş mantığı ve endpoint davranışı değişmez.
 - Düşük profile dönüldüğünde profile ait kuyruklar, SQL slot'ları, diagnostic state ve JNI
   referansları kontrol çağrısı tamamlanmadan bırakılır.
 - REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `6` kullanılır.
-- Native DLL/SO, `4.7.1` Maven artifact'i içinde gelen dosya olmalıdır.
+- Native DLL/SO, `4.8.0` Maven artifact'i içinde gelen dosya olmalıdır.
 - `collector_preflight_reconnects`, `collector_request_retries`, `deferred_intervals` ve
   `pending_aggregate_transactions` alanları rotasyonun kayıpsız toparlandığını gösterir.
 
@@ -124,7 +204,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.7.1</version>
+  <version>4.8.0</version>
 </parent>
 
 <dependencies>
@@ -469,7 +549,7 @@ reactor.rust.http.idle-timeout-ms=30000
 
 ## Gözlemlenebilirlik
 
-`4.7.1` sürümü, uyumlu `java-rust-glowroot-agent:0.7.0` paketiyle kullanılabilir. Mikro ajan şu
+`4.8.0` sürümü, uyumlu `java-rust-glowroot-agent:0.7.1` paketiyle kullanılabilir. Mikro ajan şu
 verileri Glowroot Central'a gönderir:
 
 - HTTP route çağrı sayısı, süre dağılımı ve `5xx` sayısı;
@@ -482,7 +562,7 @@ Java agent bytecode weaving yapmaz. Runtime dependency eklemez. Protobuf encode 
 HTTP/2 gönderimi mevcut Rust runtime içinde çalışır. Handler, service, validation ve business logic
 Java'da aynı şekilde kalır.
 
-Stable `4.7.1` runtime; sınırlı `micro`, `jvm`, `sql`, `full` ve `diagnostic` profillerini destekler.
+Stable `4.8.0` runtime; sınırlı `micro`, `jvm`, `sql`, `full` ve `diagnostic` profillerini destekler.
 REST ABI `29` ve Glowroot ABI `6` gerekir. Bu Java sınıflarını eski Glowroot ABI DLL/SO ile
 kullanmayın.
 
@@ -541,7 +621,7 @@ Collector, HTTP request kritik yolunda beklenmez. Bağlantı kesilirse sınırl�
 çalışır. Süresi geçen rollup bellekte biriktirilmez; drop edilir ve sayaçta görünür. Uygulama servis
 vermeye devam eder. Kaynak kodla uygulanan agent-owned üst sınır `1 MiB` değeridir. Önceki
 `4.4.1` kanıtı shared-runtime yolunu ölçtü. Resident maksimum farkları `+1,742 MiB`, `+1,817 MiB`
-ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.7.1`, export ve profil kaynak bırakma işini
+ve `+1,754 MiB` oldu; telemetri thread'i eklenmedi. `4.8.0`, export ve profil kaynak bırakma işini
 tek `256 KiB` Rust thread üzerinde izole eder. Hyper worker kullanmaz. Embedded REST başlangıç
 collector bağlantısını kapatır ve yalnız sınırlı export penceresinde yeniden bağlanır. Koordineli
 release gate'i, companion agent yayınlanmadan önce `+3 MiB`, RPS, p99 ve `503` sözleşmesini ölçer.
@@ -645,7 +725,7 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Uyumlu dependency çizgisi `rust-java-rest:4.7.1`, `java-rust-dubbo:0.8.0` ve
+Uyumlu dependency çizgisi `rust-java-rest:4.8.0`, `java-rust-dubbo:0.8.0` ve
 `java-rust-cache:0.8.0` şeklindedir. Native artifact'ler REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`
 ve Glowroot ABI `6` taşır.
 
@@ -666,7 +746,7 @@ Native yükleyici ve build iş akışı şu dosya yollarını destekler:
 
 ARM64 Java 21 kullanın. macOS build hedefi `11.0`, Linux GLIBC alt sınırı `2.17` olarak ayarlanır.
 Binary, hedef işlemci için üretilmeli ve SHA-256 provenance bilgisiyle paketlenmelidir.
-`4.7.1` paketi dört platformu ve SHA-256 provenance bilgilerini içerir.
+`4.8.0` paketi dört platformu ve SHA-256 provenance bilgilerini içerir.
 ARM64 native build'leri CI üzerinde doğrulanır. Bu sürümün uygulama smoke testleri x64 üzerinde çalıştırılmıştır.
 [Native paketleme adımlarını](https://github.com/esasmer-dou/rust-spring/blob/master/README.tr.md#native-dosyaları-paketleme) izleyin.
 
@@ -688,7 +768,7 @@ karşılaştırır. Uyuşmazlıkta çıkış kodu `1` olur.
 - [Sorun giderme](docs/troubleshooting.tr.md)
 - [Compile edilmiş örnekler](examples/README.tr.md)
 - [Production runtime ve performans kararları](docs/production-runtime.md)
-- [4.7.1 sürüm notları](docs/release-notes/v4.7.1.tr.md)
+- [4.8.0 sürüm notları](docs/release-notes/v4.8.0.tr.md)
 - [4.6.2 sürüm notları](docs/release-notes/v4.6.2.tr.md)
 - [4.6.0 sürüm notları](docs/release-notes/v4.6.0.tr.md)
 - [4.4.1 sürüm notları](docs/release-notes/v4.4.1.tr.md)
