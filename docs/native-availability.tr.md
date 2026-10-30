@@ -15,7 +15,7 @@ Kaynak: `3418671b5010afb5dc049897f2a7287dc6a58daf`; derleme: `40834723168`.
 | macOS ARM64 | dylib; macOS 11 ve sonrası | Temiz derleme; ARM çalışma testi yok |
 
 Yayımlanmış 4.8.0 bu ARM64 binary'lerini içerir; ancak eski platform sidecar'ları
-nedeniyle provenance kontrolü dosyaları reddeder. Hazırlanan, henüz yayımlanmamış
+nedeniyle provenance kontrolü dosyaları reddeder. Yeni
 4.8.1 yaması yalnız metadata'yı düzeltir; binary'leri yeniden derlemez ve ARM çalışma
 kanıtı eklemez (`runtime.verified=false`). [4.8.1 notlarına](release-notes/v4.8.1.tr.md) bakın.
 

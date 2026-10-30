@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [4.8.1] - Unreleased
+## [4.8.1] - 2026-10-30
 
-- Prepare ARM64 platform provenance regenerated from the packaged 4.8.0 binaries.
+- Regenerate ARM64 platform provenance from the packaged 4.8.0 binaries.
   Verify the loader-selected manifest inside built JARs; reject stale sidecars.
 - Align REST/platform 4.8.1 and cache 0.9.1. Native binary bytes, APIs and ABIs stay
   unchanged; ARM runtime qualification is not implied.

@@ -15,8 +15,8 @@ platform parent kullanın. Ardından yalnız process'in gerçekten ihtiyaç duyd
 Yeni servis için parent kullanın. Şirket parent POM'u değiştirilemiyorsa BOM kullanın. Doğrudan
 dependency yolunu yalnız embedding veya framework geliştirme için seçin.
 
-Platform `4.8.0`, iki cache starter'ında ve Dubbo'da `0.9.0` kullanır. Platform kaynağının tag'i
-`v4.8.0` olur. Değişmeyen core/native runtime'ın tag'i `v4.8.0` olarak kalır.
+Platform `4.8.1`, iki cache starter'ında ve Dubbo'da `0.9.1` kullanır. Platform kaynağının tag'i
+`v4.8.1` olur. Aynı native dosyalar, düzeltilmiş manifestlerle `v4.8.1` olarak dağıtılır.
 Platform paketi kaynak commit bilgisini de içerir. Maven bağımlılık tanımı değişmez.
 
 ## İçindekiler
@@ -35,7 +35,7 @@ Platform paketi kaynak commit bilgisini de içerir. Maven bağımlılık tanım�
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.0</version>
+  <version>4.8.1</version>
 </parent>
 
 <artifactId>customer-api</artifactId>

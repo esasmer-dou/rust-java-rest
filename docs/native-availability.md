@@ -15,7 +15,7 @@ Source: `3418671b5010afb5dc049897f2a7287dc6a58daf`; build: `40834723168`.
 | macOS ARM64 | dylib; macOS 11 or later | Clean compilation; no ARM runtime certification |
 
 Published 4.8.0 contains these ARM64 bytes but stale platform sidecars, so the
-provenance check rejects them. The prepared, not-yet-published 4.8.1 patch corrects
+provenance check rejects them. The 4.8.1 patch corrects
 metadata only; it does not rebuild the binaries or add ARM runtime evidence
 (`runtime.verified=false`). See [4.8.1 notes](release-notes/v4.8.1.md).
 

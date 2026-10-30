@@ -150,7 +150,7 @@ Parametrelerdeki boşluklar korunur; ayrıca tırnak karakteri eklemeyin.
 <plugin>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-maven-plugin</artifactId>
-  <version>4.8.0</version>
+  <version>4.8.1</version>
   <executions>
     <execution>
       <id>optional-appcds</id>
