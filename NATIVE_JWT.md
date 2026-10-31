@@ -7,7 +7,8 @@ installer is explicitly called before route registration. Packaged binaries incl
 `edge-jwt`; custom builds need `--features edge-jwt`. REST ABI 29 alone is not a
 capability check. See [platform verification limits](docs/native-availability.md):
 Linux x64 runtime evidence is not ARM runtime certification, and published 4.8.0
-ARM64 sidecars require the prepared 4.8.1 correction.
+ARM64 sidecars require the released 4.8.1 metadata correction. That patch changes neither native
+binary bytes nor JWT defaults; it is not ARM hardware qualification.
 
 ## Choose This Path
 

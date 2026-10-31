@@ -30,6 +30,7 @@ final class NativeOutboundHttp {
                               int maxHeaders, int maxHeaderBytes, long byteBudget,
                               long connectTimeoutMs, long idleTimeoutMs);
     static native void register(long handle, String origin);
+    static native void configureTls(long handle, String caPemPath);
     static native void send(long handle, long id, String method, String uri, String[] headers,
                             byte[] body, long timeoutMs, long delayMs);
     static native byte[] poll(long handle, long timeoutMs);

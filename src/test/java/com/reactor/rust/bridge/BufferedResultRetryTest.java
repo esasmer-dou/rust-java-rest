@@ -2,10 +2,12 @@ package com.reactor.rust.bridge;
 
 import com.reactor.rust.exception.ExceptionHandlerRegistry;
 import com.reactor.rust.http.RawResponse;
+import com.reactor.rust.http.ResponseEntity;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CompletableFuture;
 
@@ -26,6 +28,14 @@ class BufferedResultRetryTest {
 
         public RawResponse direct(ByteBuffer out, int offset) {
             return annotated();
+        }
+
+        public ResponseEntity<RawResponse> entity() {
+            return ResponseEntity.ok(annotated());
+        }
+
+        public Optional<RawResponse> optional() {
+            return Optional.of(annotated());
         }
 
         public int directWriter(ByteBuffer out, int offset) {
@@ -120,6 +130,19 @@ class BufferedResultRetryTest {
         int direct = enabled.registerHandler(handler,
                 Handler.class.getMethod("directWriter", ByteBuffer.class, int.class), Void.class, Integer.class);
         assertEquals(-20_000, invoke(enabled, direct, 4096));
+    }
+
+    @Test
+    void unnegotiatedWrappedHeapResponsesKeepExactLegacySizing() throws Exception {
+        for (String method : new String[]{"entity", "optional"}) {
+            Handler handler = new Handler();
+            HandlerRegistry registry = registry();
+            int id = registry.registerHandler(handler, Handler.class.getMethod(method), Void.class, RawResponse.class);
+            int needed = 18 + RawResponse.json(handler.payload).getEncodedHeaders().length + handler.payload.length;
+            assertEquals(-needed, invoke(registry, id, 4096), method);
+            assertEquals(needed, invoke(registry, id, needed), method);
+            assertEquals(2, handler.calls.get(), "Legacy callers replay only after growing the buffer");
+        }
     }
 
     @Test

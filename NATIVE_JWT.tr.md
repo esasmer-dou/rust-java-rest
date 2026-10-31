@@ -12,7 +12,8 @@ Bu filtre ilk kez REST 4.8.0 ile yayımlanmıştır. Üretilen installer rota ka
 derlemelerde `--features edge-jwt` gerekir. REST ABI 29 tek başına yetenek kontrolü
 değildir. [Platform doğrulama sınırlarına](docs/native-availability.tr.md) bakın:
 Linux x64 çalışma kanıtı ARM çalışma onayı değildir. Yayımlanmış 4.8.0 ARM64
-sidecar'ları için hazırlanan 4.8.1 düzeltmesi gerekir.
+sidecar'ları için yayımlanmış 4.8.1 metadata düzeltmesi gerekir. Bu yama native dosya byte'larını
+veya JWT varsayılanlarını değiştirmez; ARM donanımında çalışma onayı değildir.
 
 ## Ne Zaman Kullanılır?
 

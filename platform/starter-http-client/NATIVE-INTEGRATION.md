@@ -21,7 +21,9 @@ cargo build --release --locked --features outbound-http
 The host artifact is `target/release/librust_hyper.so` on Linux or
 `target/release/librust_hyper.dylib` on macOS. Build for the OS and architecture of
 the application's JVM. This feature uses the existing Hyper/Tokio dependencies;
-it does not require hyper-util's legacy client or an additional TLS dependency.
+it does not require hyper-util's legacy client. The outbound feature includes
+`tokio-rustls`, `rustls` with the ring provider, bundled WebPKI roots and the PEM
+reader. It does not link OpenSSL or change the default REST feature selection.
 
 Windows builds can use a prepared cargo-xwin/LLVM SDK cache without Visual Studio.
 For a cache containing `lld-link.exe` at the location below:
@@ -59,11 +61,30 @@ check, and its symbols are probed at transport startup. A missing feature, missi
 symbol or incompatible API fails startup with a diagnostic. There is no implicit
 JDK fallback. Selecting `jdk` explicitly at startup retains the existing transport.
 
-This implementation is **HTTP/1-only**. HTTPS is rejected when the client is bound,
-before any request is sent. It has no insecure TLS mode and does not downgrade
-HTTPS to HTTP. Verified TLS, HTTP/2, proxies, redirects, upgrades and transparent
-decompression are unsupported. This is **not full production HTTPS coverage**.
-Choose JDK at startup when those capabilities are required. Native I/O never
+The next coordinated Java/native build supports HTTP/1.1 over HTTP or verified
+HTTPS. Use matching artifacts; older published libraries lack the additive TLS
+configuration export. Certificate chain, expiry and SAN/hostname validation are
+mandatory. `reactor.http-client.native.tls.ca-pem-path` adds an absolute PEM trust
+file; it does not replace validation. A runtime retains one TLS configuration,
+with bounded origins and connections. TLS session resumption is disabled: a
+session-count limit alone would not bound peer-provided certificate and ticket
+bytes. HTTP keep-alive still reuses established TLS connections. DNS, TCP and TLS share
+the connect deadline. TLS memory is included in byte reservations through JNI
+completion copying, driver termination and cancellation cleanup.
+
+The native byte budget includes 64 KiB per active TLS call and 128 KiB per TLS
+connection, plus 16 KiB per client for TLS configuration and its trust-anchor
+vector. Built-in certificate bytes are shared read-only. A custom PEM file is
+limited to 256 KiB and 32 trust anchors; parsing scratch and retained certificate
+bytes are reserved before allocation. There are at most eight client runtimes.
+These reservations are budget accounting, not a promise of an equal RSS increase.
+Disabling session resumption can increase CPU on new connections; keep-alive
+and the measured endpoint workload determine that cost.
+
+Set `reactor.http-client.native.tls.enabled=false` before startup to select JDK
+for the entire client runtime, not an insecure native mode. HTTP/2, proxies,
+redirects, upgrades and transparent decompression remain outside the native
+transport. Choose JDK for those capabilities. Native I/O never
 reconnects/replays a possibly delivered request; only the existing explicit,
 idempotency-aware application retry policy can start another attempt.
 
@@ -98,9 +119,15 @@ threads and no `HttpClientImpl`, `HttpClientFacade` or `SelectorManager` load. A
 positive control must start the real JDK client; a feature-less library must fail
 without fallback. These checks do not use fake native transport stubs.
 
-Actual native correctness proof currently covers an integrated Windows x86-64
-debug DLL. It does not establish Linux/macOS or release-profile acceptance. The
-1 MiB reservation default and 3 MiB configuration ceiling are transport-buffer
+The earlier integrated Windows x86-64 debug checks do not qualify other platforms.
+On October 31, 2026, the current-source Linux x86-64 candidate passed all 38 Java
+TLS/transport tests and both JNI response-ownership tests on EmaTech with OpenJ9 21.
+This is functional validation using an explicit native-library override, not
+packaged-JAR validation, confirmation of a published release or full performance
+qualification. ARM64 and macOS hardware runtime qualification remains pending; see
+[native availability](../../docs/native-availability.md).
+
+The 1 MiB reservation default and 3 MiB configuration ceiling are transport-buffer
 limits, not process RSS guarantees. The **3 MiB incremental under-load memory gate,
 128 MiB container gate and throughput/release gates remain open**. Transient shared
 DTO encoder and application decoder allocations are outside those reservations.

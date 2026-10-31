@@ -275,6 +275,9 @@ public class NativeBridge {
 
     public static native int registerStaticResponse(byte[] body, String encodedHeaders, int statusCode);
 
+    /** Discards an unconsumed, transient response. Static and cache registrations are not affected. */
+    public static native void discardNativeResponse(int nativeId);
+
     public static native int registerStaticFileResponse(
             String path,
             String encodedHeaders,

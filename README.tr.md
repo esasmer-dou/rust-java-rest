@@ -7,6 +7,55 @@
 REST/platform 4.8.1 ve cache 0.9.1 kullanın. ARM manifestleri düzeltildi. Native dosyalar ve ABI'ler
 aynı kalır. [Geçiş ayrıntıları](docs/release-notes/v4.8.1.tr.md).
 
+## Henüz Yayımlanmadı: Deklaratif Admission ve Native Yanıtlar
+
+Bu kaynak değişiklikleri yayımlanmış `4.8.1` paketinde yoktur. Bir `@Configuration` sınıfında
+sınırlı admission bean'ini tanımlayın; üretilmiş RPC istemcisini handler'a enjekte edin:
+
+```java
+@Bean
+public LongKeyAdmission customerCommandKeyAdmission() {
+    return new LongKeyAdmission(true, 1, 256);
+}
+```
+
+```java
+@PostMapping("/customers/{customerId}/refresh")
+@KeyAdmission(bean = "customerCommandKeyAdmission", key = "customerId")
+public CompletionStage<NativeResponseHandle> refresh(@PathVariable("customerId") long customerId) {
+    return client.refreshNativeJsonAsync(customerId);
+}
+```
+
+Tipler `com.reactor.rust.annotations.KeyAdmission`, `com.reactor.rust.concurrent.LongKeyAdmission`
+ve `com.reactor.rust.dubbo.NativeResponseHandle` paketlerindedir. Native JSON taşıyıcısının adı
+`NativeResponseHandle`'dır; `NativeJsonHandle` değildir. APT, adı verilen bean'i başlangıçta bağlar
+ve doğrudan çağırır. Genel generated-invoker zorunluluğu kapalı olsa da bu rotanın üretilmiş invoker'ı
+zorunludur. Üretilmiş kayıt veya doğru tip/adla bean yoksa başlangıç durur. Anahtar, doğrudan bir
+`@PathVariable` ya da `@RequestParam` ile bağlanan `long` veya `String` olmalıdır. String hash'i
+kararlıdır; aynı stripe'a düşen anahtarlar kapasiteyi paylaşır. Bekleme kuyruğu ve bu sıcak yolda
+reflection yoktur. Kapasite dolunca standart hata eşlemesi HTTP `503` (`service_unavailable`) döndürür.
+İzin, HTTP isteği iptal edilene kadar değil, kaynak stage tamamlanana kadar tutulur.
+
+Mevcut ret yanıtınızı korumak için `@KeyAdmission` içine `onRejected = "refreshRejected"` ekleyin.
+Bu metot `public` olmalı, `static` olmamalı ve tek bir `Throwable` parametresi almalıdır.
+Dönüş tipi handler ile uyumlu olmalıdır. Asenkron handler için hata yanıtını tamamlanmış bir stage
+içinde döndürün. APT imzayı kontrol eder ve doğrudan metot çağrısı üretir. Bu seçenek yalnız kabul
+kontrolünün reddini eşler. RPC hatalarını gizlemez ve mevcut hata işleme kodunu değiştirmez.
+Örnek consumer, eski hata kodlarını korumak için bu seçeneği kullanır.
+
+APT; doğrudan `NativeResponseHandle`, `ResponseEntity<NativeResponseHandle>` ve bunların
+`CompletionStage`/`CompletableFuture` biçimlerini isteğe bağlı `DubboResponses.reply`/`replyAsync`
+ile uyarlar. Elle `nativeId()` çıkarmak gerekmez. Açık `ResponseEntity` durum/başlıkları korunur.
+Elle adaptasyon için [Dubbo sahiplik rehberine](https://github.com/esasmer-dou/java-rust-dubbo/blob/master/README.tr.md#7-handler-içinden-kullanın) bakın.
+HTTP iptali kaynak RPC'yi iptal etmez; sınırlı RPC deadline'ı sürer ve geç gelen owner kapatılır.
+Buffer yeniden yazımı aynı sonucu kullanır; yanıt byte'larını cache'lemez veya iş çağrısını tekrarlamaz.
+Açıkça seçilen statik yanıt/cache API'leri ayrıdır.
+
+K-001: Birincil köprü JNI'dır. REST ABI `29` ve Dubbo ABI `7` imzaları değişmez. Ek temizleme
+export'ları, kullanımdan önce koordineli yeni native derleme ve provenance güncellemesi gerektirir.
+Yalnız Java'yı güncellemek yayımlanmış native dosyalara bu export'ları eklemez.
+
 ## 4.8.1 İle Başlayın
 
 İsteğe bağlı native edge politikaları, JWT güvenliği, W3C izleme başlıkları, üretilmiş çağrı kodu ve sınırlı native JSON görünümleri eklendi. Handler ve iş kuralları Java'da kalır. OpenJ9 JNI kullanır. FFM ayrı bir seçenektir.

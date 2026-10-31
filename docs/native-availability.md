@@ -32,3 +32,23 @@ The loader first reads the selected binary's platform sidecar in its owning JAR.
 Only an absent sidecar permits the root manifest in that same JAR. Invalid metadata, hash or ABI fails startup.
 REST also verifies its source revision. Checks run at startup, not on each request.
 Do not mix old DLL/SO files with new JARs. Compilation evidence is not a cross-platform performance guarantee.
+
+## Qualify ARM64 On EmaTech
+
+Use real ARM64 hardware. A cross-build or QEMU smoke test does not qualify a production runtime.
+The `rust-spring` workflow `arm64-runtime-qualification.yml` requires an EmaTech
+self-hosted runner with the `ARM64` and `native-hardware` labels.
+
+An operator first stages a reviewed `plan.json` under `ARM64_QUALIFICATION_PLAN_ROOT`.
+The plan identifies the actual binaries, hashes, existing verifier commands and paired performance measurements.
+Run it from the `rust-spring` checkout on that runner:
+
+```sh
+python3 scripts/qualify-arm64-runtime.py --platform linux-aarch64 \
+  --plan-root /opt/ematech/arm64 --plan plan.json --output /tmp/arm64-proof
+```
+
+Use `--platform osx-aarch64` on a real macOS ARM64 runner. The receipt records its JVM separately;
+it is not OpenJ9 production proof. The runner checks packaged provenance, all five ABI handshakes,
+edge features, HTTPS, slab safety and resource regression. Missing evidence fails qualification.
+The script never edits sidecars or marks `runtime.verified=true`. That change requires review of a complete receipt.

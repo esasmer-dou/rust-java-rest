@@ -143,6 +143,11 @@ public class HandlerRegistry {
         if (result instanceof Optional<?> optional) result = optional.orElse(null);
         if (result instanceof ResponseEntity<?> entity) result = entity.getBody();
         if (result instanceof JsonProducerResponse response) result = response.producer();
+        if (result instanceof RawResponse response) {
+            boolean owned = response.ownsNativeResponse();
+            response.close();
+            return owned;
+        }
         if (result instanceof ManagedJsonBodyProducer producer) { producer.close(); return true; }
         return false;
     }
@@ -691,8 +696,8 @@ public class HandlerRegistry {
                                 + ". Use a request DTO instead of many scalar parameters."
                 );
             }
-            if (usesAnnotatedParams
-                    && PropertiesLoader.getBoolean("reactor.codegen.route-invoker.required", false)
+            if ((usesAnnotatedParams && PropertiesLoader.getBoolean("reactor.codegen.route-invoker.required", false)
+                    || method.isAnnotationPresent(com.reactor.rust.annotations.KeyAdmission.class))
                     && GeneratedRouteInvokers.find(method) == null) {
                 throw new IllegalStateException(
                         "Generated route invoker is required but missing for " + method);

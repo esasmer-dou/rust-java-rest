@@ -2,9 +2,10 @@
 
 [English](README.md) | [Turkish](README.tr.md)
 
-Circuit breakers and the opt-in native outbound transport are published in 4.8.0.
-The default transport remains `jdk`. The native artifact
-is **HTTP/1-only: HTTPS is unsupported and rejected**, not silently downgraded.
+Circuit breakers and the opt-in native outbound transport were published in 4.8.0.
+The default transport remains `jdk`. The next coordinated Java/native build adds
+verified HTTPS over HTTP/1.1. Existing published native binaries do not gain TLS
+support by changing a property; use matching Java and native artifacts.
 
 ## Protect A Slow Dependency
 
@@ -140,12 +141,38 @@ missing additive JNI symbols fail startup with a build-feature diagnostic. There
 is no implicit JDK fallback. REST ABI 29 is unchanged; the outbound API is version 1.
 See [native build instructions](NATIVE-INTEGRATION.md) for source feature and artifact requirements.
 
-Generated clients bind their base URL during construction. Native binding rejects
-HTTPS, userinfo and excess retained origins before sending. Bind clients once at
-startup, not per request. Native transport does not support verified TLS, HTTP/2,
-proxies, redirects, cookie/authenticator automation, upgrades, or application-set
-framing/hop-by-hop headers. Use JDK at startup when those features are required.
-This is not full production HTTPS coverage.
+Generated clients bind their base URL during construction. Native binding accepts
+HTTP and HTTPS, but rejects userinfo and excess retained origins before sending.
+Bind clients once at startup, not per request. Native transport does not support
+HTTP/2, proxies, redirects, cookie/authenticator automation, upgrades, or
+application-set framing/hop-by-hop headers. Select JDK for those capabilities.
+
+## Call An HTTPS Service
+
+```properties
+reactor.http-client.transport=native
+app.stock.base-url=https://stock.example.com
+reactor.http-client.native.tls.enabled=true
+# Optional: add your organization's trusted CA. Use an absolute PEM file path.
+# reactor.http-client.native.tls.ca-pem-path=/etc/company-ca/roots.pem
+```
+
+The generated Java client and its annotations stay the same. Rust performs TLS
+on the dedicated outbound executor, not on the REST server executor. Certificate
+chain, expiry and hostname checks are mandatory. There is no insecure switch.
+The connect timeout covers DNS, TCP and TLS together. Request and connection
+reservations include TLS state; a failed or cancelled handshake must release them.
+
+Set `reactor.http-client.native.tls.enabled=false` **before startup** to select the
+JDK transport for the whole HTTP client runtime. This does not disable certificate
+validation or send HTTPS as plaintext. The JDK path may create its own threads.
+The native alias `rust-native` remains supported. TLS session resumption is
+disabled; HTTP keep-alive still reuses connections. Budget reservations include
+64 KiB per active TLS call, 128 KiB per connection and 16 KiB per client plus
+its trust-anchor vector. Custom PEM files are limited to 256 KiB and 32 anchors.
+See [TLS allocation limits](NATIVE-INTEGRATION.md#configure-the-application) for
+scratch reservations. New TLS connections may cost more CPU without resumption.
+The byte budget is not a promise about total JVM/container RSS.
 
 Generated client factories respect `@RequiresProperty` and profile conditions
 at startup. A disabled client is not constructed. There is no per-request property

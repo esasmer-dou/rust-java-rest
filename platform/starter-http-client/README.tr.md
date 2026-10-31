@@ -3,8 +3,9 @@
 [English](README.md) | [Turkish](README.tr.md)
 
 Devre kesici ve isteğe bağlı native HTTP taşıması 4.8.0 ile yayımlanmıştır.
-Varsayılan taşıma `jdk` olarak kalır. Native artifact **yalnız HTTP/1
-destekler; HTTPS desteklenmez ve açıkça reddedilir**, sessizce HTTP'ye düşürülmez.
+Varsayılan taşıma `jdk` olarak kalır. Sonraki eşleşen Java/native derlemesi,
+HTTP/1.1 üzerinden doğrulanmış HTTPS desteği ekler. Yayımlanmış eski native
+dosyalar yalnız ayar değiştirerek TLS desteği kazanmaz. Eşleşen çıktıları kullanın.
 
 ## Yavaşlayan Bağımlılığı Sınırlayın
 
@@ -141,12 +142,40 @@ başlangıcını açık bir özellik mesajıyla durdurur; JDK'ya sessiz dönüş
 ABI 29 korunur, ek outbound API sürümü 1'dir. Kaynak kod özelliği ve artifact
 gereksinimleri [native derleme kılavuzundadır](NATIVE-INTEGRATION.tr.md).
 
-Üretilen istemci, oluşturulurken taban adresini bağlar. Native seçiminde HTTPS,
-userinfo ve fazla origin, gönderimden önce reddedilir. İstemciyi her istekte değil,
-başlangıçta bir kez bağlayın. Doğrulanmış TLS, HTTP/2, proxy, redirect, otomatik
-cookie/authenticator, upgrade ve uygulamanın verdiği framing/hop-by-hop başlıkları
-desteklenmez. Bunlar gerekiyorsa başlangıçta JDK seçin. **Tam production HTTPS
-kapsamı sağlanmış değildir.**
+Üretilen istemci, oluşturulurken taban adresini bağlar. Native taşıma HTTP ve
+HTTPS kabul eder. Adresteki kullanıcı bilgisi ve sınırı aşan hedef sayısı
+gönderimden önce reddedilir. İstemciyi başlangıçta bir kez bağlayın. HTTP/2,
+proxy, yönlendirme, otomatik cookie/authenticator, upgrade ve uygulamanın verdiği
+framing/hop-by-hop başlıkları desteklenmez. Bunlar gerekiyorsa JDK seçin.
+
+## HTTPS Servisini Çağırın
+
+```properties
+reactor.http-client.transport=native
+app.stock.base-url=https://stock.example.com
+reactor.http-client.native.tls.enabled=true
+# İsteğe bağlı kurum CA dosyası. Mutlak PEM dosyası yolu verin.
+# reactor.http-client.native.tls.ca-pem-path=/etc/company-ca/roots.pem
+```
+
+Java istemciniz ve anotasyonlarınız değişmez. TLS işini Rust'ın ayrı outbound
+executor'ı yapar. REST sunucusunun executor'ı kullanılmaz. Sertifika zinciri,
+geçerlilik süresi ve sunucu adı her zaman doğrulanır. Güvensiz mod yoktur.
+Bağlantı zaman aşımı DNS, TCP ve TLS adımlarının toplamını sınırlar. TLS belleği
+çağrı ve bağlantı bütçesine dahildir. Başarısız veya iptal edilen el sıkışması
+tuttuğu kaynakları bırakır.
+
+Başlangıçtan önce `reactor.http-client.native.tls.enabled=false` verirseniz tüm
+HTTP istemci runtime'ı JDK taşımasına geçer. Bu ayar sertifika doğrulamasını
+kapatmaz ve HTTPS'i düz HTTP'ye çevirmez. JDK kendi thread'lerini oluşturabilir.
+`rust-native` taşıma adı da geçerlidir. TLS oturumu devam ettirme kapalıdır.
+HTTP keep-alive bağlantıyı kullanmaya devam eder. Bütçeye her etkin TLS çağrısı
+için 64 KiB, her bağlantı için 128 KiB ve her istemci için 16 KiB ile güven kökü
+vektörünün kapasitesi eklenir. Özel PEM dosyası en fazla 256 KiB ve 32 kök
+içerebilir. [TLS bellek sınırları](NATIVE-INTEGRATION.tr.md#uygulamayı-yapılandırın)
+geçici ayrıştırma belleğini de açıklar. Oturum devam ettirme kapalı olduğu için
+yeni TLS bağlantısı daha fazla CPU kullanabilir. Bu bütçe, JVM'in veya
+container'ın toplam RSS değeri değildir.
 
 Üretilmiş istemci factory'leri `@RequiresProperty` ve profil koşullarına
 başlangıçta uyar. Kapalı istemci oluşturulmaz. Her istekte property aranmaz.

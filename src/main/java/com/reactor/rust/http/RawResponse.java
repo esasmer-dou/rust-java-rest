@@ -13,7 +13,7 @@ import java.util.Map;
  * request would dominate latency and allocation. The caller must not mutate the
  * byte array after passing it to RawResponse.</p>
  */
-public final class RawResponse {
+public final class RawResponse implements AutoCloseable {
 
     private static final byte[] EMPTY_BYTES = new byte[0];
     private static final byte[] JSON_HEADERS = ("Content-Type: " + MediaType.APPLICATION_JSON_UTF8 + "\n")
@@ -22,6 +22,7 @@ public final class RawResponse {
     private final byte[] body;
     private final HeaderMap headers;
     private final int nativeId;
+    private boolean ownsNativeResponse;
     private volatile byte[] encodedHeaders;
 
     private RawResponse(byte[] body, Map<String, String> headers) {
@@ -101,6 +102,27 @@ public final class RawResponse {
 
     public static RawResponse nativeResponse(int nativeId) {
         return new RawResponse(EMPTY_BYTES, Map.of(), nativeId);
+    }
+
+    /** Transfers a transient native body's ownership to the HTTP lifecycle, without copying its bytes. */
+    public static RawResponse ownedNativeResponse(int nativeId) {
+        if (nativeId <= 0) throw new IllegalArgumentException("nativeId must be positive");
+        RawResponse response = nativeResponse(nativeId);
+        response.ownsNativeResponse = true;
+        return response;
+    }
+
+    /** Whether this response still owns a transient native body requiring abort cleanup. */
+    public synchronized boolean ownsNativeResponse() {
+        return ownsNativeResponse;
+    }
+
+    /** Abort-only cleanup. Successful responses are consumed by Rust; permanent/static responses are never freed here. */
+    @Override
+    public synchronized void close() {
+        if (!ownsNativeResponse) return;
+        ownsNativeResponse = false;
+        NativeBridge.discardNativeResponse(nativeId);
     }
 
     public byte[] getBody() {

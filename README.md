@@ -7,6 +7,55 @@
 Use REST/platform 4.8.1 with cache 0.9.1. This patch corrects ARM manifests without changing native
 binaries or ABIs. [Upgrade details](docs/release-notes/v4.8.1.md).
 
+## Unreleased: Declarative Admission And Native Responses
+
+These source changes are not part of published `4.8.1`. In a `@Configuration` class,
+declare a bounded admission bean; inject the generated RPC client into your handler:
+
+```java
+@Bean
+public LongKeyAdmission customerCommandKeyAdmission() {
+    return new LongKeyAdmission(true, 1, 256);
+}
+```
+
+```java
+@PostMapping("/customers/{customerId}/refresh")
+@KeyAdmission(bean = "customerCommandKeyAdmission", key = "customerId")
+public CompletionStage<NativeResponseHandle> refresh(@PathVariable("customerId") long customerId) {
+    return client.refreshNativeJsonAsync(customerId);
+}
+```
+
+Use `com.reactor.rust.annotations.KeyAdmission`, `com.reactor.rust.concurrent.LongKeyAdmission`
+and `com.reactor.rust.dubbo.NativeResponseHandle`. The native JSON carrier is named
+`NativeResponseHandle`, not `NativeJsonHandle`. APT binds the named bean at startup and calls it
+directly; the generated invoker is required even when the global required-invoker option is off.
+Missing generated registration or a missing/wrong named bean fails startup. Keys must directly bind
+one `@PathVariable` or `@RequestParam` of type `long` or `String`. String hashing is stable;
+stripe collisions share capacity. There is no waiting queue or reflection on this hot path.
+Capacity exhaustion maps to HTTP `503` (`service_unavailable`) through the standard error mapper.
+The permit lasts until the source stage completes, not merely until the HTTP request is cancelled.
+
+Keep an existing rejection response with `onRejected = "refreshRejected"` on `@KeyAdmission`.
+The named method must be public, non-static, accept one `Throwable`, and return a type compatible
+with the handler. For an asynchronous handler, return a completed stage containing your normal
+error response. APT checks the signature and generates a direct call. This maps only admission
+rejection; it does not hide RPC failures or change their existing error handling. The sample
+consumer uses this option to keep its established error codes.
+
+APT adapts direct `NativeResponseHandle`, `ResponseEntity<NativeResponseHandle>` and their
+`CompletionStage`/`CompletableFuture` forms through optional `DubboResponses.reply`/`replyAsync`.
+No manual `nativeId()` extraction is needed. Explicit `ResponseEntity` status/headers are preserved.
+For manual adapters, see the [Dubbo ownership guide](https://github.com/esasmer-dou/java-rust-dubbo/blob/master/README.md#7-use-it-from-a-handler-or-service).
+HTTP cancellation does not cancel the source RPC: its bounded deadline remains active, and late
+owned results are closed. Buffer retry reuses the result; it does not cache response bytes or replay
+business calls. Explicit static-response/cache APIs remain separate.
+
+K-001: JNI remains primary. REST ABI `29` and Dubbo ABI `7` signatures are unchanged; additive cleanup
+exports require a future coordinated native rebuild and provenance update before deployment.
+The published binaries do not gain these exports by updating Java alone.
+
 ## Start With 4.8.1
 
 Optional native edge policies, JWT security, W3C propagation, generated dispatch and bounded native JSON views. Java handlers and business rules remain in Java. OpenJ9 uses JNI; FFM remains a separate opt-in.

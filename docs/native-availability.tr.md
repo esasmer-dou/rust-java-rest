@@ -33,3 +33,23 @@ Yükleyici önce seçilen dosyanın kendi JAR'ındaki platform kaydını okur.
 Bu kayıt yoksa aynı JAR'ın kök kaydına bakar. Geçersiz kayıt, hash veya ABI eşleşmezse başlangıç durur.
 REST kaynak sürümü de doğrulanır. Kontroller başlangıçta yapılır; her istekte tekrarlanmaz.
 Eski DLL/SO ile yeni JAR'ı karıştırmayın. Derleme kanıtı tüm platformlarda performans garantisi değildir.
+
+## ARM64 Çalışmasını EmaTech'te Doğrulayın
+
+Gerçek ARM64 donanımı kullanın. Çapraz derleme veya QEMU duman testi, üretim çalışma kanıtı değildir.
+`rust-spring` içindeki `arm64-runtime-qualification.yml` iş akışı, EmaTech üzerinde
+`ARM64` ve `native-hardware` etiketlerini taşıyan bir doğrulama makinesi gerektirir.
+
+Operatör önce incelenmiş `plan.json` dosyasını `ARM64_QUALIFICATION_PLAN_ROOT` altına yerleştirir.
+Plan; gerçek binary dosyalarını, hash değerlerini, mevcut doğrulayıcı komutlarını ve karşılaştırmalı ölçümleri tanımlar.
+Bu makinedeki `rust-spring` dizininden çalıştırın:
+
+```sh
+python3 scripts/qualify-arm64-runtime.py --platform linux-aarch64 \
+  --plan-root /opt/ematech/arm64 --plan plan.json --output /tmp/arm64-proof
+```
+
+Gerçek macOS ARM64 makinesinde `--platform osx-aarch64` kullanın. Rapor, kullanılan JVM'i ayrıca kaydeder.
+Bu sonuç OpenJ9 üretim kanıtı sayılmaz. Doğrulama; paket kaynağını, beş ABI sözleşmesini,
+edge özelliklerini, HTTPS'i, slab güvenliğini ve kaynak tüketimindeki değişimi kapsar. Eksik kanıt varsa işlem geçmez.
+Betik platform kayıtlarını değiştirmez ve `runtime.verified=true` yazmaz. Bu değişiklik için tam rapor ayrıca incelenir.

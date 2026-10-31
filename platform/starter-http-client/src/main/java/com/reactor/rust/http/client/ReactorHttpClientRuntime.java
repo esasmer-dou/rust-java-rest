@@ -85,7 +85,8 @@ public sealed class ReactorHttpClientRuntime implements AutoCloseable {
 
     public static ReactorHttpClientRuntime fromProperties() {
         String transport = PropertiesLoader.get("reactor.http-client.transport", "jdk");
-        if ("rust-native".equals(transport)) {
+        boolean nativeSelected = "rust-native".equals(transport) || "native".equals(transport);
+        if (nativeSelected && PropertiesLoader.getBoolean("reactor.http-client.native.tls.enabled", true)) {
             // Validate shared configuration/providers before starting any native resources.
             NativeHttpTransport nativeTransport = new NativeHttpTransport();
             try {
@@ -97,8 +98,8 @@ public sealed class ReactorHttpClientRuntime implements AutoCloseable {
                 throw failure;
             }
         }
-        if (!"jdk".equals(transport)) {
-            throw new IllegalArgumentException("reactor.http-client.transport must be jdk or rust-native");
+        if (!"jdk".equals(transport) && !nativeSelected) {
+            throw new IllegalArgumentException("reactor.http-client.transport must be jdk, native or rust-native");
         }
         int threads = positive("reactor.http-client.threads", 2);
         int queueCapacity = positive("reactor.http-client.queue-capacity", 256);

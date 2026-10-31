@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.LockSupport;
 
-/** HTTP-only, bounded pull-completion bridge. No Java callback exists on the Rust I/O path. */
+/** HTTP(S), bounded pull-completion bridge. No Java callback exists on the Rust I/O path. */
 final class NativeHttpTransport implements HttpExchangeTransport {
     private static final Semaphore CLIENTS = new Semaphore(8);
     private static final AtomicLong SEQUENCE = new AtomicLong();
@@ -102,6 +102,8 @@ final class NativeHttpTransport implements HttpExchangeTransport {
             handle = NativeOutboundHttp.create(threads, maxInflight, maxConnections, maxOrigins, maxIdle,
                     maxRequest, maxResponse, maxHeaders, maxHeaderBytes, byteBudget, connectTimeout, idleTimeout);
             if (handle == 0) throw new IllegalStateException("Native outbound runtime creation returned zero");
+            NativeOutboundHttp.configureTls(handle,
+                    PropertiesLoader.get("reactor.http-client.native.tls.ca-pem-path", ""));
             long sequence = SEQUENCE.incrementAndGet();
             for (int i = 0; i < completionThreads; i++) {
                 int workerIndex = i;
@@ -130,9 +132,8 @@ final class NativeHttpTransport implements HttpExchangeTransport {
 
     @Override
     public void register(URI baseUri) {
-        if (!"http".equalsIgnoreCase(baseUri.getScheme())) {
-            throw new IllegalArgumentException("rust-native outbound HTTP is HTTP-only: HTTPS is unsupported "
-                    + "by this native artifact; configure a verified-TLS artifact or select jdk at startup");
+        if (!("http".equalsIgnoreCase(baseUri.getScheme()) || "https".equalsIgnoreCase(baseUri.getScheme()))) {
+            throw new IllegalArgumentException("Native outbound base URL must use http or https");
         }
         if (baseUri.getRawUserInfo() != null) throw new IllegalArgumentException("Outbound base URL must not contain userinfo");
         if (closed()) throw new IllegalStateException("Native outbound runtime is closed");
@@ -141,7 +142,8 @@ final class NativeHttpTransport implements HttpExchangeTransport {
 
     private static String origin(URI uri) {
         String host = uri.getHost().toLowerCase(java.util.Locale.ROOT);
-        return "http://" + host + ":" + (uri.getPort() < 0 ? 80 : uri.getPort());
+        String scheme = uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+        return scheme + "://" + host + ":" + (uri.getPort() < 0 ? ("https".equals(scheme) ? 443 : 80) : uri.getPort());
     }
 
     @Override

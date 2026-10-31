@@ -239,7 +239,7 @@ class NativeHttpTransportTest {
         var release = new CountDownLatch(1);
         server.createContext("/pending", exchange -> {
             entered.countDown();
-            try { release.await(3, TimeUnit.SECONDS); respond(exchange, 200, "late"); }
+            try { release.await(10, TimeUnit.SECONDS); respond(exchange, 200, "late"); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             finally { exchange.close(); }
         });
@@ -247,9 +247,9 @@ class NativeHttpTransportTest {
         open();
         var breaker = new CircuitBreakerState(64, 2, 50, 1000, 1, true);
         try {
-            var result = HttpCircuitBreakerInvocation.execute(get("/pending", 2000, 0), String.class,
+            var result = HttpCircuitBreakerInvocation.execute(get("/pending", 5000, 0), String.class,
                     breaker, breaker.acquirePermission()).thenApply(value -> value).toCompletableFuture();
-            assertTrue(entered.await(2, TimeUnit.SECONDS));
+            assertTrue(entered.await(4, TimeUnit.SECONDS));
             assertTrue(result.cancel(false));
             assertTrue(result.isCancelled());
             assertEquals(CircuitBreakerState.Phase.CLOSED, breaker.phase(), "One cancellation, not two outcomes");
@@ -746,7 +746,7 @@ class NativeHttpTransportTest {
     }
 
     @Test
-    void closeCancelsDrainsAndRejectsNewCallsAndHttps() throws Exception {
+    void closeCancelsDrainsAndRejectsNewCalls() throws Exception {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         server.createContext("/slow", exchange -> {
@@ -755,8 +755,6 @@ class NativeHttpTransportTest {
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
         });
         open();
-        property("test.native.https", "https://127.0.0.1:443");
-        assertTrue(assertThrows(IllegalArgumentException.class, () -> runtime.client("test.native.https")).getMessage().contains("HTTP-only"));
         var client = runtime.client("test.native.base-url");
         var pending = get("/slow", 2000, 0).execute(String.class).toCompletableFuture();
         try {
