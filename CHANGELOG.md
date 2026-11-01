@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+## [4.8.2] - 2026-11-01
+
+- Avoid constructing a mutable header map for an untouched `RawResponse.json`.
+  Reading or changing headers still exposes the existing mutable map; encoded
+  bytes remain response-owned. No handler, configuration, JNI or ABI change.
+- Reuse a bounded, per-worker response-size hint for repeated bodyless JNI
+  handlers. Avoid repeated buffer growth without enlarging queued request frames
+  or caching business responses. Requires a coordinated native package update.
+- In the shared native runtime, release a Tokio Dubbo completion queue slot at
+  dequeue, while retaining the response-body permit throughout the Java callback.
+  Distinguish completion, async-worker and endpoint queue rejection messages.
+  Existing ABI values, limits and public callback signatures stay unchanged.
+
 ## [4.8.1] - 2026-10-30
 
 - Regenerate ARM64 platform provenance from the packaged 4.8.0 binaries.

@@ -20,10 +20,16 @@ public final class RawResponse implements AutoCloseable {
             .getBytes(StandardCharsets.UTF_8);
 
     private final byte[] body;
-    private final HeaderMap headers;
+    // Null denotes canonical JSON headers until a caller requests a mutable map.
+    private volatile HeaderMap headers;
     private final int nativeId;
     private boolean ownsNativeResponse;
     private volatile byte[] encodedHeaders;
+
+    private RawResponse(byte[] body) {
+        this.body = body != null ? body : EMPTY_BYTES;
+        this.nativeId = 0;
+    }
 
     private RawResponse(byte[] body, Map<String, String> headers) {
         this(body, headers, 0);
@@ -58,7 +64,7 @@ public final class RawResponse implements AutoCloseable {
     }
 
     public static RawResponse json(byte[] body) {
-        return bytes(body, MediaType.APPLICATION_JSON_UTF8);
+        return new RawResponse(body);
     }
 
     /**
@@ -130,7 +136,18 @@ public final class RawResponse implements AutoCloseable {
     }
 
     public Map<String, String> getHeaders() {
-        return headers;
+        HeaderMap current = headers;
+        if (current == null) {
+            synchronized (this) {
+                current = headers;
+                if (current == null) {
+                    current = new HeaderMap(this);
+                    current.putInitialJsonHeader();
+                    headers = current;
+                }
+            }
+        }
+        return current;
     }
 
     /**
@@ -144,7 +161,8 @@ public final class RawResponse implements AutoCloseable {
         if (cached != null) {
             return cached;
         }
-        byte[] encoded = encodeHeaders(headers);
+        HeaderMap current = headers;
+        byte[] encoded = current == null ? JSON_HEADERS.clone() : encodeHeaders(current);
         encodedHeaders = encoded;
         return encoded;
     }
@@ -155,7 +173,7 @@ public final class RawResponse implements AutoCloseable {
 
     public RawResponse header(String name, String value) {
         if (name != null && value != null) {
-            headers.put(name, value);
+            getHeaders().put(name, value);
         }
         return this;
     }
@@ -242,6 +260,11 @@ public final class RawResponse implements AutoCloseable {
 
         private HeaderMap(RawResponse owner) {
             this.owner = owner;
+        }
+
+        private void putInitialJsonHeader() {
+            // Reading the map must not invalidate already-exposed encoded bytes.
+            super.put("Content-Type", MediaType.APPLICATION_JSON_UTF8);
         }
 
         @Override

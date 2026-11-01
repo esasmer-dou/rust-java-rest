@@ -1,0 +1,139 @@
+name: Bundled Native Runtime Compatibility
+
+# This release's hosted compatibility exception is not a performance/soak gate.
+# K-001: JNI. Never rebuild native code or promote runtime.verified here.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: native-runtime-compatibility-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compatibility:
+    name: OpenJ9 21 / ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: windows-x64
+            architecture: x64
+            binary: rust_hyper.dll
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+            architecture: aarch64
+            binary: librust_hyper.so
+          - runner: macos-15
+            platform: macos-arm64
+            architecture: aarch64
+            binary: librust_hyper.dylib
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      EXPECTED_NATIVE_REVISION: 26ee9b9f518077af1fc0817c8f37a96fd1a78533
+      PLATFORM: ${{ matrix.platform }}
+      ARCHITECTURE: ${{ matrix.architecture }}
+      NATIVE_BINARY: ${{ matrix.binary }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: semeru
+          java-version: '21'
+          architecture: ${{ matrix.architecture }}
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+      - name: Pin the bundled binary and real JVM architecture
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path compatibility-evidence -Force | Out-Null
+          $jvm = (& java -XshowSettings:properties -version 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the test JVM' }
+          $jvm | Set-Content compatibility-evidence/java.txt
+          $archPattern = if ($env:ARCHITECTURE -eq 'aarch64') { '(aarch64|arm64)' } else { '(amd64|x86_64)' }
+          if ($jvm -notmatch 'java\.vm\.name\s*=.*OpenJ9' -or
+              $jvm -notmatch 'java\.version\s*=\s*21[.+\s]' -or
+              $jvm -notmatch "os\.arch\s*=\s*$archPattern\s") { throw 'Expected native-architecture OpenJ9 Java 21; no emulation/fallback' }
+          function Read-Properties($path) {
+            return ConvertFrom-StringData (Get-Content -LiteralPath $path -Raw)
+          }
+          $root = 'src/main/resources/native/native-provenance.properties'
+          $sidecar = "src/main/resources/native/$env:PLATFORM/native-provenance.properties"
+          $binary = "src/main/resources/native/$env:PLATFORM/$env:NATIVE_BINARY"
+          $sha = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          foreach ($path in @($root, $sidecar)) {
+            $metadata = Read-Properties $path
+            if ($metadata.schema -ne '2' -or $metadata['source.revision'] -ne $env:EXPECTED_NATIVE_REVISION -or
+                $metadata["$env:PLATFORM.sha256"] -ne $sha -or $metadata['runtime.verified'] -ne 'false') {
+              throw "Bundled provenance mismatch: $path"
+            }
+          }
+          @{
+            repository = $env:GITHUB_REPOSITORY; commit = $env:GITHUB_SHA
+            platform = $env:PLATFORM; native_source_revision = $env:EXPECTED_NATIVE_REVISION
+            binary = $binary; sha256 = $sha
+            root_sha256 = (Get-FileHash $root -Algorithm SHA256).Hash.ToLowerInvariant()
+            sidecar_sha256 = (Get-FileHash $sidecar -Algorithm SHA256).Hash.ToLowerInvariant()
+            scope = 'hosted-runtime-compatibility-only'; metadata_promoted = $false
+          } | ConvertTo-Json | Set-Content compatibility-evidence/input.json
+      - name: Real JNI HTTP, ABI, platform selection and packaged provenance
+        run: |
+          $input = Get-Content compatibility-evidence/input.json -Raw | ConvertFrom-Json
+          $tests = 'NativePrimitiveHttpTest,NativeBridgeAbiTest,NativeLibraryLoaderTest,NativePlatformProvenanceTest,PackagedNativeProvenanceConsistencyTest'
+          $arguments = @('-B', '-ntp', 'clean', 'verify', "-Dtest=$tests",
+            '-Dreactor.test.native-http=true', '-DforkCount=1', '-DreuseForks=false',
+            "-Dreactor.test.expected-native-revision=$env:EXPECTED_NATIVE_REVISION",
+            "-Dreactor.test.expected-native-sha256=$($input.sha256)",
+            '-DfailIfNoTests=true', '-Dsurefire.failIfNoSpecifiedTests=true')
+          & mvn @arguments 2>&1 | Tee-Object compatibility-evidence/maven.log
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled native compatibility checks failed' }
+      - name: Require executed checks and retain an exact compatibility receipt
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = @('NativePrimitiveHttpTest', 'NativeBridgeAbiTest', 'NativeLibraryLoaderTest',
+            'NativePlatformProvenanceTest', 'PackagedNativeProvenanceConsistencyTest')
+          $results = @(Get-ChildItem target/surefire-reports/TEST-*.xml | ForEach-Object {
+            [xml]$report = Get-Content -LiteralPath $_.FullName -Raw
+            $suite = $report.testsuite
+            if ([int]$suite.tests -le 0 -or [int]$suite.failures -ne 0 -or
+                [int]$suite.errors -ne 0 -or [int]$suite.skipped -ne 0) { throw "Unexecuted/failing checks: $($suite.name)" }
+            @{ suite = [string]$suite.name; tests = [int]$suite.tests; failures = [int]$suite.failures
+              errors = [int]$suite.errors; skipped = [int]$suite.skipped }
+          })
+          foreach ($name in $expected) {
+            if (@($results | Where-Object { $_.suite -eq "com.reactor.rust.bridge.$name" }).Count -ne 1) { throw "Missing suite: $name" }
+          }
+          $input = Get-Content compatibility-evidence/input.json -Raw | ConvertFrom-Json
+          if ((Get-FileHash $input.binary -Algorithm SHA256).Hash.ToLowerInvariant() -ne $input.sha256) { throw 'Native bytes changed during Java build' }
+          [xml]$pom = Get-Content pom.xml -Raw
+          $jar = "target/rust-java-rest-$($pom.project.version).jar"
+          & git diff --exit-code -- src/main/resources/native
+          if ($LASTEXITCODE -ne 0) { throw 'Native bytes or provenance changed' }
+          @{ input = $input; result = 'PASS'; suites = $results
+             jar = $jar; jar_sha256 = (Get-FileHash $jar -Algorithm SHA256).Hash.ToLowerInvariant()
+             measured_performance = $false; soak_tested = $false } |
+            ConvertTo-Json -Depth 8 | Set-Content compatibility-evidence/result.json
+          'Hosted compatibility only; no performance/soak claim or metadata promotion.' >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload compatibility evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rest-native-compatibility-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            compatibility-evidence/
+            target/surefire-reports/
+          if-no-files-found: error
+          retention-days: 30
