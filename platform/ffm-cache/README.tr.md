@@ -42,11 +42,11 @@ REST29/Dubbo7/SpringDubbo3/Redis6/Glowroot6 sözleşmeleri değişmez.
 <dependency>
     <groupId>com.reactor</groupId>
     <artifactId>rust-java-ffm-cache</artifactId>
-    <version>4.8.1</version>
+    <version>4.8.2</version>
 </dependency>
 ```
 
-Bu bağımlılığı 4.8.0 yayımından çözümleyin. Native paketiniz istenen yeteneği
+Bu bağımlılığı 4.8.2 yayımından çözümleyin. Native paketiniz istenen yeteneği
 taşımıyorsa seçilen native feature'ı derleyin; normal JNI release binary,
 ayrı FFM unwind binary değildir. Farklı sürümleri karıştırmayın.
 

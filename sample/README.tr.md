@@ -48,8 +48,8 @@ Uygulama `server.port` ve diğer runtime limitlerini
 | --- | --- |
 | Production dependency | `com.reactor:rust-java-rest:4.8.0` |
 | Full compatibility uygulaması | `sample/target/rust-java-rest-4.8.0-sample.jar` |
-| Tek parça yalın runtime classpath | `target/rust-java-rest-4.8.0-core-runtime.jar` |
-| Build-only processor'lar | `rust-java-rest-4.8.0-codegen.jar` |
+| Tek parça yalın runtime classpath | `target/rust-java-rest-4.8.2-core-runtime.jar` |
+| Build-only processor'lar | `rust-java-rest-4.8.2-codegen.jar` |
 
 Codegen JAR annotation-processor path üzerinde bulunur. Runtime dependency değildir.
 

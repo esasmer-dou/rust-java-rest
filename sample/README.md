@@ -48,8 +48,8 @@ The application reads `server.port` and the remaining runtime limits from
 | --- | --- |
 | Production dependency | `com.reactor:rust-java-rest:4.8.0` |
 | Full compatibility application | `sample/target/rust-java-rest-4.8.0-sample.jar` |
-| Self-contained lean runtime classpath | `target/rust-java-rest-4.8.0-core-runtime.jar` |
-| Build-only processors | `rust-java-rest-4.8.0-codegen.jar` |
+| Self-contained lean runtime classpath | `target/rust-java-rest-4.8.2-core-runtime.jar` |
+| Build-only processors | `rust-java-rest-4.8.2-codegen.jar` |
 
 The codegen JAR belongs on the annotation-processor path. It is not a runtime dependency.
 

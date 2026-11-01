@@ -1916,7 +1916,9 @@ The loader and native build workflow now support these resource paths:
 Use an ARM64 Java 21 runtime. macOS builds target macOS `11.0`; Linux builds keep the GLIBC `2.17`
 floor. The artifact must be built for the target CPU and included with its SHA-256 provenance.
 The `4.8.2` package includes all four platforms and their SHA-256 provenance.
-Native ARM64 builds pass CI; application smoke tests in this release were run on x64.
+OpenJ9 21 runtime checks passed on Windows x64, Linux ARM64 and macOS ARM64
+(20 checks per platform, zero skips). Linux x64 load/soak qualification runs on
+EmaTech. Hosted compatibility does not imply ARM/Windows performance qualification.
 See the [native packaging steps](https://github.com/esasmer-dou/rust-spring#package-the-native-artifacts).
 
 For a workspace with sibling framework and sample repositories, check parent versions from this repo:

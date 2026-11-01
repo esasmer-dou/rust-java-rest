@@ -130,8 +130,8 @@ Uygulama sürümü Maven'den üretilir; annotation içinde ayrı sample sürüm�
 ## İki Uygulamalı Örnek
 
 ```powershell
-java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
-java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
+java -cp rust-java-rest-4.8.2-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
+java -cp rust-java-rest-4.8.2-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
 ```
 
 Platformla aynı sürümdeki codegen JAR'ını kullanın.

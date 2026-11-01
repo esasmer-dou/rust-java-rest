@@ -111,7 +111,7 @@ JAR'ını kullanabilir; minimal örneğin thin JAR'ı tek başına yeterli deği
 
 ```sh
 mvn -B -ntp -f sample/pom.xml package -DskipTests \
-  com.reactor:rust-java-maven-plugin:4.8.0:runtime-image \
+  com.reactor:rust-java-maven-plugin:4.8.2:runtime-image \
   -Dreactor.runtime.mainClass=com.reactor.rust.example.ReactorRustHyperApplication \
   -Dreactor.runtime.openj9.scc.enabled=true \
   -Dreactor.runtime.openj9.scc.class-prefixes=com.reactor.rust \
@@ -150,7 +150,7 @@ Parametrelerdeki boşluklar korunur; ayrıca tırnak karakteri eklemeyin.
 <plugin>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-maven-plugin</artifactId>
-  <version>4.8.1</version>
+  <version>4.8.2</version>
   <executions>
     <execution>
       <id>optional-appcds</id>

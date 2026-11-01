@@ -19,7 +19,7 @@ app. Neither is one of these four independently built sibling applications:
 | [cache writer](https://github.com/esasmer-dou/rest-sample-cache-writer/blob/master/README.md) | PostgreSQL to versioned Redis projection; DB/Redis configuration and schema required. |
 | [cache reader](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.md) | Generated projection reader; requires a writer-published Redis snapshot for the normal routes. Optional profiles below are different applications. |
 | [Dubbo provider](https://github.com/esasmer-dou/rest-sample-dubbo-provider/blob/master/README.md) | Java business service; DB-backed mode needs PostgreSQL. Static catalog modes do not. |
-| [Dubbo consumer](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.md) | HTTP to Dubbo; needs the matching provider, shared 0.5.0 contracts and aligned native/Java libraries. |
+| [Dubbo consumer](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.md) | HTTP to Dubbo; needs the matching provider, shared 0.5.2 contracts and aligned native/Java libraries. |
 
 Cross-repository links point to GitHub. Checkout-based commands assume the repositories
 are side by side. Use JDK 21, Maven 3.9+ and authenticated GitHub Packages access
@@ -63,5 +63,5 @@ alone does not select its application, native capabilities, keys or external ser
 | [AccountSnapshot](https://github.com/esasmer-dou/rust-sample-model/blob/master/src/main/java/com/reactor/sample/model/account/AccountSnapshot.java) | Generated binary producer in reader's [native-view recipe](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/NATIVE_VIEW.md). | Same profile's `/dto` comparison route; plain shared record is not a registered serializer or independent service. |
 
 Model/utility are contract libraries, not runnable applications. Keep both at
-0.5.0 on the two sides. Runtime Dubbo 0.9.0 is distinct from the independently
-published Spring annotation artifact 0.8.0; see [utility dependency rationale](https://github.com/esasmer-dou/rest-sample-utility/blob/master/README.md).
+0.5.2 on the two sides. Runtime Dubbo 0.9.2 is distinct from the independently
+published Spring annotation artifact 0.8.1; see [utility dependency rationale](https://github.com/esasmer-dou/rest-sample-utility/blob/master/README.md).

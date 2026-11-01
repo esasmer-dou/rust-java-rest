@@ -831,7 +831,10 @@ Native yükleyici ve build iş akışı şu dosya yollarını destekler:
 ARM64 Java 21 kullanın. macOS build hedefi `11.0`, Linux GLIBC alt sınırı `2.17` olarak ayarlanır.
 Binary, hedef işlemci için üretilmeli ve SHA-256 provenance bilgisiyle paketlenmelidir.
 `4.8.2` paketi dört platformu ve SHA-256 provenance bilgilerini içerir.
-ARM64 native build'leri CI üzerinde doğrulanır. Bu sürümün uygulama smoke testleri x64 üzerinde çalıştırılmıştır.
+OpenJ9 21 çalıştırma kontrolleri Windows x64, Linux ARM64 ve macOS ARM64 üzerinde
+geçti. Her platformda 20 kontrol çalıştı; atlanan test olmadı. Linux x64 yük ve
+uzun süreli çalışma testleri EmaTech'te yapılır. Uyumluluk sonucu ARM/Windows
+performans onayı anlamına gelmez.
 [Native paketleme adımlarını](https://github.com/esasmer-dou/rust-spring/blob/master/README.tr.md#native-dosyaları-paketleme) izleyin.
 
 Framework ve sample repoları aynı çalışma dizinindeyse bu repo içinde parent sürümlerini kontrol edin:

@@ -126,8 +126,8 @@ Use a clean build so deleted sources cannot leave a stale manifest behind.
 ## Complete Example Pair
 
 ```powershell
-java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
-java -cp rust-java-rest-4.8.0-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
+java -cp rust-java-rest-4.8.2-codegen.jar com.reactor.rust.codegen.ScenarioGenerator cache my-cache
+java -cp rust-java-rest-4.8.2-codegen.jar com.reactor.rust.codegen.ScenarioGenerator dubbo my-dubbo
 ```
 
 Use the codegen JAR from the matching platform version. Each new directory contains

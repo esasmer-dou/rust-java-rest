@@ -19,7 +19,7 @@ uygulamasıdır. Bunlar bağımsız derlenen aşağıdaki dört kardeş uygulama
 | [Cache writer](https://github.com/esasmer-dou/rest-sample-cache-writer/blob/master/README.tr.md) | PostgreSQL'den sürümlü Redis projection üretir; DB/Redis ayarları ve schema gerekir. |
 | [Cache reader](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/README.tr.md) | Generated projection reader; normal rotalarda writer'ın yayımladığı Redis snapshot gerekir. Aşağıdaki isteğe bağlı profiller farklı uygulamalardır. |
 | [Dubbo provider](https://github.com/esasmer-dou/rest-sample-dubbo-provider/blob/master/README.tr.md) | Java iş servisi; DB modu PostgreSQL ister, static catalog modları istemez. |
-| [Dubbo consumer](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.tr.md) | HTTP'den Dubbo'ya gider; eşleşen provider, ortak 0.5.0 kontratlar ve uyumlu Java/native dosyalar gerekir. |
+| [Dubbo consumer](https://github.com/esasmer-dou/rest-sample-dubbo-consumer/blob/master/README.tr.md) | HTTP'den Dubbo'ya gider; eşleşen provider, ortak 0.5.2 kontratlar ve uyumlu Java/native dosyalar gerekir. |
 
 Depolar arası bağlantılar GitHub'a gider; checkout komutları depoların yan yana
 olduğunu varsayar. Kendi geliştirme/deployment ortamınızda JDK 21, Maven 3.9+ ve
@@ -63,5 +63,5 @@ anahtarları veya dış servisleri kendiliğinden seçmez.
 | [AccountSnapshot](https://github.com/esasmer-dou/rust-sample-model/blob/master/src/main/java/com/reactor/sample/model/account/AccountSnapshot.java) | Reader [native-view tarifindeki](https://github.com/esasmer-dou/rest-sample-cache-reader/blob/master/NATIVE_VIEW.tr.md) generated binary producer. | Aynı profilin `/dto` karşılaştırma rotası; sade record kayıtlı serializer veya bağımsız servis değildir. |
 
 Model/utility kontrat kütüphanesidir; uygulama olarak başlamaz. İki tarafta da
-0.5.0 kullanın. Runtime Dubbo 0.9.0, bağımsız yayımlanan Spring annotation 0.8.0
+0.5.2 kullanın. Runtime Dubbo 0.9.2, bağımsız yayımlanan Spring annotation 0.8.1
 paketinden ayrıdır; [utility bağımlılık gerekçesi](https://github.com/esasmer-dou/rest-sample-utility/blob/master/README.tr.md).

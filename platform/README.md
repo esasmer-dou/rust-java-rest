@@ -8,8 +8,8 @@ platform parent to align versions, then add only the starters required by the pr
 Use the parent for a new service. Use the BOM only when an existing corporate parent cannot be
 replaced. Use direct dependencies only for embedding or framework development.
 
-Platform `4.8.1` aligns both cache starters and Dubbo to `0.9.1`. Its source tag is
-`v4.8.1`, shared with the coordinated core/native release (not `platform-v4.8.1`).
+For the coordinated `4.8.2` release, use cache and Dubbo `0.9.2` together.
+Use its `v4.8.2` source tag after publication, not `platform-v4.8.2`.
 The platform bundle includes the source revision. Maven coordinates do not change.
 
 Published opt-in 4.8.0 features: [JWT algorithms and bounded token caching](starter-security/README.md),
@@ -34,7 +34,7 @@ Publication is separate from target-workload performance and user acceptance.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.1</version>
+  <version>4.8.2</version>
 </parent>
 
 <artifactId>customer-api</artifactId>
