@@ -899,6 +899,12 @@ public final class RouteScanner {
                         "@NativeStaticFileRoute handler returned null or non-FileResponse: " + method
                 );
             }
+            if (fileResponse.isPackagedAsset()) {
+                if (!"GET".equals(routeInfo.httpMethod)) {
+                    throw new IllegalArgumentException("Packaged assets require an exact GET route: " + method);
+                }
+                return fileResponse.registerPackagedAsset(NativeBridge.staticFileInlineMaxBytes());
+            }
             if (!Files.isRegularFile(fileResponse.getPath())) {
                 throw new IllegalArgumentException(
                         "@NativeStaticFileRoute file does not exist or is not a regular file: "

@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      EXPECTED_NATIVE_REVISION: 26ee9b9f518077af1fc0817c8f37a96fd1a78533
+      EXPECTED_NATIVE_REVISION: fa892163f783928bca245d23e89e2cef28dbf0f4
       PLATFORM: ${{ matrix.platform }}
       ARCHITECTURE: ${{ matrix.architecture }}
       NATIVE_BINARY: ${{ matrix.binary }}

@@ -2,6 +2,14 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## 4.9.0: Uploads, WebSocket And Packaged Assets
+
+Update REST and its platform parent together. Existing upload handlers keep
+their API; Rust locates multipart sections when the server's native library is
+loaded. Use `WebSocketBinaryForwarder` when you only need to forward or drop an
+unchanged binary message. Use `FileResponse.packagedAsset` for immutable public
+assets bundled in your JAR. [Upgrade and examples](docs/release-notes/v4.9.0.md).
+
 ## 4.8.2: Bounded Native Responses
 
 Use REST/platform 4.8.2 with cache and Dubbo 0.9.2. Repeated response-buffer
@@ -81,11 +89,11 @@ for cache detail and segment reads at concurrency 16 and 64, with no measured
 request errors. This is not an end-to-end speedup guarantee or a long-soak result.
 This optimization is included in `4.8.2`. See the release evidence for the measured scope.
 
-## Start With 4.8.2
+## Start With 4.9.0
 
 Optional native edge policies, JWT security, W3C propagation, generated dispatch and bounded native JSON views. Java handlers and business rules remain in Java. OpenJ9 uses JNI; FFM remains a separate opt-in.
 
-[Usage guide](docs/explicit-operations.md) · [Release notes](docs/release-notes/v4.8.2.md)
+[Usage guide](docs/explicit-operations.md) · [Release notes](docs/release-notes/v4.9.0.md)
 
 [Concrete feature/sample map and read costs](docs/feature-examples.md).
 
@@ -132,18 +140,17 @@ this new API. See the [sample L1 guide](https://github.com/esasmer-dou/rest-samp
 Explicit opt-in: [Public GET edge cache and bounded rate limits](NATIVE_EDGE.md).
 Native hits bypass Java guards, so installation requires explicit public-route consent.
 
-Release line: `4.8.2`, coordinated with optional agent `0.7.1`. Publication requires the matching
-production gate. Use a version listed in [published releases](https://github.com/esasmer-dou/rust-java-rest/releases).
+Release line: `4.9.0`, compatible with optional agent `0.7.1`. Use a version
+listed in [published releases](https://github.com/esasmer-dou/rust-java-rest/releases).
 The release assets carry the final validation reports; a source branch is not a published package.
 
-Core and platform source builds for this release use tag `v4.8.2`. Native source uses
-`v4.8.2`. Both Maven versions are `4.8.2`; the coordinated release aligns the cache-writer dependency
-before its first publication. See the [platform guide](platform/README.md).
+Core and platform Maven versions are `4.9.0`. The native file must match the
+Java package even though the ABI is unchanged. See the [platform guide](platform/README.md).
 
-[![Version](https://img.shields.io/badge/version-4.8.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.2)
+[![Version](https://img.shields.io/badge/version-4.9.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.9.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java%2021-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.2)
+[![Status](https://img.shields.io/badge/status-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.9.0)
 
 Rust-Java REST is a lightweight REST framework for Java services that want lower latency and lower
 RSS than a typical Spring Boot runtime without moving business logic out of Java.
@@ -190,10 +197,8 @@ discovery, or libraries that require a Spring application context.
 
 ## Current Stable Line
 
-`4.8.2` is the current stable declarative runtime. It preserves the native binary bytes from
-source `3418671b5010afb5dc049897f2a7287dc6a58daf` and corrects their packaged provenance. It uses REST ABI
-`29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `6`. Always use the native file carried by the
-same coordinated Maven artifact.
+`4.9.0` uses REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`, and Glowroot ABI `6`.
+Always use the native file carried by the same coordinated Maven artifact.
 
 When bounded telemetry is enabled, every completed HTTP request contributes once to the exact
 bounded endpoint aggregate used by Glowroot Average, Percentile, Throughput, and Errors. Optional
@@ -207,7 +212,7 @@ unchanged. If your application combines the published libraries, keep the versio
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.8.2</version>
+  <version>4.9.0</version>
 </dependency>
 
 <dependency>
@@ -238,7 +243,7 @@ the build-time AOT gates without adding runtime reflection.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.2</version>
+  <version>4.9.0</version>
 </parent>
 
 <dependencies>
@@ -415,7 +420,7 @@ isolated in Rust.
   `rust_glowroot_agent` binary; Spring dependencies do not enter this framework artifact.
 
 Existing REST annotations, handler signatures, response types, services, validation, and business
-logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.8.2`
+logic remain source-compatible. Deploy the ABI `29` DLL/SO packaged with the coordinated `4.9.0`
 artifact.
 
 ## How Startup And Configuration Work
@@ -662,7 +667,7 @@ benchmark tools and machine-specific evidence are intentionally kept outside the
 <dependency>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-rest</artifactId>
-  <version>4.8.2</version>
+  <version>4.9.0</version>
 </dependency>
 ```
 
@@ -744,17 +749,17 @@ own endpoint matrix passes.
 
 Artifact rule:
 
-- `rust-java-rest-4.8.2.jar`: normal application dependency. Use this in your Maven `pom.xml`.
-- `rust-java-rest-4.8.2-codegen.jar`: annotation processors used only during compilation.
-- `rust-java-rest-4.8.2-core-runtime.jar`: single lean runtime jar for container
+- `rust-java-rest-4.9.0.jar`: normal application dependency. Use this in your Maven `pom.xml`.
+- `rust-java-rest-4.9.0-codegen.jar`: annotation processors used only during compilation.
+- `rust-java-rest-4.9.0-core-runtime.jar`: single lean runtime jar for container
   classpaths when you do not want to copy dependency jars separately.
-- `sample/target/rust-java-rest-4.8.2-sample.jar`: runnable full-feature demo application built by
+- `sample/target/rust-java-rest-4.9.0-sample.jar`: runnable full-feature demo application built by
   the separate `sample` Maven project. Do not use it as a production dependency.
 - Sources and javadocs are production-focused and exclude framework sample packages.
 
 What this means in practice:
 
-- If your application depends on `com.reactor:rust-java-rest:4.8.2`, it does not receive the
+- If your application depends on `com.reactor:rust-java-rest:4.9.0`, it does not receive the
   framework's demo handlers, sample DTOs, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
@@ -776,7 +781,7 @@ Build the two artifacts independently:
 ```powershell
 mvn clean install
 mvn -f sample/pom.xml clean package
-java -jar sample/target/rust-java-rest-4.8.2-sample.jar
+java -jar sample/target/rust-java-rest-4.9.0-sample.jar
 ```
 
 ## Copy/Paste REST Cookbook
@@ -1887,7 +1892,7 @@ raw/read-model, or native serialization.
 
 ## Native Binaries
 
-The published `4.8.2` Maven package includes:
+The published `4.9.0` Maven package includes:
 
 - `native/windows-x64/rust_hyper.dll`
 - `native/linux-x64/librust_hyper.so`
@@ -1915,7 +1920,7 @@ The loader and native build workflow now support these resource paths:
 
 Use an ARM64 Java 21 runtime. macOS builds target macOS `11.0`; Linux builds keep the GLIBC `2.17`
 floor. The artifact must be built for the target CPU and included with its SHA-256 provenance.
-The `4.8.2` package includes all four platforms and their SHA-256 provenance.
+The `4.9.0` package includes all four platforms and their SHA-256 provenance.
 OpenJ9 21 runtime checks passed on Windows x64, Linux ARM64 and macOS ARM64
 (20 checks per platform, zero skips). Linux x64 load/soak qualification runs on
 EmaTech. Hosted compatibility does not imply ARM/Windows performance qualification.
@@ -1960,7 +1965,7 @@ Before shipping a service:
 | Error symptoms and direct checks | [Troubleshooting](docs/troubleshooting.md) |
 | Small projects that compile in the build | [Examples](examples/README.md) |
 | Runtime sizing and performance decisions | [Production runtime guide](docs/production-runtime.md) |
-| Changes in this release | [4.8.2 release notes](docs/release-notes/v4.8.2.md) |
+| Changes in this release | [4.9.0 release notes](docs/release-notes/v4.9.0.md) |
 
 ## License
 

@@ -2,6 +2,14 @@
 
 [English](README.md) | [Türkçe](README.tr.md)
 
+## 4.9.0: Dosya Yükleme, WebSocket ve Paketli Dosyalar
+
+REST bağımlılığını ve platform parent sürümünü birlikte güncelleyin. Mevcut
+dosya yükleme metotlarınız değişmez. Native kütüphane yüklüyse multipart
+bölümlerini Rust bulur. İkili WebSocket mesajını değiştirmeden geri göndermek
+için `WebSocketBinaryForwarder` kullanın. JAR içindeki herkese açık sabit dosyalar
+için `FileResponse.packagedAsset` seçin. [Geçiş ve örnekler](docs/release-notes/v4.9.0.tr.md).
+
 ## 4.8.2: Sınırlı Native Yanıtlar
 
 REST/platform 4.8.2 ile cache ve Dubbo 0.9.2 kullanın. Tekrarlanan yanıt tamponu
@@ -81,11 +89,11 @@ istekte mevcut RPS, p99 ve tepe RSS sınırlarını geçti. Ölçülen isteklerd
 Bu sonuç, her uygulamada hızlanma garantisi veya uzun süreli yük testi sonucu değildir.
 Bu iyileştirme `4.8.2` paketindedir. Ölçüm kapsamı sürüm kanıtlarında belirtilir.
 
-## 4.8.2 İle Başlayın
+## 4.9.0 İle Başlayın
 
 İsteğe bağlı native edge politikaları, JWT güvenliği, W3C izleme başlıkları, üretilmiş çağrı kodu ve sınırlı native JSON görünümleri eklendi. Handler ve iş kuralları Java'da kalır. OpenJ9 JNI kullanır. FFM ayrı bir seçenektir.
 
-[Kullanım rehberi](docs/explicit-operations.md) · [Sürüm notları](docs/release-notes/v4.8.2.md)
+[Kullanım rehberi](docs/explicit-operations.md) · [Sürüm notları](docs/release-notes/v4.9.0.tr.md)
 
 [Somut özellik/sample haritası ve okuma maliyetleri](docs/feature-examples.tr.md).
 
@@ -168,18 +176,17 @@ gerekir; eski binary için aynı performans kazancı vaat edilmez.
 İsteğe bağlı kaynak kod: [Herkese açık GET rotalarında edge cache ve hız limiti](NATIVE_EDGE.tr.md).
 Native isabette Java guard çalışmaz. Bu nedenle kurulumda açık rota onayı gerekir.
 
-Bu doküman `4.8.2` ve isteğe bağlı agent `0.7.1` hattını anlatır. Yayın için eşleşen performans
-kontrolü geçmelidir. [Yayımlanan sürümlerden](https://github.com/esasmer-dou/rust-java-rest/releases)
+Bu doküman `4.9.0` ve isteğe bağlı agent `0.7.1` hattını anlatır.
+[Yayımlanan sürümlerden](https://github.com/esasmer-dou/rust-java-rest/releases)
 birini kullanın. Son doğrulama raporları yayına eklenir. Kaynak branch'i yayımlanmış paket değildir.
 
-Core ve platform modüllerini kaynaktan derlemek için `v4.8.2` tag'ini kullanın.
-İki Maven sürümü de `4.8.2` olur. Native binary'ler yeniden derlenmedi; paketlenen provenance
-bilgileri düzeltildi. Gerçek Rust kaynak commit'i manifestte korunur. [Platform rehberine](platform/README.tr.md) bakın.
+Core ve platform Maven sürümü `4.9.0` olur. ABI değişmese de native dosya,
+Java paketiyle aynı sürümden gelmelidir. [Platform rehberine](platform/README.tr.md) bakın.
 
-[![Sürüm](https://img.shields.io/badge/sürüm-4.8.2-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.2)
+[![Sürüm](https://img.shields.io/badge/sürüm-4.9.0-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.9.0)
 [![Java](https://img.shields.io/badge/Java-21-green.svg)](#beş-dakikada-başlangıç)
 [![Runtime](https://img.shields.io/badge/runtime-Rust%20Hyper%20%2B%20Java-green.svg)](https://github.com/esasmer-dou/rust-spring)
-[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.8.2)
+[![Durum](https://img.shields.io/badge/durum-stable-blue.svg)](https://github.com/esasmer-dou/rust-java-rest/releases/tag/v4.9.0)
 
 Rust-Java REST, Java ile REST servisi geliştirmek için hazırlanmış düşük gecikmeli bir framework'tür.
 İş mantığınız Java'da kalır. Rust Hyper; HTTP bağlantısını, request okuma işlemini, response yazmayı,
@@ -256,7 +263,7 @@ izolasyonu korunur. Java iş mantığı ve endpoint davranışı değişmez.
 - Düşük profile dönüldüğünde profile ait kuyruklar, SQL slot'ları, diagnostic state ve JNI
   referansları kontrol çağrısı tamamlanmadan bırakılır.
 - REST ABI `29`, Dubbo ABI `7`, Redis ABI `6` ve Glowroot ABI `6` kullanılır.
-- Native DLL/SO, `4.8.2` Maven artifact'i içinde gelen dosya olmalıdır.
+- Native DLL/SO, `4.9.0` Maven artifact'i içinde gelen dosya olmalıdır.
 - `collector_preflight_reconnects`, `collector_request_retries`, `deferred_intervals` ve
   `pending_aggregate_transactions` alanları rotasyonun kayıpsız toparlandığını gösterir.
 
@@ -288,7 +295,7 @@ yolunda kalır. Production runtime JAR'ına girmez.
 <parent>
   <groupId>com.reactor</groupId>
   <artifactId>rust-java-platform-parent</artifactId>
-  <version>4.8.2</version>
+  <version>4.9.0</version>
 </parent>
 
 <dependencies>
@@ -809,7 +816,7 @@ Generator dolu bir klasörün üzerine yazmaz.
 
 ## Sürüm ve Native ABI
 
-Uyumlu dependency çizgisi `rust-java-rest:4.8.2`, `java-rust-dubbo:0.9.2` ve
+Uyumlu dependency çizgisi `rust-java-rest:4.9.0`, `java-rust-dubbo:0.9.2` ve
 `java-rust-cache:0.9.2` şeklindedir. Native artifact'ler REST ABI `29`, Dubbo ABI `7`, Redis ABI `6`
 ve Glowroot ABI `6` taşır.
 
@@ -830,7 +837,7 @@ Native yükleyici ve build iş akışı şu dosya yollarını destekler:
 
 ARM64 Java 21 kullanın. macOS build hedefi `11.0`, Linux GLIBC alt sınırı `2.17` olarak ayarlanır.
 Binary, hedef işlemci için üretilmeli ve SHA-256 provenance bilgisiyle paketlenmelidir.
-`4.8.2` paketi dört platformu ve SHA-256 provenance bilgilerini içerir.
+`4.9.0` paketi dört platformu ve SHA-256 provenance bilgilerini içerir.
 OpenJ9 21 çalıştırma kontrolleri Windows x64, Linux ARM64 ve macOS ARM64 üzerinde
 geçti. Her platformda 20 kontrol çalıştı; atlanan test olmadı. Linux x64 yük ve
 uzun süreli çalışma testleri EmaTech'te yapılır. Uyumluluk sonucu ARM/Windows

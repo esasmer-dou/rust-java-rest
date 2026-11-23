@@ -285,6 +285,8 @@ public class NativeBridge {
             long inlineMaxBytes
     );
 
+    public static native boolean linkPackagedStaticFileResponse(int identityId, int gzipId);
+
     public static native void configureNativeResponseCache(int maxEntries, long maxBytes, long defaultTtlMs);
 
     public static native void configureFileStreaming(int chunkBytes);
@@ -313,6 +315,7 @@ public class NativeBridge {
      * @param handlerId Handler ID for routing
      */
     public static native void registerWebSocketRoute(String path, int handlerId);
+    public static native void registerWebSocketBinaryForwardRoute(String path, int handlerId);
 
     public static native int sendWebSocketText(long sessionId, String message);
 
@@ -1404,6 +1407,10 @@ public class NativeBridge {
             debugError("[NativeBridge] Error in onWebSocketBinary: " + e.getMessage());
             return HttpErrorMapper.toJsonBytes(HttpErrorMapper.map(e));
         }
+    }
+
+    public static boolean shouldForwardWebSocketBinary(long sessionId, int length) {
+        return WebSocketRegistry.getInstance().shouldForwardBinary(sessionId, length);
     }
 
     /**

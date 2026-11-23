@@ -26,6 +26,7 @@ import com.reactor.rust.startup.StartupPrewarmer;
 import com.reactor.rust.startup.StartupTimeline;
 import com.reactor.rust.startup.StartupMode;
 import com.reactor.rust.staticfiles.StaticFileScanner;
+import com.reactor.rust.websocket.WebSocketBinaryForwarder;
 import com.reactor.rust.websocket.WebSocketRegistry;
 
 import java.util.ArrayList;
@@ -566,7 +567,17 @@ public final class RestApplication {
                 WebSocketRegistry registry = context.webSockets();
                 registry.scanAndRegister(context.beans());
                 for (String path : registry.getHandlerPaths()) {
-                    NativeBridge.registerWebSocketRoute(path, path.hashCode());
+                    if (registry.getHandler(path).bean instanceof WebSocketBinaryForwarder) {
+                        try {
+                            NativeBridge.registerWebSocketBinaryForwardRoute(path, path.hashCode());
+                        } catch (UnsatisfiedLinkError unsupported) {
+                            throw new IllegalStateException(
+                                    "WebSocket binary forwarding requires a matching native runtime: " + path,
+                                    unsupported);
+                        }
+                    } else {
+                        NativeBridge.registerWebSocketRoute(path, path.hashCode());
+                    }
                 }
                 FrameworkLogger.info("[RestApplication] WebSocket handlers registered: "
                         + registry.getHandlerPaths().size());

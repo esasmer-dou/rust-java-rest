@@ -1,5 +1,7 @@
 package com.reactor.rust.multipart;
 
+import com.reactor.rust.bridge.NativeLibraryLoader;
+
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
@@ -11,6 +13,9 @@ public final class MultipartParser {
 
     private static final int MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB default
     private static final byte[] HEADER_BODY_SEPARATOR = {'\r', '\n', '\r', '\n'};
+    private static volatile boolean nativeScanUnavailable;
+
+    static native int[] scanMultipart(byte[] data, byte[] boundary);
 
     /**
      * Parse multipart form data.
@@ -48,7 +53,22 @@ public final class MultipartParser {
         }
 
         byte[] boundaryBytes = ("--" + boundary).getBytes(StandardCharsets.ISO_8859_1);
+        if (!nativeScanUnavailable && NativeLibraryLoader.isLoaded()) {
+            try {
+                int[] parts = scanMultipart(data, boundaryBytes);
+                for (int i = 0; i < parts.length; i += 3) {
+                    putPart(result, data, parts[i], parts[i + 1], parts[i + 2], maxFileSize);
+                }
+                return result;
+            } catch (UnsatisfiedLinkError absentInOlderBinary) {
+                nativeScanUnavailable = true;
+            }
+        }
+        parseJava(result, data, boundaryBytes, maxFileSize);
+        return result;
+    }
 
+    private static void parseJava(Map<String, Object> result, byte[] data, byte[] boundaryBytes, long maxFileSize) {
         // Split by boundary
         int start = 0;
         while (start < data.length) {
@@ -74,29 +94,27 @@ public final class MultipartParser {
             if (partEnd > partStart && data[partEnd - 1] == '\r') partEnd--;
 
             // Parse this part
-            PartInfo part = parsePart(data, partStart, partEnd);
-            if (part != null && part.name != null && !part.name.isBlank()) {
-                if (part.filename != null) {
-                    // It's a file
-                    if (part.data.length <= maxFileSize) {
-                        result.put(part.name, new MultipartFile(
-                            part.name,
-                            part.filename,
-                            part.contentType,
-                            part.data
-                        ));
-                    }
-                } else {
-                    // It's a simple field
-                    String value = new String(part.data, StandardCharsets.UTF_8);
-                    result.put(part.name, value);
-                }
+            int headerEnd = indexOf(data, HEADER_BODY_SEPARATOR, partStart, partEnd);
+            if (headerEnd >= 0) {
+                putPart(result, data, partStart, headerEnd, partEnd, maxFileSize);
             }
-
             start = partEnd;
         }
+    }
 
-        return result;
+    private static void putPart(Map<String, Object> result, byte[] data, int start, int headerEnd,
+                                int end, long maxFileSize) {
+        PartInfo part = parsePart(data, start, headerEnd);
+        if (part == null || part.name == null || part.name.isBlank()) {
+            return;
+        }
+        int bodyStart = headerEnd + HEADER_BODY_SEPARATOR.length;
+        if (part.filename == null) {
+            result.put(part.name, new String(data, bodyStart, end - bodyStart, StandardCharsets.UTF_8));
+        } else if (end - bodyStart <= maxFileSize) {
+            byte[] owned = Arrays.copyOfRange(data, bodyStart, end);
+            result.put(part.name, new MultipartFile(part.name, part.filename, part.contentType, owned));
+        }
     }
 
     /**
@@ -143,13 +161,7 @@ public final class MultipartParser {
     /**
      * Parse a single part of the multipart data.
      */
-    private static PartInfo parsePart(byte[] data, int start, int end) {
-        // Find header/body separator (double CRLF)
-        int headerEnd = indexOf(data, HEADER_BODY_SEPARATOR, start, end);
-        if (headerEnd < 0 || headerEnd >= end) {
-            return null;
-        }
-
+    private static PartInfo parsePart(byte[] data, int start, int headerEnd) {
         // Parse headers
         String headers = new String(data, start, headerEnd - start, StandardCharsets.ISO_8859_1);
         Map<String, String> headerMap = parseHeaders(headers);
@@ -167,18 +179,10 @@ public final class MultipartParser {
             contentType = "application/octet-stream";
         }
 
-        // Extract body data
-        int bodyStart = headerEnd + 4; // Skip CRLFCRLF
-        int bodyEnd = end;
-        byte[] bodyData = new byte[bodyEnd - bodyStart];
-        System.arraycopy(data, bodyStart, bodyData, 0, bodyData.length);
-
         PartInfo info = new PartInfo();
         info.name = name;
         info.filename = filename;
         info.contentType = contentType;
-        info.data = bodyData;
-
         return info;
     }
 
@@ -264,6 +268,5 @@ public final class MultipartParser {
         String name;
         String filename;
         String contentType;
-        byte[] data;
     }
 }

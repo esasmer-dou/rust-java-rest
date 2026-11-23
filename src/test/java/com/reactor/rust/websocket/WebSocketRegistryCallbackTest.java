@@ -86,6 +86,45 @@ class WebSocketRegistryCallbackTest {
         }
     }
 
+    @WebSocket("/test/ws/forward")
+    static final class ForwardHandler implements WebSocketBinaryForwarder {
+        @Override
+        public boolean shouldForwardBinary(WebSocketSession session, int length) {
+            if (length == 2) throw new IllegalStateException("test rejection");
+            return length == 3;
+        }
+    }
+
+    @WebSocket("/test/ws/invalid-forward")
+    static final class AmbiguousForwardHandler implements WebSocketBinaryForwarder {
+        @OnMessage
+        private void binary(WebSocketSession session, byte[] data) {
+        }
+
+        @Override
+        public boolean shouldForwardBinary(WebSocketSession session, int length) {
+            return true;
+        }
+    }
+
+    @Test
+    void binaryForwardingRequiresOneLiveSessionAndAnExplicitDecision() {
+        WebSocketRegistry registry = WebSocketRegistry.getInstance();
+        registry.register(new ForwardHandler());
+        long sessionId = 987654324L;
+        registry.onOpen(sessionId, "/test/ws/forward", "", "");
+        try {
+            assertFalse(registry.shouldForwardBinary(sessionId, 1));
+            assertFalse(registry.shouldForwardBinary(sessionId, 2));
+            assertTrue(registry.shouldForwardBinary(sessionId, 3));
+            assertFalse(registry.shouldForwardBinary(sessionId + 1, 3));
+        } finally {
+            registry.onClose(sessionId);
+        }
+        assertFalse(registry.shouldForwardBinary(sessionId, 3));
+        assertThrows(IllegalArgumentException.class, () -> registry.register(new AmbiguousForwardHandler()));
+    }
+
     @Test
     void invokesPrecompiledLifecycleCallbacks() {
         WebSocketRegistry registry = WebSocketRegistry.getInstance();

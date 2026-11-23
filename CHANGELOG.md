@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.9.0]
+
+- Scan multipart boundaries in Rust while preserving the Java upload contract and limits.
+- Add opt-in same-session forwarding of unchanged WebSocket binary messages in Rust.
+- Add immutable packaged assets with precompressed gzip, variant ETags and bounded startup registration.
+- Keep JNI and existing ABI contracts; package platform binaries from the same native source revision.
+
 ## [4.8.2] - 2026-11-01
 
 - Avoid constructing a mutable header map for an untouched `RawResponse.json`.

@@ -188,6 +188,19 @@ public final class WebSocketRegistry {
         }
     }
 
+    public boolean shouldForwardBinary(long sessionId, int length) {
+        WebSocketSession session = sessions.get(sessionId);
+        if (session == null || !session.isOpen()) return false;
+        WebSocketHandlerInfo handler = handlers.get(session.getPath());
+        if (handler == null || !(handler.bean instanceof WebSocketBinaryForwarder forwarder)) return false;
+        try {
+            return forwarder.shouldForwardBinary(session, length) && session.isOpen();
+        } catch (Throwable failure) {
+            handleCallbackFailure("shouldForwardBinary", failure);
+            return false;
+        }
+    }
+
     /**
      * Called when a WebSocket error occurs (from Rust).
      */
@@ -307,6 +320,10 @@ public final class WebSocketRegistry {
             this.bean = bean;
             this.clazz = clazz;
             scanMethods();
+            if (onBinary != null && bean instanceof WebSocketBinaryForwarder) {
+                throw new IllegalArgumentException("Binary forwarding cannot be combined with a byte[] callback: "
+                        + clazz.getName());
+            }
         }
 
         private void scanMethods() {

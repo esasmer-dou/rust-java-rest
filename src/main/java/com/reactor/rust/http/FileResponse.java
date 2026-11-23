@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Response marker for Rust-native file streaming.
@@ -17,14 +18,20 @@ public final class FileResponse {
     private final Path path;
     private final String contentType;
     private final Map<String, String> headers;
+    private final Supplier<PackagedAsset> packagedAsset;
     private volatile String encodedHeadersString;
 
     private FileResponse(Path path, String contentType, Map<String, String> headers) {
-        if (path == null) {
+        this(path, contentType, headers, null);
+    }
+
+    private FileResponse(Path path, String contentType, Map<String, String> headers, Supplier<PackagedAsset> packagedAsset) {
+        if (path == null && packagedAsset == null) {
             throw new IllegalArgumentException("path must not be null");
         }
-        this.path = path.toAbsolutePath().normalize();
+        this.path = path == null ? null : path.toAbsolutePath().normalize();
         this.contentType = contentType;
+        this.packagedAsset = packagedAsset;
         this.headers = headers != null ? headers : new HashMap<>();
         if (contentType != null && !contentType.isBlank()) {
             this.headers.putIfAbsent("Content-Type", contentType);
@@ -39,6 +46,17 @@ public final class FileResponse {
         return new FileResponse(path, contentType, new HashMap<>());
     }
 
+    /** Use only on an exact GET route annotated with {@code @NativeStaticFileRoute}. */
+    public static FileResponse packagedAsset(Class<?> anchor, String resource) {
+        return new FileResponse(null, null, new HashMap<>(), () -> PackagedAsset.extract(anchor, resource));
+    }
+
+    public boolean isPackagedAsset() { return packagedAsset != null; }
+
+    public int registerPackagedAsset(long inlineMaxBytes) {
+        return packagedAsset.get().register(this, inlineMaxBytes);
+    }
+
     public static FileResponse download(Path path, String fileName, String contentType) {
         FileResponse response = new FileResponse(path, contentType, new HashMap<>());
         if (fileName != null && !fileName.isBlank()) {
@@ -48,11 +66,14 @@ public final class FileResponse {
     }
 
     public Path getPath() {
+        if (path == null) {
+            throw new IllegalStateException("Packaged assets require @NativeStaticFileRoute");
+        }
         return path;
     }
 
     public String getAbsolutePath() {
-        return path.toString();
+        return getPath().toString();
     }
 
     public String getContentType() {

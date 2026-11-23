@@ -3,6 +3,7 @@ package com.reactor.rust.multipart;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -207,6 +208,21 @@ class MultipartParserTest {
 
         // File should be excluded because it exceeds max size
         assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void preservesOwnedFileAndUtf8FieldAtSizeLimit() {
+        byte[] body = ("--part\r\nContent-Disposition: form-data; name=\"label\"\r\n\r\n"
+                + "m\u00fc\u015fteri\r\n--part\r\n"
+                + "Content-Disposition: form-data; name=\"file\"; filename=\"a.bin\"\r\n\r\n"
+                + "abc\r\n--part--\r\n").getBytes(StandardCharsets.UTF_8);
+        String type = "multipart/form-data; boundary=part";
+        var accepted = MultipartParser.parse(body, type, 3);
+        assertEquals(Map.of("label", "m\u00fc\u015fteri"), MultipartParser.parse(body, type, 2));
+        assertEquals("m\u00fc\u015fteri", accepted.get("label"));
+        var file = assertInstanceOf(MultipartFile.class, accepted.get("file"));
+        java.util.Arrays.fill(body, (byte) 0);
+        assertArrayEquals(new byte[]{'a', 'b', 'c'}, file.getBytes());
     }
 
     @Test
