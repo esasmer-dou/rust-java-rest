@@ -22,14 +22,6 @@ sorunu gizlemeyin. OpenJ9 için `SharedSlabCacheReader.openNativeSlab` kullanın
 Bu açık JNI seçimi aynı Rust slab protokolünü kullanır. Uygun HotSpot için FFM
 ayrı seçenek olarak kalır.
 
-Düzeltilmiş Linux derlemesi fmt/clippy ve184 Rust testini geçti. EmaTech OpenJ9
-üzerinde sekiz başlangıç/cache testi geçti. JNI slab,48MiB heap ile150bin okumayı
-tamamladı. HotSpot18 test geçti; gerçek FFM ve JNI slab ayrı ayrı150bin okuma
-yaptı. Kalibre edilmiş leaf testleri tam sıfır ölçtü. Snapshot, segment ve Redis
-akışının bütünü sıfır allocation değildir. ABI29/7/6/6 aynı.17 C sembolü ve dört
-JNI slab girişi doğrulandı; eski112 JNI sembolü korundu. GLIBC üst gereksinimi
-2.14'tür. OpenJ9 HTTP A/B, JNI ile JNI slab'ı karşılaştırır; FFM ölçümü değildir.
-
 26 Ekim 2026 tarihli odak testinin Linux JNI slab (normal abort) SHA256 değeri:
 `0c68e2e417e3be7949904f783e9db4948f120ab06c6851e132ee5c7c1120f8b5`.
 O tarihli ayrı Linux FFM (unwind) dosyası:
@@ -135,51 +127,6 @@ detay yakalaması mevcut API'de kalır. Yalnızca küçük metadata getter'ları
 `Linker.Option.isTrivial()` kullanır. Redis client sorgusu, blocking Redis,
 Glowroot ve slot işlemleri normal downcall kullanır. Runtime reflection,
 upcall veya code generation yoktur.
-
-## Kanıt Sınırı
-
-21 Ekim'deki tüm özellikler derlemesi tamamlanmadı. Windows SDK import-library link
-hatası verdi. Linux on dakikalık görev bütçesinde durduruldu.
-[Güncel deneme](packaging/README.tr.md) ayrıntıları kaydeder. Aşağıdaki başarılı
-sonuçlar önceki kaynak kopyasına aittir; güncel kaynak kabulü değildir.
-26 Ekim Linux/OpenJ9 kanıtı yukarıdaki güncel kaynak bölümündedir.
-
-Önceki kaynak kodla gerçek Rust crate'i için 148 test geçti. Bunların 14'ü slab
-ve backend işlemlerini kapsar. Linux HotSpot 21 üzerinde 14 canlı Java/native
-testi de atlanmadan geçti. Gerçek standalone Redis üzerinde mevcut kayıtlı
-istemciyle Türkçe içerik, boş değer ve bulunamayan anahtar kontrol edildi.
-OpenJ9 üzerinde başlangıçtaki güvenli geri dönüşü ve seçili JMX sınıflarının
-yüklenmediğini kapsayan altı kontrol geçti. Bunlar OpenJ9 hızlı yolunun veya
-JNI karşısında performans üstünlüğünün kabul edildiği anlamına gelmez.
-
-[Dağıtım kanıtı](packaging/README.tr.md), sabitlenmiş deneysel kaynak kopyasından
-Linux x86-64 ve Windows x86-64 derlemelerini kaydeder. Linux dosyasının en yüksek
-GLIBC gereksinimi 2.14'tür; <=2.17 kapısını geçti. Önceki GLIBC 2.34 test dosyası
-aynı kapıda reddedildi. İki yeni dosya da 14 canlı Java testini atlamadan geçti.
-Dört ABI sabiti, 16 C sembolü ve gerçek standalone Redis işlemleri doğrulandı.
-Windows için önbellekteki cargo-xwin/lld kullanıldı; Visual Studio gerekmedi.
-Linux AppCDS arşivi gerçekten oluşturuldu ve ayrı süreçte yüklendi. Kaynak kopyası
-sonraki native değişikliklerden eskidir. Bu dosyalar güncel sürüm adayı değildir;
-paketlerdeki varsayılan native dosyaların yerine konmadı.
-
-Gerçek Cargo özelliği ve özel Redis/Glowroot yardımcılarıyla derleme gerekir.
-Bağımsız slab derlemesi yeterli değildir. Java testleri
-`-Dreactor.ffm.test.library=<absolute-path>` ile gerçek SymbolLookup kullanır.
-Eksik özellik nedeniyle atlanan native test, native PASS değildir.
-Loopback RESP fixture gerçek client ve transport yolunu sınar. Gerçek Redis
-single/sentinel/cluster servis kabulünün yerine geçmez.
-
-Allocation kapısı önce büyük pozitif kontrolü, ardından önceden ayrılmış global
-dizide tutulan 100 x byte[32] için sekiz küçük kontrolü doğrular. Her küçük
-kontrol 4000..6400 byte ölçmelidir. Kaba veya geçersiz sayaçta kapı SKIP olur.
-Etkilenen OpenJ9 sayaçlarıyla sıfır allocation kabulü verilmez. Kalibre edilmiş
-HotSpot 21 çalıştırması gerekir. Yalnızca büyük pozitif kontrol yeterli değildir.
-`System.gc` çağrılmaz.
-
-Standalone Redis kontrolü, Cluster/Sentinel failover kabulü değildir.
-JNI/FFM eşlenik A/B, tüm process RSS ve topology kabul kapıları ayrıdır.
-Mikro örnek yeni RPS veya üretim hızlanması kanıtı değildir. Deneysel doğrulama
-varsayılan artifact'i kopyalamaz, değiştirmez veya yayımlamaz.
 
 ## Tam Sıfır Leaf Kontrolü
 

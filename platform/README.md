@@ -57,19 +57,6 @@ mvn clean verify
 Expected result: generated component/route metadata is present, dependency boundaries pass, and no
 processor artifact is packaged as a runtime dependency.
 
-### Check Versions Across Repositories
-
-If the framework and sample repositories are sibling directories, run from `rust-java-rest`:
-
-```powershell
-.\scripts\verify-version-alignment.ps1
-```
-
-The script compares the platform parent POM version with each sample parent version.
-A mismatch returns exit code `1`. Run `mvn -B -ntp clean verify` in each sample.
-This runs `doctor`, `verify-aot`, and `verify-native-abi` for the selected application surface.
-The cache artifact checks Redis ABI `6`. The REST artifact checks REST `29`, Dubbo `7`, Redis `6`, and Glowroot `6`.
-
 ## Choose A Process Shape
 
 | Process | Required starter | Runtime included |
@@ -155,14 +142,6 @@ Redis writer without an HTTP server:
 
 - Keep one clear process responsibility per artifact.
 - Prefer build-time conditions and Maven profiles over runtime branches for physically different
-  application surfaces.
-- Use `@RequiresProperty` or `@Profile` when one artifact intentionally supports a small startup
-  choice. Conditions are evaluated once, not on every request.
-- Keep processor classifiers off the runtime classpath.
-- Treat `mvn clean verify` as a release gate.
-- Use only the native DLL/SO packaged with the aligned framework release.
-- Measure the final container with its real starter set. A full sample application is not a valid
-  baseline for a minimal production service.
 
 ## Module Map
 

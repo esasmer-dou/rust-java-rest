@@ -2,11 +2,6 @@
 
 [English](README.md) | [Turkish](README.tr.md)
 
-Aşağıdaki asimetrik doğrulama ve token önbelleği 4.8.0 ile yayımlanmıştır; isteğe bağlıdır.
-Örnekteki sınırlı yapılandırma için EmaTech güvenlik,
-HTTP ve eşlenmiş container RSS/RPS/p99 kontrolleri geçti. Bu sonuç her iş yükünün veya
-yayımlanmış framework özelliklerinin tümünün kabul edildiği anlamına gelmez.
-
 ## Hangi Yolu Seçmeliyim?
 
 | Durum | Seçim |

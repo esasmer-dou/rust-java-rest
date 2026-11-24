@@ -58,19 +58,6 @@ mvn clean verify
 Beklenen sonuç: generated component/route metadata oluşur, dependency sınırları geçer ve processor
 artifact'i runtime dependency olarak paketlenmez.
 
-### Birden Fazla Repoda Sürüm Kontrolü
-
-Framework ve sample repolarını aynı çalışma dizinine klonladıysanız `rust-java-rest` dizininden çalıştırın:
-
-```powershell
-.\scripts\verify-version-alignment.ps1
-```
-
-Betik, platform parent POM'undaki sürümü sample parent sürümleriyle karşılaştırır.
-Uyuşmazlıkta çıkış kodu `1` olur. Her sample içinde `mvn -B -ntp clean verify` çalıştırın.
-Bu komut `doctor`, `verify-aot` ve `verify-native-abi` kontrollerini uygulamanın seçtiği kapsama göre çalıştırır.
-Cache artifact'i Redis ABI `6` doğrular. REST artifact'i REST `29`, Dubbo `7`, Redis `6` ve Glowroot `6` doğrular.
-
 ## Process Tipini Seçin
 
 | Process | Gerekli starter | Runtime'a eklenen yüzey |
@@ -156,12 +143,6 @@ HTTP server açmadan Redis'e yazan scheduler:
 - Her artifact tek ve açık bir process sorumluluğu taşımalıdır.
 - Fiziksel olarak farklı uygulama yüzeyleri için runtime branch yerine Maven profile kullanın.
 - Aynı artifact küçük bir startup seçimi sunuyorsa `@RequiresProperty` veya `@Profile` kullanın.
-  Koşul her request'te değil, startup sırasında değerlendirilir.
-- Processor classifier'larını runtime classpath'e eklemeyin.
-- `mvn clean verify` komutunu release gate olarak kabul edin.
-- Yalnız aynı framework sürümünde paketlenen native DLL/SO dosyasını kullanın.
-- Son container'ı gerçek starter setiyle ölçün. Full sample uygulamasının RSS değeri minimal
-  production servisi için doğru baseline değildir.
 
 ## Modül Haritası
 

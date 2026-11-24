@@ -22,7 +22,7 @@ Bu sample JAR'ını uygulama dependency'si olarak eklemeyin.
 
 `rust-java-rest` dizininde; Java 21, Maven 3.9+,
 kimliği doğrulanmış GitHub Packages erişimi ve eşleşen 4.8.0 native paketleriyle
-çalıştırın. Aşağıdaki komutlar kurulum tarifidir; iş yükü kabul kanıtı değildir.
+çalıştırın.
 
 ```powershell
 mvn clean install

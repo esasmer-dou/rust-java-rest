@@ -84,10 +84,7 @@ Keep using `RawResponse.json(bytes)` for already-serialized JSON. The response
 creates its mutable header map only if your code reads or changes the headers.
 No setting or handler change is needed. UTF-8, custom headers and response-owned
 encoded bytes keep their existing behavior. This does not cache response bodies.
-A bounded EmaTech comparison passed the existing RPS, p99 and peak-RSS limits
-for cache detail and segment reads at concurrency 16 and 64, with no measured
-request errors. This is not an end-to-end speedup guarantee or a long-soak result.
-This optimization is included in `4.8.2`. See the release evidence for the measured scope.
+This optimization is included starting in 4.8.2.
 
 ## Start With 4.9.0
 
@@ -569,8 +566,7 @@ reactor.rust.server.thread-stack-bytes=0
 
 `micro-rest` and `micro-dubbo` set bounded native stacks for JNI and server threads. The accepted
 range is `131072..8388608` bytes. Reducing a stack is not a free memory optimization: deep user code,
-serialization or exception paths can overflow it. Run route smoke tests and c64/c256 p99 gates
-before changing either value. Increasing worker counts multiplies the stack budget.
+serialization or exception paths can overflow it. Keep the defaults unless your application needs a different stack size. Increasing worker counts multiplies the stack budget.
 
 Hot dynamic JSON route:
 
@@ -656,8 +652,7 @@ An `int` direct-buffer handler still follows its existing negative-required-size
 be called again. Keep that writer replayable. The same applies to `JsonBodyProducer.write`: do
 database/RPC calls in the handler, not in the writer. A producer writes the previously obtained data.
 
-Choose profiles from your own workload shape, pod budget, latency target, and overload policy. Raw
-benchmark tools and machine-specific evidence are intentionally kept outside the public repository.
+Choose a profile based on traffic, available memory, and response time.
 
 ## Install
 
@@ -729,23 +724,7 @@ reduced Linux thread count and thread-stack budget without making direct-buffer 
 is still an optional service-local preset. Do not make it the default until your endpoint matrix
 passes p99, `503`, and RSS checks.
 
-For a lower-anon container image, the Maven `runtime-image` goal can create an `8m` ROM-only OpenJ9
-shared cache. This keeps AOT methods out of the cache and preserves normal Java JIT behavior. It is
-an image choice, not a runtime profile. The current minimal gate reduced final cgroup anon from
-`31.027 MiB` to `28.207 MiB`; the long c64 small-route gate reported useful RPS `+11.43%`, p99
-`-35.18%`, and no errors. Keep it opt-in and rerun c64/c256 for your own endpoint mix. The complete
-Maven configuration is in [Production Runtime](docs/production-runtime.md#rom-only-openj9-shared-cache).
-The generated multi-stage image keeps `binutils` in the build stage, runs as user `10001`, and
-limits runtime writes to `/app/.reactor/native` and `/app/work`.
-
-Latest local full gate result for this option was deliberately conservative: c64/c256/c512,
-sample repeat `3`, minimal smaps repeat `3`, `micro-rest`, and the framework's small/direct/raw/
-producer/legacy dynamic DTO endpoint set. Minimal production RSS improved by about `5.95 MiB`, but
-the gate failed as a common default because the legacy DTO graph regressed at c256/c512 and raw JSON
-also regressed at higher concurrency in that run. The next benchmark gate now uses
-`dynamic-producer-json` for the recommended hot DTO-shaped route and keeps `dynamic-dto-json` as the
-explicit legacy graph comparison. Use JIT-cap only as a service-local tuning candidate after your
-own endpoint matrix passes.
+For an optional ROM-only OpenJ9 shared cache, see [Production Runtime](docs/production-runtime.md#rom-only-openj9-shared-cache). This is a container image choice, not a runtime profile. Keep the standard image unless the shared cache helps your workload.
 
 Artifact rule:
 
@@ -763,20 +742,7 @@ What this means in practice:
   framework's demo handlers, sample DTOs, or Dubbo sample classes.
 - The `sample` directory is an isolated runnable project. It depends on the core artifact in the
   same way as a real consumer application.
-- Do not use framework `target/classes` or `rust-java-rest-*-sample.jar` to make production RSS
-  claims. Those paths intentionally contain demo code and can make the memory picture look worse
-  than the real library dependency.
-- For production-like memory checks, run your real application with `core-runtime` plus only its
-  application classes.
-
-Package rule:
-
-- Maven packages are immutable. Never republish changed Java classes or native binaries under an
-  existing version.
-- Documentation and GitHub release notes can be clarified without replacing package bytes.
-- If Java code, DLL/SO files, ABI, or packaged fixtures change, cut a new patch version.
-
-Build the two artifacts independently:
+To run the standalone demo:
 
 ```powershell
 mvn clean install
@@ -1011,7 +977,7 @@ public final class OrderHandler {
 }
 ```
 
-### Curl Smoke Test
+### Try The API With Curl
 
 ```bash
 curl -s "http://localhost:8080/orders?status=CREATED&page=1&size=20"
@@ -1206,8 +1172,6 @@ large Java record/list graph per request. `JsonBodyProducer` is the lowest-alloc
 for normal `200 OK` JSON responses. Use `JsonProducerResponse` instead when the route needs custom
 status or custom response headers.
 
-In the bundled benchmark app this split is visible as:
-
 Avoid string concatenation inside direct writers. A loop such as `"item-" + i` allocates a new
 `String` for every row. Use `fieldStringAsciiPrefixInt(...)`, `stringAsciiPrefixInt(...)`, or raw
 ASCII fragments when the value is a predictable prefix plus a primitive.
@@ -1286,22 +1250,16 @@ the common payload size increases burst allocation under concurrency.
 
 `frame-pool-capacity` is a process-wide ownership pool. It does not multiply by Java thread count.
 `frame-retain-max-bytes` prevents a rare large response from permanently replacing the small working
-set. For a different service, measure p95 response bytes, then gate `8192`, `16384`, and `65536`
-against useful `200` RPS, p99, `503%`, and Linux cgroup anon together.
+set. Choose the retention limit for your usual response size, not the largest response.
 
-Enable direct async buffers only after a Linux RSS/p99 gate:
+To try direct buffers for async responses:
 
 ```properties
 reactor.rust.async.direct-buffer.enabled=true
 ```
 
 Direct buffers can reduce one copy in some async response paths, but they can also keep direct/native
-memory warm after bursts. If `direct_buffer_mib` grows in the anon evidence gate, keep this disabled.
-
-In the matched minimal-app `micro-rest` async-producer A/B, the bounded heap-backed design finished at
-`46.93 MiB` cgroup current and `40.52 MiB` cgroup anon. smaps RSS was `72.05 MiB` because it also
-includes mapped OpenJ9/system libraries. Async producer remains a measured route-local choice, not a
-global replacement for synchronous CPU-bound handlers.
+memory warm after bursts. Leave this off if direct memory stays high after a burst.
 
 ### FileResponse: Large Export Or Download
 
@@ -1449,10 +1407,7 @@ the response from the native registry, so the request does not enter Java/JNI. I
 per-request business logic, user-specific data, query-dependent data, or DB/RPC calls, keep it as a
 direct writer or producer writer instead.
 
-If c256/c512 metrics show queue-full rejections on a dynamic Java route and the business requirement
-prefers fewer `503` over maximum useful RPS, test a route-local JNI lane in your own matrix. Do not
-enable this blindly; the bundled full matrix rejected it as a default because it adds a priority JNI
-worker and changes the pod's scheduling profile.
+If fast routes return HTTP 503 while slow routes are busy, a separate queue can help. It adds a worker, so enable it only for the routes that need it.
 
 ```properties
 reactor.rust.jni-admission.get.api.v1.candidates.direct.max-pending=512
@@ -1605,7 +1560,7 @@ Use route admission when:
 
 - one route builds a heavy payload;
 - one route calls a slow DB/RPC dependency;
-- c256/c512 tests show p99 or RSS spikes;
+- latency or memory rises sharply under traffic;
 - you prefer controlled `503` over unbounded queue growth.
 
 Do not use global worker increases as the first fix. They often hide the problem and increase RSS.
@@ -1808,8 +1763,6 @@ reactor.optimizer.fail-on-fallback=false
 reactor.optimizer.fail-on-benchmark-only-routes=false
 ```
 
-For a strict production gate, switch to fail-fast only after route diagnostics are clean:
-
 ```properties
 reactor.optimizer.fail-on-fallback=true
 reactor.optimizer.fail-on-benchmark-only-routes=true
@@ -1862,33 +1815,7 @@ reactor.rust.websocket.send-timeout-ms=5000
 
 ## Performance Validation
 
-Validate the framework with the real application image, production JVM flags, pod CPU/memory limits,
-and representative endpoint mix. Compare at least three randomized telemetry-off/on runs. Record
-useful `200` RPS, p95/p99, non-2xx rate, cgroup RSS, anonymous memory, thread count, and idle recovery
-together. Do not publish one workstation run as a universal framework claim.
-
-Public operational guidance:
-
-- [docs/production-runtime.md](docs/production-runtime.md)
-- [docs/release-notes/v4.8.2.md](docs/release-notes/v4.8.2.md)
-- [docs/release-notes/v4.6.2.md](docs/release-notes/v4.6.2.md)
-- [docs/release-notes/v4.6.0.md](docs/release-notes/v4.6.0.md)
-- [docs/release-notes/v4.4.1.md](docs/release-notes/v4.4.1.md)
-- [docs/release-notes/v4.3.0.md](docs/release-notes/v4.3.0.md)
-- [docs/release-notes/v3.2.5.md](docs/release-notes/v3.2.5.md)
-- [docs/release-notes/v3.2.3.md](docs/release-notes/v3.2.3.md)
-- [docs/release-notes/v3.2.2.md](docs/release-notes/v3.2.2.md)
-- [docs/release-notes/v3.2.1.md](docs/release-notes/v3.2.1.md)
-
-Start production-like RSS attribution from the real minimal application, not the framework sample.
-Collect Linux cgroup and `smaps_rollup` evidence after baseline, warmup, load, idle, and optional
-conservative native trim. This distinguishes Java heap/object graph, class metadata, JIT/code cache,
-thread/native pools, Rust buffers, allocator retention, and optional Dubbo runtime surface.
-
-Do not treat this as a tuning preset. Treat it as a decision gate. If heap is already small but
-`anon_residual_mib` is high, lowering `-Xmx` is the wrong lever. If Java-heavy endpoints dominate
-peak anon and p99, move those specific routes toward `JsonProducerResponse`, direct writer,
-raw/read-model, or native serialization.
+Size memory and concurrency for your application, not the sample. Use the [production runtime guide](docs/production-runtime.md) to choose a profile, set route limits, and measure the endpoints your users call most.
 
 ## Native Binaries
 
@@ -1921,16 +1848,7 @@ The loader and native build workflow now support these resource paths:
 Use an ARM64 Java 21 runtime. macOS builds target macOS `11.0`; Linux builds keep the GLIBC `2.17`
 floor. The artifact must be built for the target CPU and included with its SHA-256 provenance.
 The `4.9.0` package includes all four platforms and their SHA-256 provenance.
-OpenJ9 21 runtime checks passed on Windows x64, Linux ARM64 and macOS ARM64
-(20 checks per platform, zero skips). Linux x64 load/soak qualification runs on
-EmaTech. Hosted compatibility does not imply ARM/Windows performance qualification.
 See the [native packaging steps](https://github.com/esasmer-dou/rust-spring#package-the-native-artifacts).
-
-For a workspace with sibling framework and sample repositories, check parent versions from this repo:
-
-```powershell
-.\scripts\verify-version-alignment.ps1
-```
 
 The script reads `platform/parent/pom.xml` and checks every sample that uses the platform parent.
 A mismatch returns exit code `1`.
@@ -1945,11 +1863,7 @@ Before shipping a service:
 - Use `RawResponse` only when JSON/text is already serialized.
 - Use native cache only when keys and invalidation are clear.
 - Keep request/response limits bounded.
-- Run c64/c256/c512 at minimum with p99, `503%`, RSS, and native metrics.
-- Run a post-load idle/soak RSS check before lowering pod memory limits.
-- If testing `openj9-micro-rss-jitcap.options`, require a service-local gate pass before using it
-  in production. Memory gain alone is not enough; p99 regressions on hot DTO routes reject the
-  profile.
+- Check response time, memory, and rejected requests at your expected traffic.
 - Keep hot-path logging off.
 
 ## Documentation Map

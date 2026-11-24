@@ -84,10 +84,7 @@ Hazır JSON verisi için `RawResponse.json(bytes)` kullanmaya devam edin. Yanıt
 değiştirilebilir header haritasını yalnız kodunuz header'ları okur veya değiştirirse
 oluşturur. Yeni ayar veya handler değişikliği gerekmez. UTF-8, özel header'lar ve
 yanıta ait kodlanmış byte dizisi aynı şekilde çalışır. Yanıt içeriği cache'lenmez.
-EmaTech karşılaştırmasında cache detail ve segment okumaları, 16 ve 64 eşzamanlı
-istekte mevcut RPS, p99 ve tepe RSS sınırlarını geçti. Ölçülen isteklerde hata yoktu.
-Bu sonuç, her uygulamada hızlanma garantisi veya uzun süreli yük testi sonucu değildir.
-Bu iyileştirme `4.8.2` paketindedir. Ölçüm kapsamı sürüm kanıtlarında belirtilir.
+Bu iyileştirme 4.8.2 ve sonraki sürümlerde bulunur.
 
 ## 4.9.0 İle Başlayın
 
@@ -735,9 +732,6 @@ public final class CatalogApplication { }
 | Route admission rejection | Endpoint kapasite limitine takılan istek |
 | In-flight response bytes | Aynı anda taşınan response belleği |
 
-Production gate sırasında `production_legacy`, `heavy_json_object_graph` ve fallback sayaçlarını
-kontrol edin. Benchmark-only route değerlerini gerçek uygulama route'larıyla karıştırmayın.
-
 ## Startup ve OpenJ9
 
 Build; component graph, route invoker, property metadata ve startup index dosyalarını üretir.
@@ -838,17 +832,7 @@ Native yükleyici ve build iş akışı şu dosya yollarını destekler:
 ARM64 Java 21 kullanın. macOS build hedefi `11.0`, Linux GLIBC alt sınırı `2.17` olarak ayarlanır.
 Binary, hedef işlemci için üretilmeli ve SHA-256 provenance bilgisiyle paketlenmelidir.
 `4.9.0` paketi dört platformu ve SHA-256 provenance bilgilerini içerir.
-OpenJ9 21 çalıştırma kontrolleri Windows x64, Linux ARM64 ve macOS ARM64 üzerinde
-geçti. Her platformda 20 kontrol çalıştı; atlanan test olmadı. Linux x64 yük ve
-uzun süreli çalışma testleri EmaTech'te yapılır. Uyumluluk sonucu ARM/Windows
-performans onayı anlamına gelmez.
 [Native paketleme adımlarını](https://github.com/esasmer-dou/rust-spring/blob/master/README.tr.md#native-dosyaları-paketleme) izleyin.
-
-Framework ve sample repoları aynı çalışma dizinindeyse bu repo içinde parent sürümlerini kontrol edin:
-
-```powershell
-.\scripts\verify-version-alignment.ps1
-```
 
 Betik `platform/parent/pom.xml` sürümünü okur. Platform parent kullanan tüm sample projelerini
 karşılaştırır. Uyuşmazlıkta çıkış kodu `1` olur.

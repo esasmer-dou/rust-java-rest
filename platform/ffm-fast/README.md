@@ -22,14 +22,6 @@ or the linker. Do not patch JDK internals or increase heap to hide this behavior
 Use `SharedSlabCacheReader.openNativeSlab` for the explicit OpenJ9-safe JNI transport
 over the SAME Rust slab protocol. FFM on qualified HotSpot remains a separate choice.
 
-The corrected Linux build passed fmt/clippy and 184 Rust tests. EmaTech OpenJ9
-passed eight activation/cache tests, including 150000 JNI slab reads at 48 MiB heap.
-HotSpot passed 18 tests, including real FFM and JNI slab 150000-read runs and
-calibrated exact-zero leaf batches. Full snapshot, segment and Redis operations
-are NOT zero allocation. Four ABI values remain29/7/6/6.17 additive C exports and
-four JNI slab exports were checked; all112 previous JNI exports remain. Maximum
-GLIBC requirement is2.14. The OpenJ9 HTTP A/B uses JNI vs JNI shared slab, not FFM.
-
 Historical 26 October 2026 focused-test JNI slab (ordinary abort) SHA256:
 `0c68e2e417e3be7949904f783e9db4948f120ab06c6851e132ee5c7c1120f8b5`.
 Historical separate Linux FFM (unwind) SHA256:
@@ -180,62 +172,3 @@ panic = "unwind"
 Ordinary release still uses panic="abort". The optional platform Maven profile
 adds `ffm-fast` and `ffm-cache`; no preview dependencies or flags are introduced into core.
 No default native artifact is copied/replaced by experimental verification.
-
-## Earlier Snapshot Verification
-
-The 21 October all-feature rebuild was incomplete: Windows cached SDK import-library
-link failure; Linux stopped at the ten-minute task budget. See the
-[current attempt](packaging/README.md#current-all-feature-attempt). The successful
-results below are earlier-snapshot evidence, not current-source qualification.
-The 26 October Linux rebuild and live OpenJ9 evidence are described above.
-
-Experimental verification is scoped, not release acceptance. Native backend
-compilation, live downcalls, allocation controls and real service acceptance must
-be reported separately; a skipped native test is not a native PASS.
-
-Earlier source verification included the actual feature-enabled Rust crate
-(148 tests, including 14 slab/backend tests), 14 live Java/native tests without
-skips on Linux HotSpot 21, and a real standalone Redis hit/empty/miss/UTF-8 check
-through an existing registered client. Six startup checks also passed on OpenJ9,
-including preactivation fallback and targeted no-JMX class-load checks. This does
-not qualify a live OpenJ9 fast path or prove a JNI/FFM performance advantage.
-
-The separate [distribution evidence](packaging/README.md) records Linux x86-64
-and Windows x86-64 builds of a frozen experimental source snapshot. Linux's maximum
-required GLIBC is 2.14 (gate: <=2.17); the earlier GLIBC 2.34 test artifact is
-correctly rejected. Both new binaries passed 14 live Java tests without skips,
-the four ABI constants, 16 C exports, and real standalone Redis probes. Windows
-uses cached cargo-xwin/lld, not Visual Studio. Linux AppCDS was actually created
-and loaded in a fresh process. These binaries predate later native source changes;
-they are not current release candidates or replacements for packaged resources.
-
-Use a NEW Rust target for `cargo test --features ffm-fast` filtered to this module,
-then build the actual library with `--profile release-ffm --features ffm-fast`.
-This compiles the real private Redis/Glowroot helpers; standalone rustc protocol
-tests alone are explicitly insufficient. Compile the
-Java module with --enable-preview --release 21, and run opt-in live SymbolLookup
-tests with `-Dreactor.ffm.test.library=<absolute-path>`. They include a positive
-allocation control, eight retained 100 x byte[32] fine controls (each must report
-4000..6400 bytes), lease capacity/reuse/stale/races, bounds, real native copy and
-preactivation fallback subprocesses. Native unit tests include guard panic unwind
-and epoch exhaustion. Feature tests include registered Glowroot error-trace offers
-and real existing Redis client/transport helpers against a bounded loopback RESP
-fixture (hit, empty, miss, error, no replay, busy ownership). That fixture is NOT
-real Redis single/sentinel/cluster service certification. The separate standalone
-service check above does not qualify Cluster/Sentinel failover, paired JNI/FFM
-throughput/timing or whole-process RSS. Those gates remain outstanding.
-Coarse counters, including affected OpenJ9 counters, SKIP allocation certification;
-use a calibrated HotSpot 21 run for that gate. A large allocation positive control
-alone is insufficient. No System.gc is used. No fresh RPS or RSS claim is allowed.
-
-The separate `FfmStrictZeroLeafTest` met literal zero on both frozen distribution
-binaries: native metadata, slab read, and native disabled `recordOperation` each
-measured `[0, 0, 0]` B after exactly 200000 warmup iterations and three consecutive
-100000-iteration batches. All eight fine controls before AND after measured 4800 B
-each. No retries or selected windows were used. Recording used a valid slot and
-GLOWROOT capability in a fresh process without configuring telemetry, so it reached
-the native disabled-engine path rather than a Java shortcut. Metadata iterations
-call version, capability and payload-size getters. Only these tiny getters use
-`isTrivial`; read and recording use normal downcalls. This is Java-thread heap
-accounting, not native-heap/RSS certification. The separate full lease/copy sample
-remains **384 B per 100000 cycles, NOT literal zero**.

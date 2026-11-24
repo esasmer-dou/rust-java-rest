@@ -2,11 +2,6 @@
 
 [English](README.md) | [Turkish](README.tr.md)
 
-The asymmetric verifier and token cache below are published in 4.8.0 and remain opt-in.
-Focused EmaTech security, HTTP and paired-container
-RSS/RPS/p99 checks passed for the bounded configuration shown in the sample. This
-does not qualify every workload or all released framework features.
-
 ## Choose A Path
 
 | Situation | Choice |
